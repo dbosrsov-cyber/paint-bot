@@ -12,7 +12,7 @@ from urllib.parse import urlparse, parse_qs
 from PIL import Image
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, MessageEntity, Update, WebAppInfo
 from telegram.error import BadRequest, Forbidden
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, MyChatMemberHandler, filters
 
 # Токен бота берётся из переменной окружения BOT_TOKEN (задаётся в панели Render)
 BOT_TOKEN = os.environ["BOT_TOKEN"]
@@ -43,6 +43,17 @@ stats = {}
 
 # Известные пользователи (для разрешения @username в id): {username_lower: user_id}
 users_by_name = {}
+
+# Доступ: бот работает только в этих группах (личка всегда разрешена)
+ALLOWED_GROUPS = {-1004400745434, -1002304715333}
+ADMIN_ID = 8668538137  # кому сообщать о добавлении в чужие группы
+
+
+def chat_allowed(chat) -> bool:
+    """Личка — всегда можно; группа/канал — только из белого списка ALLOWED_GROUPS."""
+    if chat.type in ("group", "supergroup", "channel"):
+        return chat.id in ALLOWED_GROUPS
+    return True
 
 
 def white_png() -> bytes:
@@ -346,12 +357,17 @@ INTRO_BULLS = (
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/startsum — показать меню выбора игры."""
+    if not chat_allowed(update.effective_chat):
+        return  # чужая группа — молчим (предупреждение отправляется при добавлении бота)
     remember_user(update.effective_user)
     await update.message.reply_text("🎮 Привет! Выбери игру:", reply_markup=GAME_MENU)
 
 
 async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Выбор игры в меню: запускает игру с меткой типа; старую игру игрока завершает."""
+    if not chat_allowed(update.effective_chat):
+        await update.callback_query.answer()
+        return
     query = update.callback_query
     await query.answer()
     game_key = query.data.split(":", 1)[1]
@@ -400,6 +416,9 @@ def paint_keyboard(chat_id: int, webapp: bool = True, drawer: str | None = None)
 
 async def on_paint_wait(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Нажали на кнопку «Рисует ...» — сообщить, что холст занят."""
+    if not chat_allowed(update.effective_chat):
+        await update.callback_query.answer()
+        return
     drawer = (paint_state.get(update.effective_chat.id) or {}).get("drawer")
     if drawer:
         await update.callback_query.answer(f"🖌 Сейчас рисует {drawer}. Подожди немного!", show_alert=True)
@@ -490,6 +509,8 @@ def close_activity(chat_id: int, user_id: int, kind: str) -> str:
 
 async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/stop — завершить игру; если активно несколько — предложить выбор кнопками."""
+    if not chat_allowed(update.effective_chat):
+        return
     remember_user(update.effective_user)
     chat_id = update.message.chat_id
     user = update.effective_user
@@ -519,6 +540,9 @@ async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def on_stop_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Выбор активности в меню /stop."""
+    if not chat_allowed(update.effective_chat):
+        await update.callback_query.answer()
+        return
     query = update.callback_query
     text = close_activity(update.effective_chat.id, query.from_user.id, query.data.split(":", 1)[1])
     await query.answer()
@@ -548,12 +572,16 @@ HELP_TEXT = (
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/helpsum — справка по игре."""
+    if not chat_allowed(update.effective_chat):
+        return
     remember_user(update.effective_user)
     await update.message.reply_text(HELP_TEXT)
 
 
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/stats — статистика игрока."""
+    if not chat_allowed(update.effective_chat):
+        return
     remember_user(update.effective_user)
     st = player_stats(update.effective_user.id)
     if st["games"] == 0:
@@ -595,6 +623,8 @@ async def on_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, guess: st
 
 async def cmd_play(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/playsum @username — вызвать игрока на дуэль в группе."""
+    if not chat_allowed(update.effective_chat):
+        return
     remember_user(update.effective_user)
     chat_id = update.message.chat_id
     challenger = update.effective_user
@@ -669,6 +699,9 @@ async def expire_challenge(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def on_challenge_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Принятие/отказ на вызов (кнопки под сообщением с вызовом)."""
+    if not chat_allowed(update.effective_chat):
+        await update.callback_query.answer()
+        return
     query = update.callback_query
     remember_user(query.from_user)
     chat_id = query.message.chat_id
@@ -805,6 +838,8 @@ async def on_duel_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, gues
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Точка входа: реагируем только на ходы формата ch1234, всё остальное — молчим."""
+    if not chat_allowed(update.effective_chat):
+        return
     remember_user(update.effective_user)
     guess = parse_ch(update.message.text)
     if guess is None:
@@ -816,6 +851,34 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await on_duel_guess(update, context, guess)
         return
     await on_guess(update, context, guess)
+
+
+async def on_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Бота добавили в группу/канал: если не из белого списка — предупреждение и жалоба админу."""
+    member = update.my_chat_member
+    chat = member.chat
+    if member.new_chat_member.status not in ("member", "administrator"):
+        return  # это не добавление (удаление, кик и т.п.)
+    if chat_allowed(chat):
+        return  # разрешённая группа — всё в порядке
+    try:
+        await context.bot.send_message(
+            chat.id,
+            "Бот не может работать в данной группе\\канале. Срочно удалите его.",
+        )
+    except Exception:
+        pass  # нет прав писать — просто молчим
+    link = chat.invite_link or (f"@{chat.username}" if chat.username else "нет публичной ссылки")
+    try:
+        await context.bot.send_message(
+            ADMIN_ID,
+            f"⚠️ Бота добавили в неразрешённый чат!\n"
+            f"Название: {chat.title}\n"
+            f"Ссылка: {link}\n"
+            f"ID чата: {chat.id}",
+        )
+    except Exception:
+        pass  # админ не открывал бота — написать ему нельзя
 
 
 def main() -> None:
@@ -833,6 +896,7 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(on_challenge_button, pattern="^duel:"))
     app.add_handler(CallbackQueryHandler(on_paint_wait, pattern="^paint_wait$"))
     app.add_handler(CallbackQueryHandler(on_stop_choice, pattern="^stop:"))
+    app.add_handler(MyChatMemberHandler(on_my_chat_member))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.job_queue.run_repeating(process_paint_updates, interval=1.0)
     app.run_polling()
