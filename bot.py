@@ -1,9 +1,15 @@
+import base64
+import io
+import json
 import os
+import queue
 import random
 import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse, parse_qs
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, MessageEntity, Update
+from PIL import Image
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, MessageEntity, Update, WebAppInfo
 from telegram.error import BadRequest, Forbidden
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
@@ -11,10 +17,11 @@ from telegram.ext import Application, CallbackQueryHandler, CommandHandler, Cont
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 
 CHALLENGE_TTL_SECONDS = 120  # срок жизни вызова на дуэль
+APP_URL = "https://paint-bot.onrender.com"  # публичный адрес этого сервиса (для WebApp)
 
 # ---------- Состояние в памяти ----------
 
-# Соло-игры против компьютера: {(chat_id, user_id): {"secret": str, "attempts": int}}
+# Соло-игры против компьютера: {(chat_id, user_id): {"type", "secret", "attempts"}}
 solo_games = {}
 
 # Ожидающие вызовы на дуэль: {chat_id: {"challenger_id", "challenger_name", "opponent_id", "opponent_name", "job"}}
@@ -24,6 +31,12 @@ pending_challenges = {}
 #                           "turn": int, "attempts": {uid: int}}}
 duels = {}
 
+# Рисовалка (общий лист группы): {chat_id: {"image": bytes (PNG), "msg_id": int|None}}
+paint_state = {}
+
+# Очередь чатов, где обновилась картинка (их надо перерисовать в Telegram)
+paint_update_queue = queue.Queue()
+
 # Статистика: {user_id: {"games", "wins", "best"}}
 stats = {}
 
@@ -31,22 +44,167 @@ stats = {}
 users_by_name = {}
 
 
-class HealthHandler(BaseHTTPRequestHandler):
-    """Мини-сервер: отвечает 200 OK, чтобы Render и мониторинг видели бота живым."""
+def white_png() -> bytes:
+    """Чистый белый лист 900×900 в PNG."""
+    img = Image.new("RGB", (900, 900), "white")
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    return buf.getvalue()
+
+
+# ---------- Веб-часть: проверка живости, страница рисования, сохранение ----------
+
+HTML_PAGE = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  body { margin:0; font-family:sans-serif; background:#f0f0f0; }
+  #wrap { padding:8px; }
+  canvas { width:100%; background:#fff; border:1px solid #ccc; border-radius:8px; touch-action:none; display:block; }
+  .bar { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; align-items:center; }
+  .sw { width:34px; height:34px; border-radius:50%; border:2px solid #999; }
+  .sw.on { border-color:#000; transform:scale(1.15); }
+  button { padding:10px 14px; border-radius:8px; border:none; font-size:15px; }
+  #send { background:#2ea6ff; color:#fff; flex:1; }
+  #clear { background:#ddd; }
+  #status { margin-top:6px; color:#555; font-size:14px; min-height:18px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="c"></canvas>
+  <div class="bar" id="colors"></div>
+  <div class="bar">
+    <button id="small">Тонко</button>
+    <button id="mid">Средне</button>
+    <button id="big">Толсто</button>
+    <button id="eraser">Ластик</button>
+    <button id="clear">Очистить</button>
+  </div>
+  <div class="bar">
+    <button id="send">✅ Отправить в чат</button>
+  </div>
+  <div id="status"></div>
+</div>
+<script>
+  const tg = window.Telegram.WebApp;
+  tg.ready(); tg.expand();
+  const chat = new URLSearchParams(location.search).get('chat') || '0';
+
+  const COLORS = ['black','red','orange','yellow','green','blue','purple','brown'];
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  canvas.width = 900; canvas.height = 900;
+  let color = 'black', size = 6, drawing = false, last = null;
+
+  // подгружаем текущий общий лист
+  const img = new Image();
+  img.onload = () => { ctx.drawImage(img, 0, 0, 900, 900); };
+  img.src = '/canvas?chat=' + chat + '&t=' + Date.now();
+
+  const status = (t) => document.getElementById('status').textContent = t;
+
+  // палитра
+  const bar = document.getElementById('colors');
+  COLORS.forEach(c => {
+    const b = document.createElement('button');
+    b.className = 'sw' + (c === color ? ' on' : '');
+    b.style.background = c;
+    b.onclick = () => {
+      color = c; size = size === 30 ? 6 : size;
+      document.querySelectorAll('.sw').forEach(x => x.classList.remove('on'));
+      b.classList.add('on');
+    };
+    bar.appendChild(b);
+  });
+  document.getElementById('small').onclick = () => size = 4;
+  document.getElementById('mid').onclick = () => size = 10;
+  document.getElementById('big').onclick = () => size = 22;
+  document.getElementById('eraser').onclick = () => { color = 'white'; size = 30; };
+  document.getElementById('clear').onclick = () => { ctx.fillStyle = 'white'; ctx.fillRect(0, 0, 900, 900); };
+
+  function pos(e) {
+    const r = canvas.getBoundingClientRect();
+    return [(e.clientX - r.left) * 900 / r.width, (e.clientY - r.top) * 900 / r.height];
+  }
+  function draw(a, b) {
+    ctx.strokeStyle = color; ctx.lineWidth = size; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+  }
+  canvas.onpointerdown = (e) => { drawing = true; last = pos(e); canvas.setPointerCapture(e.pointerId); };
+  canvas.onpointermove = (e) => { if (!drawing) return; const p = pos(e); draw(last, p); last = p; };
+  canvas.onpointerup = () => drawing = false;
+
+  document.getElementById('send').onclick = () => {
+    status('Отправляю…');
+    fetch('/save?chat=' + chat, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({img: canvas.toDataURL('image/png')})
+    }).then(r => {
+      if (r.ok) { status('✅ Отправлено! Можно закрыть.'); setTimeout(() => tg.close(), 1200); }
+      else status('Ошибка отправки, попробуй ещё раз.');
+    }).catch(() => status('Нет сети, попробуй ещё раз.'));
+  };
+</script>
+</body>
+</html>"""
+
+
+class AppHandler(BaseHTTPRequestHandler):
+    """HTTP-часть сервиса: / — проверка живости, /app — холст, /canvas — PNG, /save — приём рисунка."""
+
+    def _respond(self, code, body=b"", ctype="text/plain; charset=utf-8"):
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain; charset=utf-8")
-        self.end_headers()
-        self.wfile.write("paint_bot is running".encode("utf-8"))
+        url = urlparse(self.path)
+        params = parse_qs(url.query)
+        if url.path in ("/", ""):
+            self._respond(200, "paint_bot is running".encode("utf-8"))
+        elif url.path == "/app":
+            self._respond(200, HTML_PAGE.encode("utf-8"), "text/html; charset=utf-8")
+        elif url.path == "/canvas":
+            chat_id = int(params.get("chat", ["0"])[0])
+            state = paint_state.get(chat_id)
+            self._respond(200, state["image"] if state else white_png(), "image/png")
+        else:
+            self._respond(404, b"not found")
+
+    def do_POST(self):
+        url = urlparse(self.path)
+        if url.path != "/save":
+            self._respond(404, b"not found")
+            return
+        params = parse_qs(url.query)
+        chat_id = int(params.get("chat", ["0"])[0])
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            data_url = payload["img"]
+            png_bytes = io.BytesIO(base64.b64decode(data_url.split(",", 1)[1])).getvalue()
+        except Exception:
+            self._respond(400, b"bad request")
+            return
+        state = paint_state.setdefault(chat_id, {"image": white_png(), "msg_id": None})
+        state["image"] = png_bytes
+        paint_update_queue.put(chat_id)
+        self._respond(200, b"ok")
 
     def log_message(self, format, *args):
         pass  # не спамить в логи
 
 
-def run_health_server():
+def run_http_server():
     port = int(os.environ.get("PORT", "10000"))
-    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    server = ThreadingHTTPServer(("0.0.0.0", port), AppHandler)
     server.serve_forever()
 
 
@@ -119,7 +277,10 @@ def parse_ch(text: str) -> str | None:
 # ---------- Меню выбора игры и соло-игры ----------
 
 GAME_MENU = InlineKeyboardMarkup(
-    [[InlineKeyboardButton("🐂 Быки и коровы", callback_data="game:bulls")]]
+    [
+        [InlineKeyboardButton("🐂 Быки и коровы", callback_data="game:bulls")],
+        [InlineKeyboardButton("🎨 Рисовалка", callback_data="game:paint")],
+    ]
 )
 
 INTRO_BULLS = (
@@ -143,16 +304,74 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     query = update.callback_query
     await query.answer()
     game_key = query.data.split(":", 1)[1]
-    if game_key != "bulls":
-        await query.answer("Эта игра появится позже 🙂", show_alert=True)
+    chat_id = query.message.chat_id
+
+    if game_key == "bulls":
+        key = (chat_id, query.from_user.id)
+        old = solo_games.pop(key, None)
+        solo_games[key] = {"type": "bulls", "secret": make_secret(), "attempts": 0}
+        player_stats(query.from_user.id)["games"] += 1
+        note = "\n\n♻️ Прежняя игра завершена." if old is not None else ""
+        await query.edit_message_text(INTRO_BULLS + note)
         return
 
-    key = (query.message.chat_id, query.from_user.id)
-    old = solo_games.pop(key, None)
-    solo_games[key] = {"type": "bulls", "secret": make_secret(), "attempts": 0}
-    player_stats(query.from_user.id)["games"] += 1
-    note = "\n\n♻️ Прежняя игра завершена." if old is not None else ""
-    await query.edit_message_text(INTRO_BULLS + note)
+    if game_key == "paint":
+        state = paint_state.setdefault(chat_id, {"image": white_png(), "msg_id": None})
+        msg = await context.bot.send_photo(
+            chat_id,
+            photo=io.BytesIO(state["image"]),
+            caption="🎨 Общий лист группы! Рисуем по очереди — каждый добавляет штрих.",
+            reply_markup=paint_keyboard(chat_id),
+        )
+        state["msg_id"] = msg.message_id
+        await query.edit_message_text("🎨 Рисовалка запущена! Лист появился в чате выше — жми «Открыть холст».")
+        return
+
+    await query.answer("Эта игра появится позже 🙂", show_alert=True)
+
+
+def paint_keyboard(chat_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [
+                InlineKeyboardButton(
+                    "🖌 Открыть холст",
+                    web_app=WebAppInfo(url=f"{APP_URL}/app?chat={chat_id}"),
+                )
+            ]
+        ]
+    )
+
+
+async def process_paint_updates(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Раз в секунду применяет присланные рисунки: редактирует сообщение с листом."""
+    while True:
+        try:
+            chat_id = paint_update_queue.get_nowait()
+        except queue.Empty:
+            return
+        state = paint_state.get(chat_id)
+        if state is None:
+            continue
+        media = InputMediaPhoto(media=io.BytesIO(state["image"]))
+        if state["msg_id"] is not None:
+            try:
+                await context.bot.edit_message_media(
+                    chat_id=chat_id, message_id=state["msg_id"], media=media
+                )
+                continue
+            except BadRequest:
+                state["msg_id"] = None  # сообщение удалено — пришлём новое ниже
+        try:
+            msg = await context.bot.send_photo(
+                chat_id,
+                photo=io.BytesIO(state["image"]),
+                caption="🎨 Общий лист группы!",
+                reply_markup=paint_keyboard(chat_id),
+            )
+            state["msg_id"] = msg.message_id
+        except Exception:
+            pass
 
 
 async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -165,6 +384,11 @@ async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if duel is not None and user.id in duel["players"]:
         del duels[chat_id]
         await update.message.reply_text("⚔️ Дуэль прервана по договорённости. Новая — /playsum @игрок")
+        return
+
+    if chat_id in paint_state:
+        del paint_state[chat_id]
+        await update.message.reply_text("🎨 Рисовалка завершена, общий лист стёрт. Новый — через меню /startsum")
         return
 
     key = (chat_id, user.id)
@@ -472,8 +696,8 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 def main() -> None:
-    # Запускаем мини-сервер для проверки живости в отдельном потоке
-    threading.Thread(target=run_health_server, daemon=True).start()
+    # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
+    threading.Thread(target=run_http_server, daemon=True).start()
 
     app = Application.builder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("startsum", cmd_start))
@@ -485,6 +709,7 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(on_game_menu, pattern="^game:"))
     app.add_handler(CallbackQueryHandler(on_challenge_button, pattern="^duel:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
+    app.job_queue.run_repeating(process_paint_updates, interval=1.0)
     app.run_polling()
 
 
