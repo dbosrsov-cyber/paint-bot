@@ -452,32 +452,77 @@ async def process_paint_updates(context: ContextTypes.DEFAULT_TYPE) -> None:
             pass
 
 
+def end_duel(chat_id: int, user_id: int) -> str | None:
+    """Завершить дуэль, если игрок её участник. Вернуть текст результата или None."""
+    duel = duels.get(chat_id)
+    if duel is None or user_id not in duel["players"]:
+        return None
+    del duels[chat_id]
+    return "⚔️ Дуэль прервана по договорённости. Новая — /playsum @игрок"
+
+
+def end_paint(chat_id: int) -> str | None:
+    """Завершить рисовалку в чате (общий лист). Вернуть текст результата или None."""
+    if chat_id not in paint_state:
+        return None
+    del paint_state[chat_id]
+    return "🎨 Рисовалка завершена, общий лист стёрт. Новый — через меню /startsum"
+
+
+def end_solo(chat_id: int, user_id: int) -> str | None:
+    """Завершить соло-игру пользователя. Вернуть текст результата или None."""
+    game = solo_games.pop((chat_id, user_id), None)
+    if game is None:
+        return None
+    if game["type"] == "bulls":
+        return f"😔 Сдаёшься? Загаданное число было: {game['secret']}.\nНовая игра — /startsum"
+    return "Игра завершена.\nНовая игра — /startsum"
+
+
+def close_activity(chat_id: int, user_id: int, kind: str) -> str:
+    """Завершить активность по выбору (duel/paint/solo) и вернуть текст для пользователя."""
+    if kind == "duel":
+        return end_duel(chat_id, user_id) or "Дуэль уже завершена."
+    if kind == "paint":
+        return end_paint(chat_id) or "Рисовалка уже завершена."
+    return end_solo(chat_id, user_id) or "Игра уже завершена."
+
+
 async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/stop — прервать дуэль (если игрок в ней) или сдаться в соло-игре."""
+    """/stop — завершить игру; если активно несколько — предложить выбор кнопками."""
     remember_user(update.effective_user)
     chat_id = update.message.chat_id
     user = update.effective_user
 
+    options = []
     duel = duels.get(chat_id)
     if duel is not None and user.id in duel["players"]:
-        del duels[chat_id]
-        await update.message.reply_text("⚔️ Дуэль прервана по договорённости. Новая — /playsum @игрок")
-        return
-
+        options.append(("⚔️ Дуэль", "stop:duel"))
     if chat_id in paint_state:
-        del paint_state[chat_id]
-        await update.message.reply_text("🎨 Рисовалка завершена, общий лист стёрт. Новый — через меню /startsum")
-        return
+        options.append(("🎨 Рисовалка", "stop:paint"))
+    if (chat_id, user.id) in solo_games:
+        options.append(("🐂 Соло «Быки и коровы»", "stop:solo"))
 
-    key = (chat_id, user.id)
-    game = solo_games.pop(key, None)
-    if game is None:
-        await update.message.reply_text("У тебя нет активной игры. /startsum — меню игр, /playsum @игрок — дуэль.")
+    if not options:
+        await update.message.reply_text(
+            "Нет активных игр. /startsum — меню игр, /playsum @игрок — дуэль."
+        )
         return
-    if game["type"] == "bulls":
-        await update.message.reply_text(f"😔 Сдаёшься? Загаданное число было: {game['secret']}.\nНовая игра — /startsum")
-    else:
-        await update.message.reply_text("Игра завершена.\nНовая игра — /startsum")
+    if len(options) == 1:
+        await update.message.reply_text(close_activity(chat_id, user.id, options[0][1].split(":", 1)[1]))
+        return
+    kb = InlineKeyboardMarkup(
+        [[InlineKeyboardButton(label, callback_data=cb)] for label, cb in options]
+    )
+    await update.message.reply_text("В чате несколько активных игр. Что завершить?", reply_markup=kb)
+
+
+async def on_stop_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Выбор активности в меню /stop."""
+    query = update.callback_query
+    text = close_activity(update.effective_chat.id, query.from_user.id, query.data.split(":", 1)[1])
+    await query.answer()
+    await query.edit_message_text(text)
 
 
 HELP_TEXT = (
@@ -787,6 +832,7 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(on_game_menu, pattern="^game:"))
     app.add_handler(CallbackQueryHandler(on_challenge_button, pattern="^duel:"))
     app.add_handler(CallbackQueryHandler(on_paint_wait, pattern="^paint_wait$"))
+    app.add_handler(CallbackQueryHandler(on_stop_choice, pattern="^stop:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.job_queue.run_repeating(process_paint_updates, interval=1.0)
     app.run_polling()
