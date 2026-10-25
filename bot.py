@@ -116,22 +116,43 @@ def parse_ch(text: str) -> str | None:
     return None
 
 
-# ---------- Соло-игра против компьютера ----------
+# ---------- Меню выбора игры и соло-игры ----------
+
+GAME_MENU = InlineKeyboardMarkup(
+    [[InlineKeyboardButton("🐂 Быки и коровы", callback_data="game:bulls")]]
+)
+
+INTRO_BULLS = (
+    "🎲 Игра «Быки и коровы» против компьютера!\n\n"
+    "Я загадал число из 4 разных цифр (первая — не ноль).\n"
+    "Называй варианты в формате ch1234 (ch + 4 цифры), а я отвечу:\n"
+    "🐂 быки — цифра угадана и стоит на своём месте,\n"
+    "🐄 коровы — цифра есть в числе, но стоит не там.\n"
+    "Угадай число! /stop — сдаться."
+)
+
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/startsum — начать игру против компьютера."""
+    """/startsum — показать меню выбора игры."""
     remember_user(update.effective_user)
-    key = (update.message.chat_id, update.effective_user.id)
-    solo_games[key] = {"secret": make_secret(), "attempts": 0}
-    player_stats(update.effective_user.id)["games"] += 1
-    await update.message.reply_text(
-        "🎲 Игра «Быки и коровы» против компьютера!\n\n"
-        "Я загадал число из 4 разных цифр (первая — не ноль).\n"
-        "Называй варианты в формате ch1234 (ch + 4 цифры), а я отвечу:\n"
-        "🐂 быки — цифра угадана и стоит на своём месте,\n"
-        "🐄 коровы — цифра есть в числе, но стоит не там.\n"
-        "Угадай число! /stop — сдаться."
-    )
+    await update.message.reply_text("🎮 Привет! Выбери игру:", reply_markup=GAME_MENU)
+
+
+async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Выбор игры в меню: запускает игру с меткой типа; старую игру игрока завершает."""
+    query = update.callback_query
+    await query.answer()
+    game_key = query.data.split(":", 1)[1]
+    if game_key != "bulls":
+        await query.answer("Эта игра появится позже 🙂", show_alert=True)
+        return
+
+    key = (query.message.chat_id, query.from_user.id)
+    old = solo_games.pop(key, None)
+    solo_games[key] = {"type": "bulls", "secret": make_secret(), "attempts": 0}
+    player_stats(query.from_user.id)["games"] += 1
+    note = "\n\n♻️ Прежняя игра завершена." if old is not None else ""
+    await query.edit_message_text(INTRO_BULLS + note)
 
 
 async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -149,9 +170,12 @@ async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     key = (chat_id, user.id)
     game = solo_games.pop(key, None)
     if game is None:
-        await update.message.reply_text("У тебя нет активной игры. /startsum — против компьютера, /playsum @игрок — дуэль.")
+        await update.message.reply_text("У тебя нет активной игры. /startsum — меню игр, /playsum @игрок — дуэль.")
         return
-    await update.message.reply_text(f"😔 Сдаёшься? Загаданное число было: {game['secret']}.\nНовая игра — /startsum")
+    if game["type"] == "bulls":
+        await update.message.reply_text(f"😔 Сдаёшься? Загаданное число было: {game['secret']}.\nНовая игра — /startsum")
+    else:
+        await update.message.reply_text("Игра завершена.\nНовая игра — /startsum")
 
 
 HELP_TEXT = (
@@ -162,7 +186,7 @@ HELP_TEXT = (
     "🐄 коровы — цифра есть в числе, но стоит не там.\n\n"
     "✍️ Формат хода: сообщение ch1234 — «ch» и сразу 4 цифры, пробелов нет. "
     "На обычные сообщения бот не реагирует.\n\n"
-    "▶️ Против компьютера: /startsum — угадай моё число.\n\n"
+    "▶️ Игры: /startsum — меню выбора (сейчас доступна «Быки и коровы» против компьютера).\n\n"
     "⚔️ Дуэль двух игроков (в группе):\n"
     "1. Оба игрока один раз открывают меня в личке и нажимают /start.\n"
     "2. В группе вызывающий отвечает (reply) на сообщение противника командой /playsum "
@@ -458,6 +482,7 @@ def main() -> None:
     app.add_handler(CommandHandler("stop", cmd_stop))
     app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CommandHandler("helpsum", cmd_help))
+    app.add_handler(CallbackQueryHandler(on_game_menu, pattern="^game:"))
     app.add_handler(CallbackQueryHandler(on_challenge_button, pattern="^duel:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.run_polling()
