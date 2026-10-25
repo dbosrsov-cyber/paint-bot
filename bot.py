@@ -116,67 +116,6 @@ def parse_ch(text: str) -> str | None:
     return None
 
 
-# ---------- Стихи про Андрея (/andre) ----------
-
-POEMS = [
-    "Пусть сбываются заветные мечты,\n"
-    "Андрей, ты только верь в себя!\n"
-    "Пусть дом наполнят ароматы цветы,\n"
-    "Андрей — и не унывай!",
-
-    "Поделись с миром своим звонким смехом,\n"
-    "Андрей, сегодня твой день!\n"
-    "И поверь: всё, что задумано, с успехом,\n"
-    "Андрей, ты просто огонь!",
-
-    "Построй маршрут — впереди целый май,\n"
-    "Андрей, столько дел ждёт тебя!\n"
-    "Загляни в любой приглянувшийся край,\n"
-    "Андрей — встречай по дороге меня!",
-
-    "Сегодня твой самый лучший день,\n"
-    "Андрей, проснись и пой!\n"
-    "Отгоняй любую тоску-тень,\n"
-    "Андрей — ну а я подпою!",
-
-    "У тебя всё спорится в ловких руках,\n"
-    "Андрей, в этом твоя сила!\n"
-    "Пусть дом наполнят весёлые звуки,\n"
-    "Андрей — знай: мы тобой гордимся!",
-
-    "Пусть искрятся от счастья твои глаза,\n"
-    "Андрей, ты этого стоишь!\n"
-    "И пусть обойдут тебя стороной грозы,\n"
-    "Андрей — тебя вся группа любит!",
-
-    "Пусть удача ходит по пятам вокруг,\n"
-    "Андрей, не бойся перемен!\n"
-    "Соберутся за столом твои друзья в круг,\n"
-    "Андрей — до встречи, береги себя!",
-
-    "Твои планы — как семена мечты,\n"
-    "Андрей, поливай их делом!\n"
-    "И расцветут, как летние цветы,\n"
-    "Андрей — твой успех немал!",
-]
-
-_poem_deck = []
-
-
-def next_poem() -> str:
-    """Выдать следующее стихотворение: колода перемешивается, повторов нет, пока не кончатся."""
-    global _poem_deck
-    if not _poem_deck:
-        _poem_deck = POEMS[:]
-        random.shuffle(_poem_deck)
-    return _poem_deck.pop()
-
-
-async def cmd_andre(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/andre — четверостишие про Андрея."""
-    await update.message.reply_text(next_poem())
-
-
 # ---------- Соло-игра против компьютера ----------
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -519,7 +458,6 @@ def main() -> None:
     app.add_handler(CommandHandler("stop", cmd_stop))
     app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CommandHandler("helpsum", cmd_help))
-    app.add_handler(CommandHandler("andre", cmd_andre))
     app.add_handler(CallbackQueryHandler(on_challenge_button, pattern="^duel:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.run_polling()
