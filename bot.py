@@ -875,7 +875,8 @@ async def on_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         )
     except Exception as e:
         print(f"[paint_bot] не смог предупредить чат {chat.id}: {e!r}", flush=True)
-    link = chat.invite_link or (f"@{chat.username}" if chat.username else "нет публичной ссылки")
+    # у объекта Chat нет invite_link — только @username для публичных групп
+    link = f"@{chat.username}" if getattr(chat, "username", None) else "нет публичной ссылки"
     try:
         await context.bot.send_message(
             ADMIN_ID,
