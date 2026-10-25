@@ -92,7 +92,7 @@ def remember_user(user) -> None:
 
 
 def find_user_id(text: str, entities, fallback_user=None) -> int | None:
-    """Найти user_id по @упоминанию или числовому id в аргументе команды."""
+    """Найти user_id: из reply, по @упоминанию (если пользователь известен) или по числовому id."""
     if fallback_user is not None:
         return fallback_user.id
     for ent in entities or []:
@@ -101,8 +101,8 @@ def find_user_id(text: str, entities, fallback_user=None) -> int | None:
             if ent.user is not None:
                 return ent.user.id
             return users_by_name.get(uname)
-    # числовой id
-    token = text.split()[-1]
+    # числовой id (с @ или без)
+    token = text.split()[-1].lstrip("@")
     if token.isdigit():
         return int(token)
     return None
@@ -165,7 +165,9 @@ HELP_TEXT = (
     "▶️ Против компьютера: /startsum — угадай моё число.\n\n"
     "⚔️ Дуэль двух игроков (в группе):\n"
     "1. Оба игрока один раз открывают меня в личке и нажимают /start.\n"
-    "2. В группе вызывающий пишет /playsum @ник противника, тот нажимает «Принять».\n"
+    "2. В группе вызывающий отвечает (reply) на сообщение противника командой /playsum "
+    "(или пишет /playsum @ник — сработает, если тот писал в группе), "
+    "противник нажимает «Принять».\n"
     "3. Каждый игрок в ЛИЧКЕ со мной вводит /secret 1234 — своё число (противник его не увидит).\n"
     "4. Когда оба загадали, начинаем: ходы по очереди в группе — пиши ch1234.\n"
     "5. Кто первым угадал число соперника — победил!\n\n"
@@ -236,9 +238,25 @@ async def cmd_play(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("В этом чате уже есть активный вызов.")
         return
 
-    opponent_id = find_user_id(update.message.text, update.message.entities)
+    # сначала пробуем reply на сообщение противника — это работает всегда
+    reply_user = None
+    if update.message.reply_to_message and update.message.reply_to_message.from_user:
+        u = update.message.reply_to_message.from_user
+        if not u.is_bot:
+            remember_user(u)
+            reply_user = u
+
+    opponent_id = None
+    if reply_user is not None:
+        opponent_id = reply_user.id
+    else:
+        opponent_id = find_user_id(update.message.text, update.message.entities)
     if opponent_id is None:
-        await update.message.reply_text("Не смог найти игрока. Используй: /playsum @username")
+        await update.message.reply_text(
+            "Не смог определить игрока. Надёжный способ: сделай ответ (reply) на сообщение "
+            "противника командой /playsum.\nДругие варианты: /playsum @username (противник должен "
+            "был писать в группе, пока я там есть) или /playsum 123456789 (его числовой id)."
+        )
         return
     if opponent_id == challenger.id:
         await update.message.reply_text("Нельзя вызвать самого себя 🙂")
