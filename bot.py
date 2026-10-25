@@ -362,7 +362,10 @@ async def process_paint_updates(context: ContextTypes.DEFAULT_TYPE) -> None:
         if state["msg_id"] is not None:
             try:
                 await context.bot.edit_message_media(
-                    chat_id=chat_id, message_id=state["msg_id"], media=media
+                    chat_id=chat_id,
+                    message_id=state["msg_id"],
+                    media=media,
+                    reply_markup=paint_keyboard(chat_id, webapp=state.get("webapp", False)),
                 )
                 continue
             except BadRequest:
