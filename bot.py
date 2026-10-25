@@ -108,6 +108,14 @@ def find_user_id(text: str, entities, fallback_user=None) -> int | None:
     return None
 
 
+def parse_ch(text: str) -> str | None:
+    """Выделить вариант из сообщения формата ch1234. None — если формат другой."""
+    t = text.strip().lower()
+    if t.startswith("ch") and t[2:].isdigit():
+        return t[2:]
+    return None
+
+
 # ---------- Соло-игра против компьютера ----------
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -119,7 +127,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "🎲 Игра «Быки и коровы» против компьютера!\n\n"
         "Я загадал число из 4 разных цифр (первая — не ноль).\n"
-        "Отправляй варианты сообщениями из 4 цифр, а я отвечу:\n"
+        "Называй варианты в формате ch1234 (ch + 4 цифры), а я отвечу:\n"
         "🐂 быки — цифра угадана и стоит на своём месте,\n"
         "🐄 коровы — цифра есть в числе, но стоит не там.\n"
         "Угадай число! /stop — сдаться."
@@ -152,12 +160,14 @@ HELP_TEXT = (
     "варианты, а бот отвечает:\n"
     "🐂 быки — цифра угадана и стоит на своём месте,\n"
     "🐄 коровы — цифра есть в числе, но стоит не там.\n\n"
+    "✍️ Формат хода: сообщение ch1234 — «ch» и сразу 4 цифры, пробелов нет. "
+    "На обычные сообщения бот не реагирует.\n\n"
     "▶️ Против компьютера: /startsum — угадай моё число.\n\n"
     "⚔️ Дуэль двух игроков (в группе):\n"
     "1. Оба игрока один раз открывают меня в личке и нажимают /start.\n"
     "2. В группе вызывающий пишет /playsum @ник противника, тот нажимает «Принять».\n"
     "3. Каждый игрок в ЛИЧКЕ со мной вводит /secret 1234 — своё число (противник его не увидит).\n"
-    "4. Когда оба загадали, начинаем: ходы по очереди в группе — просто пиши 4 цифры.\n"
+    "4. Когда оба загадали, начинаем: ходы по очереди в группе — пиши ch1234.\n"
     "5. Кто первым угадал число соперника — победил!\n\n"
     "Прервать игру — /stop, статистика — /stats."
 )
@@ -180,23 +190,21 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(f"📊 Твоя статистика:\nИгр: {st['games']}\nПобед: {st['wins']}\nЛучший результат: {best}")
 
 
-async def on_guess(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Ход в соло-игре: ответ игрока против компьютера."""
+async def on_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, guess: str) -> None:
+    """Ход в соло-игре: ответ игрока против компьютера (guess — уже разобранный ch-формат)."""
     remember_user(update.effective_user)
     key = (update.message.chat_id, update.effective_user.id)
     game = solo_games.get(key)
     if game is None:
-        await update.message.reply_text("У тебя нет активной игры. /startsum — начать против компьютера.")
-        return
+        return  # бот молчит, пока игра не начата командой /startsum
 
-    text = update.message.text.strip()
-    error = valid_guess(text)
+    error = valid_guess(guess)
     if error:
         await update.message.reply_text(error)
         return
 
     game["attempts"] += 1
-    bulls, cows = bulls_and_cows(game["secret"], text)
+    bulls, cows = bulls_and_cows(game["secret"], guess)
     if bulls == 4:
         st = player_stats(update.effective_user.id)
         st["wins"] += 1
@@ -207,7 +215,7 @@ async def on_guess(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             f"🎉 Победа! Число {game['secret']} угадано за {game['attempts']} попыток.\nСыграть ещё — /startsum"
         )
     else:
-        await update.message.reply_text(f"{text} → 🐂 {bulls} · 🐄 {cows} (попытка {game['attempts']})")
+        await update.message.reply_text(f"{guess} → 🐂 {bulls} · 🐄 {cows} (попытка {game['attempts']})")
 
 
 # ---------- Дуэли Пользователь–Пользователь ----------
@@ -362,8 +370,8 @@ async def cmd_secret(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await update.message.reply_text("Сейчас тебе не нужно загадывать число. Дуэль начинается командой /playsum @игрок в группе.")
 
 
-async def on_duel_guess(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Ход в активной дуэли (в группе)."""
+async def on_duel_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, guess: str) -> None:
+    """Ход в активной дуэли (в группе). guess — уже разобранный ch-формат."""
     chat_id = update.message.chat_id
     user = update.effective_user
     duel = duels[chat_id]
@@ -371,13 +379,10 @@ async def on_duel_guess(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     current_id = duel["order"][duel["turn"]]
     if user.id != current_id:
-        text = update.message.text.strip()
-        if valid_guess(text) is None:
-            await update.message.reply_text(f"Сейчас ход {players[current_id]['name']}.")
+        await update.message.reply_text(f"Сейчас ход {players[current_id]['name']}.")
         return
 
-    text = update.message.text.strip()
-    error = valid_guess(text)
+    error = valid_guess(guess)
     if error:
         await update.message.reply_text(error)
         return
@@ -385,7 +390,7 @@ async def on_duel_guess(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     opponent_id = duel["order"][1 - duel["turn"]]
     opponent_secret = players[opponent_id]["secret"]
     duel["attempts"][user.id] += 1
-    bulls, cows = bulls_and_cows(opponent_secret, text)
+    bulls, cows = bulls_and_cows(opponent_secret, guess)
 
     if bulls == 4:
         winner_stats = player_stats(user.id)
@@ -404,20 +409,24 @@ async def on_duel_guess(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     duel["turn"] = 1 - duel["turn"]
     next_name = players[duel["order"][duel["turn"]]]["name"]
     await update.message.reply_text(
-        f"{players[user.id]['name']}: {text} → 🐂 {bulls} · 🐄 {cows} (попытка {duel['attempts'][user.id]})\n"
+        f"{players[user.id]['name']}: {guess} → 🐂 {bulls} · 🐄 {cows} (попытка {duel['attempts'][user.id]})\n"
         f"Ход: {next_name}"
     )
 
 
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Точка входа для всех текстовых сообщений: сначала дуэль, потом соло-игра."""
+    """Точка входа: реагируем только на ходы формата ch1234, всё остальное — молчим."""
     remember_user(update.effective_user)
+    guess = parse_ch(update.message.text)
+    if guess is None:
+        return  # не формат хода — бот молчит
+
     chat_id = update.message.chat_id
     duel = duels.get(chat_id)
     if duel is not None and update.effective_user.id in duel["players"]:
-        await on_duel_guess(update, context)
+        await on_duel_guess(update, context, guess)
         return
-    await on_guess(update, context)
+    await on_guess(update, context, guess)
 
 
 def main() -> None:
