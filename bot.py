@@ -12,7 +12,7 @@ from urllib.parse import urlparse, parse_qs
 from PIL import Image
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, MessageEntity, Update, WebAppInfo
 from telegram.error import BadRequest, Forbidden
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, MyChatMemberHandler, filters
+from telegram.ext import Application, CallbackQueryHandler, ChatMemberHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 # Токен бота берётся из переменной окружения BOT_TOKEN (задаётся в панели Render)
 BOT_TOKEN = os.environ["BOT_TOKEN"]
@@ -896,7 +896,7 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(on_challenge_button, pattern="^duel:"))
     app.add_handler(CallbackQueryHandler(on_paint_wait, pattern="^paint_wait$"))
     app.add_handler(CallbackQueryHandler(on_stop_choice, pattern="^stop:"))
-    app.add_handler(MyChatMemberHandler(on_my_chat_member))
+    app.add_handler(ChatMemberHandler(on_my_chat_member, chat_member_types=ChatMemberHandler.MY_CHAT_MEMBER))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.job_queue.run_repeating(process_paint_updates, interval=1.0)
     app.run_polling()
