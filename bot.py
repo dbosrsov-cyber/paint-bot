@@ -363,6 +363,13 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("🎮 Привет! Выбери игру:", reply_markup=GAME_MENU)
 
 
+async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/myid (в личке) — показать свой числовой ID Telegram."""
+    if update.message.chat.type != "private":
+        return  # только в личке, чтобы не палить ID в группах
+    await update.message.reply_text(f"Твой ID Telegram: {update.effective_user.id}")
+
+
 async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Выбор игры в меню: запускает игру с меткой типа; старую игру игрока завершает."""
     if not chat_allowed(update.effective_chat):
@@ -866,8 +873,8 @@ async def on_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             chat.id,
             "Бот не может работать в данной группе\\канале. Срочно удалите его.",
         )
-    except Exception:
-        pass  # нет прав писать — просто молчим
+    except Exception as e:
+        print(f"[paint_bot] не смог предупредить чат {chat.id}: {e!r}", flush=True)
     link = chat.invite_link or (f"@{chat.username}" if chat.username else "нет публичной ссылки")
     try:
         await context.bot.send_message(
@@ -877,8 +884,9 @@ async def on_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             f"Ссылка: {link}\n"
             f"ID чата: {chat.id}",
         )
-    except Exception:
-        pass  # админ не открывал бота — написать ему нельзя
+    except Exception as e:
+        # админ не открывал бота или неверный ADMIN_ID — ошибка видна в логах Render
+        print(f"[paint_bot] не смог уведомить админа {ADMIN_ID}: {e!r}", flush=True)
 
 
 def main() -> None:
@@ -892,6 +900,7 @@ def main() -> None:
     app.add_handler(CommandHandler("stop", cmd_stop))
     app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CommandHandler("helpsum", cmd_help))
+    app.add_handler(CommandHandler("myid", cmd_myid))
     app.add_handler(CallbackQueryHandler(on_game_menu, pattern="^game:"))
     app.add_handler(CallbackQueryHandler(on_challenge_button, pattern="^duel:"))
     app.add_handler(CallbackQueryHandler(on_paint_wait, pattern="^paint_wait$"))
