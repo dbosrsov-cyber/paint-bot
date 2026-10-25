@@ -5,6 +5,7 @@ import os
 import queue
 import random
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
@@ -52,6 +53,22 @@ def white_png() -> bytes:
     return buf.getvalue()
 
 
+# Сколько секунд замок «Рисует...» держится без отправки рисунка
+PAINT_LOCK_TIMEOUT = 180
+
+
+def new_paint_state() -> dict:
+    return {
+        "image": white_png(),
+        "msg_id": None,
+        "webapp": False,
+        "drawer": None,  # имя того, кто сейчас рисует (мягкая очередь)
+        "lock_time": 0.0,
+        "dirty_img": False,  # картинка менялась с последней отправки в чат
+        "rendered_drawer": None,  # чей замок отображён на сообщении сейчас
+    }
+
+
 # ---------- Веб-часть: проверка живости, страница рисования, сохранение ----------
 
 HTML_PAGE = """<!DOCTYPE html>
@@ -76,6 +93,10 @@ HTML_PAGE = """<!DOCTYPE html>
 <body>
 <div id="wrap">
   <canvas id="c"></canvas>
+  <div class="bar">
+    <input id="name" placeholder="Твоё имя" maxlength="24"
+           style="flex:1;padding:10px;border-radius:8px;border:1px solid #ccc;font-size:15px;">
+  </div>
   <div class="bar" id="colors"></div>
   <div class="bar">
     <button id="small">Тонко</button>
@@ -106,6 +127,19 @@ HTML_PAGE = """<!DOCTYPE html>
   img.src = '/canvas?chat=' + chat + '&t=' + Date.now();
 
   const status = (t) => document.getElementById('status').textContent = t;
+
+  // имя рисующего: из Telegram (если WebApp) или из памяти браузера
+  const nameInput = document.getElementById('name');
+  const tgUser = (tg.initDataUnsafe && tg.initDataUnsafe.user) || null;
+  nameInput.value = localStorage.getItem('paint_name')
+    || (tgUser && (tgUser.username ? '@' + tgUser.username : tgUser.first_name)) || '';
+  const userName = () => nameInput.value.trim() || 'Аноним';
+  const begin = () => fetch('/begin?chat=' + chat + '&user=' + encodeURIComponent(userName())).catch(() => {});
+  window.addEventListener('load', begin);
+  nameInput.onchange = () => { localStorage.setItem('paint_name', nameInput.value.trim()); begin(); };
+  window.addEventListener('beforeunload', () => {
+    fetch('/end?chat=' + chat + '&user=' + encodeURIComponent(userName()), {keepalive: true}).catch(() => {});
+  });
 
   // палитра
   const bar = document.getElementById('colors');
@@ -175,6 +209,21 @@ class AppHandler(BaseHTTPRequestHandler):
             chat_id = int(params.get("chat", ["0"])[0])
             state = paint_state.get(chat_id)
             self._respond(200, state["image"] if state else white_png(), "image/png")
+        elif url.path in ("/begin", "/end"):
+            # мягкая очередь: отметить, что кто-то открыл/закрыл холст
+            chat_id = int(params.get("chat", ["0"])[0])
+            user = params.get("user", ["Аноним"])[0][:32] or "Аноним"
+            state = paint_state.get(chat_id)
+            if state is not None:
+                if url.path == "/begin":
+                    state["drawer"] = user
+                    state["lock_time"] = time.time()
+                    paint_update_queue.put(chat_id)
+                elif state.get("drawer") == user:
+                    # освобождает только тот, кто успел занять (или замок уже чужой)
+                    state["drawer"] = None
+                    paint_update_queue.put(chat_id)
+            self._respond(200, b"ok")
         else:
             self._respond(404, b"not found")
 
@@ -193,10 +242,10 @@ class AppHandler(BaseHTTPRequestHandler):
         except Exception:
             self._respond(400, b"bad request")
             return
-        state = paint_state.setdefault(
-            chat_id, {"image": white_png(), "msg_id": None, "webapp": False}
-        )
+        state = paint_state.setdefault(chat_id, new_paint_state())
         state["image"] = png_bytes
+        state["dirty_img"] = True
+        state["drawer"] = None  # рисунок отправлен — холст свободен
         paint_update_queue.put(chat_id)
         self._respond(200, b"ok")
 
@@ -319,9 +368,7 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     if game_key == "paint":
         is_private = query.message.chat.type == "private"
-        state = paint_state.setdefault(
-            chat_id, {"image": white_png(), "msg_id": None, "webapp": is_private}
-        )
+        state = paint_state.setdefault(chat_id, new_paint_state())
         state["webapp"] = is_private
         caption = "🎨 Общий лист группы! Рисуем по очереди — каждый добавляет штрих."
         if not is_private:
@@ -330,7 +377,7 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             chat_id,
             photo=io.BytesIO(state["image"]),
             caption=caption,
-            reply_markup=paint_keyboard(chat_id, webapp=is_private),
+            reply_markup=paint_keyboard(chat_id, webapp=is_private, drawer=state["drawer"]),
         )
         state["msg_id"] = msg.message_id
         await query.edit_message_text("🎨 Рисовалка запущена! Лист появился в чате выше — жми «Открыть холст».")
@@ -339,17 +386,29 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await query.answer("Эта игра появится позже 🙂", show_alert=True)
 
 
-def paint_keyboard(chat_id: int, webapp: bool = True) -> InlineKeyboardMarkup:
+def paint_keyboard(chat_id: int, webapp: bool = True, drawer: str | None = None) -> InlineKeyboardMarkup:
     url = f"{APP_URL}/app?chat={chat_id}"
-    if webapp:
+    if drawer:
+        # пока кто-то рисует — кнопка не открывает холст, а сообщает, кто рисует
+        btn = InlineKeyboardButton(f"🖌 Рисует {drawer}...", callback_data="paint_wait")
+    elif webapp:
         btn = InlineKeyboardButton("🖌 Открыть холст", web_app=WebAppInfo(url=url))
     else:
         btn = InlineKeyboardButton("🖌 Открыть холст (браузер)", url=url)
     return InlineKeyboardMarkup([[btn]])
 
 
+async def on_paint_wait(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Нажали на кнопку «Рисует ...» — сообщить, что холст занят."""
+    drawer = (paint_state.get(update.effective_chat.id) or {}).get("drawer")
+    if drawer:
+        await update.callback_query.answer(f"🖌 Сейчас рисует {drawer}. Подожди немного!", show_alert=True)
+    else:
+        await update.callback_query.answer("Холст уже свободен — жми «Открыть холст» 🎨", show_alert=True)
+
+
 async def process_paint_updates(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Раз в секунду применяет присланные рисунки: редактирует сообщение с листом."""
+    """Раз в секунду применяет события рисовалки: новые рисунки и смену замка «Рисует...»."""
     while True:
         try:
             chat_id = paint_update_queue.get_nowait()
@@ -358,15 +417,25 @@ async def process_paint_updates(context: ContextTypes.DEFAULT_TYPE) -> None:
         state = paint_state.get(chat_id)
         if state is None:
             continue
-        media = InputMediaPhoto(media=io.BytesIO(state["image"]))
+        # авто-разблокировка, если рисующий завис и не отправил рисунок
+        if state.get("drawer") and time.time() - state.get("lock_time", 0) > PAINT_LOCK_TIMEOUT:
+            state["drawer"] = None
+        markup = paint_keyboard(chat_id, webapp=state.get("webapp", False), drawer=state.get("drawer"))
         if state["msg_id"] is not None:
             try:
-                await context.bot.edit_message_media(
-                    chat_id=chat_id,
-                    message_id=state["msg_id"],
-                    media=media,
-                    reply_markup=paint_keyboard(chat_id, webapp=state.get("webapp", False)),
-                )
+                if state.pop("dirty_img", False):
+                    media = InputMediaPhoto(media=io.BytesIO(state["image"]))
+                    await context.bot.edit_message_media(
+                        chat_id=chat_id,
+                        message_id=state["msg_id"],
+                        media=media,
+                        reply_markup=markup,
+                    )
+                elif state.get("rendered_drawer") != state.get("drawer"):
+                    await context.bot.edit_message_reply_markup(
+                        chat_id=chat_id, message_id=state["msg_id"], reply_markup=markup
+                    )
+                state["rendered_drawer"] = state.get("drawer")
                 continue
             except BadRequest:
                 state["msg_id"] = None  # сообщение удалено — пришлём новое ниже
@@ -375,9 +444,10 @@ async def process_paint_updates(context: ContextTypes.DEFAULT_TYPE) -> None:
                 chat_id,
                 photo=io.BytesIO(state["image"]),
                 caption="🎨 Общий лист группы!",
-                reply_markup=paint_keyboard(chat_id, webapp=state.get("webapp", False)),
+                reply_markup=markup,
             )
             state["msg_id"] = msg.message_id
+            state["rendered_drawer"] = state.get("drawer")
         except Exception:
             pass
 
@@ -716,6 +786,7 @@ def main() -> None:
     app.add_handler(CommandHandler("helpsum", cmd_help))
     app.add_handler(CallbackQueryHandler(on_game_menu, pattern="^game:"))
     app.add_handler(CallbackQueryHandler(on_challenge_button, pattern="^duel:"))
+    app.add_handler(CallbackQueryHandler(on_paint_wait, pattern="^paint_wait$"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.job_queue.run_repeating(process_paint_updates, interval=1.0)
     app.run_polling()
