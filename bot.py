@@ -193,7 +193,9 @@ class AppHandler(BaseHTTPRequestHandler):
         except Exception:
             self._respond(400, b"bad request")
             return
-        state = paint_state.setdefault(chat_id, {"image": white_png(), "msg_id": None})
+        state = paint_state.setdefault(
+            chat_id, {"image": white_png(), "msg_id": None, "webapp": False}
+        )
         state["image"] = png_bytes
         paint_update_queue.put(chat_id)
         self._respond(200, b"ok")
@@ -316,12 +318,19 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     if game_key == "paint":
-        state = paint_state.setdefault(chat_id, {"image": white_png(), "msg_id": None})
+        is_private = query.message.chat.type == "private"
+        state = paint_state.setdefault(
+            chat_id, {"image": white_png(), "msg_id": None, "webapp": is_private}
+        )
+        state["webapp"] = is_private
+        caption = "🎨 Общий лист группы! Рисуем по очереди — каждый добавляет штрих."
+        if not is_private:
+            caption += "\n(в группах Telegram кнопка открывает холст в браузере)"
         msg = await context.bot.send_photo(
             chat_id,
             photo=io.BytesIO(state["image"]),
-            caption="🎨 Общий лист группы! Рисуем по очереди — каждый добавляет штрих.",
-            reply_markup=paint_keyboard(chat_id),
+            caption=caption,
+            reply_markup=paint_keyboard(chat_id, webapp=is_private),
         )
         state["msg_id"] = msg.message_id
         await query.edit_message_text("🎨 Рисовалка запущена! Лист появился в чате выше — жми «Открыть холст».")
@@ -330,17 +339,13 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     await query.answer("Эта игра появится позже 🙂", show_alert=True)
 
 
-def paint_keyboard(chat_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        [
-            [
-                InlineKeyboardButton(
-                    "🖌 Открыть холст",
-                    web_app=WebAppInfo(url=f"{APP_URL}/app?chat={chat_id}"),
-                )
-            ]
-        ]
-    )
+def paint_keyboard(chat_id: int, webapp: bool = True) -> InlineKeyboardMarkup:
+    url = f"{APP_URL}/app?chat={chat_id}"
+    if webapp:
+        btn = InlineKeyboardButton("🖌 Открыть холст", web_app=WebAppInfo(url=url))
+    else:
+        btn = InlineKeyboardButton("🖌 Открыть холст (браузер)", url=url)
+    return InlineKeyboardMarkup([[btn]])
 
 
 async def process_paint_updates(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -367,7 +372,7 @@ async def process_paint_updates(context: ContextTypes.DEFAULT_TYPE) -> None:
                 chat_id,
                 photo=io.BytesIO(state["image"]),
                 caption="🎨 Общий лист группы!",
-                reply_markup=paint_keyboard(chat_id),
+                reply_markup=paint_keyboard(chat_id, webapp=state.get("webapp", False)),
             )
             state["msg_id"] = msg.message_id
         except Exception:
