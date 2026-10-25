@@ -146,6 +146,29 @@ async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(f"😔 Сдаёшься? Загаданное число было: {game['secret']}.\nНовая игра — /startsum")
 
 
+HELP_TEXT = (
+    "📖 Как играть в «Быки и коровы»\n\n"
+    "Бот загадывает число из 4 разных цифр (первая — не ноль). Ты называешь "
+    "варианты, а бот отвечает:\n"
+    "🐂 быки — цифра угадана и стоит на своём месте,\n"
+    "🐄 коровы — цифра есть в числе, но стоит не там.\n\n"
+    "▶️ Против компьютера: /startsum — угадай моё число.\n\n"
+    "⚔️ Дуэль двух игроков (в группе):\n"
+    "1. Оба игрока один раз открывают меня в личке и нажимают /start.\n"
+    "2. В группе вызывающий пишет /playsum @ник противника, тот нажимает «Принять».\n"
+    "3. Каждый игрок в ЛИЧКЕ со мной вводит /secret 1234 — своё число (противник его не увидит).\n"
+    "4. Когда оба загадали, начинаем: ходы по очереди в группе — просто пиши 4 цифры.\n"
+    "5. Кто первым угадал число соперника — победил!\n\n"
+    "Прервать игру — /stop, статистика — /stats."
+)
+
+
+async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/helpsum — справка по игре."""
+    remember_user(update.effective_user)
+    await update.message.reply_text(HELP_TEXT)
+
+
 async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/stats — статистика игрока."""
     remember_user(update.effective_user)
@@ -407,6 +430,7 @@ def main() -> None:
     app.add_handler(CommandHandler("secret", cmd_secret))
     app.add_handler(CommandHandler("stop", cmd_stop))
     app.add_handler(CommandHandler("stats", cmd_stats))
+    app.add_handler(CommandHandler("helpsum", cmd_help))
     app.add_handler(CallbackQueryHandler(on_challenge_button, pattern="^duel:"))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.run_polling()
