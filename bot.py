@@ -70,6 +70,10 @@ LETTER_TEST_PAIRS = set()
 LETTER_FAST_SENDERS = {"Андрюха": 2.0}
 LETTER_MAX_TEXT = 100
 LETTER_READ_KEEP_SEC = 3600  # прочитанное письмо можно перечитывать час, потом удаляется
+# УДАЛЕНИЕ ПИСЕМ ОТКЛЮЧЕНО (2026-10-26, по просьбе владельца): прочитанные письма
+# НЕ удаляются по истечении часа, письма в пути НЕ удаляются при сносе адресной метки.
+# Логику удаления перестроим позже. Вернуть прежнее поведение = поставить False.
+LETTERS_NEVER_DELETE = True
 
 # Статистика: {user_id: {"games", "wins", "best"}}
 stats = {}
@@ -527,7 +531,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
       mk.bindPopup('📬 Письмо доставлено тебе!<br><b>Нажми на него ещё раз, чтобы прочитать</b>');
       mk.on('click', () => readLetter(l.id));
     } else if (l.mine && l.arrived) {
-      mk.bindPopup('📭 Письмо прочитано.<br><i>Нажми, чтобы перечитать (в течение часа)</i>');
+      mk.bindPopup('📭 Письмо прочитано.<br><i>Нажми, чтобы перечитать</i>');
       mk.on('click', () => readLetter(l.id));
     } else if (l.mine) {
       mk.bindPopup('✉️ Твоё письмо ещё в пути к тебе…');
@@ -553,7 +557,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
         mk.setIcon(letterIcon({arrived: true, read: true}));  // прочитано — сразу 📭
         mk.bindPopup('📬 Письмо от <b>' + escapeHtml(data.from) + '</b>:<br>'
           + '<span style="font-size:17px">«' + escapeHtml(data.text) + '»</span><br>'
-          + '<i>Можно перечитать в течение часа</i>');
+          + '<i>Можно перечитывать</i>');
         mk.openPopup();
       }
       status('📬 Письмо от ' + data.from + ': «' + data.text + '»' + (data.re_read ? ' (перечитано)' : ''));
@@ -752,9 +756,10 @@ class AppHandler(BaseHTTPRequestHandler):
                 for lid, letter in list(letters_state.items()):
                     if letter["chat"] != chat_id:
                         continue
-                    # прочитанное письмо живёт час и удаляется
+                    # прочитанное письмо живёт час и удаляется (удаление отключено — LETTERS_NEVER_DELETE)
                     read_ts = letter.get("read_ts")
-                    if read_ts is not None and now - read_ts > LETTER_READ_KEEP_SEC:
+                    if (not LETTERS_NEVER_DELETE and read_ts is not None
+                            and now - read_ts > LETTER_READ_KEEP_SEC):
                         del letters_state[lid]
                         changed = True
                         continue
@@ -884,9 +889,10 @@ class AppHandler(BaseHTTPRequestHandler):
                 if markers and user in markers:
                     del markers[user]
                     removed = True
-                # письма, шедшие к удалённой метке, тоже удаляются
-                doomed = [lid for lid, l in letters_state.items()
-                          if l["chat"] == chat_id and l["to"] == user]
+                # письма, шедшие к удалённой метке, тоже удаляются (удаление отключено — LETTERS_NEVER_DELETE)
+                doomed = ([] if LETTERS_NEVER_DELETE
+                          else [lid for lid, l in letters_state.items()
+                                if l["chat"] == chat_id and l["to"] == user])
                 for lid in doomed:
                     del letters_state[lid]
             if removed:
