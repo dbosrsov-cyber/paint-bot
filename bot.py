@@ -107,9 +107,10 @@ def geo_github_request(method: str, filename: str, extra_headers: dict | None = 
     )
 
 
-def _save_json_to_github(filename: str, state: dict, lock: threading.Lock, label: str) -> None:
+def _save_json_to_github(filename: str, state: dict, lock: threading.Lock, label: str) -> bool:
+    """Сохранить JSON в paint-bot-data. Вернуть True при успехе (для ретраев в бэкапе)."""
     if not geo_token():
-        return
+        return False
     try:
         with lock:
             payload = json.dumps(state, ensure_ascii=False).encode("utf-8")
@@ -126,8 +127,10 @@ def _save_json_to_github(filename: str, state: dict, lock: threading.Lock, label
         req = geo_github_request("PUT", filename, {"Content-Type": "application/json"})
         req.data = json.dumps(body).encode("utf-8")
         urllib.request.urlopen(req, timeout=15)
+        return True
     except Exception as e:
         print(f"[paint_bot] {label} save failed: {e!r}", flush=True)
+        return False
 
 
 def _load_json_from_github(filename: str, label: str):
@@ -203,8 +206,13 @@ def backup_geo_data() -> None:
     if not geo_token():
         return
     today = datetime.datetime.now(MSK_TZ).strftime("%Y-%m-%d")
-    _save_json_to_github(f"backups/geo_{today}.json", geo_state, geo_lock, "backup geo")
-    _save_json_to_github(f"backups/letters_{today}.json", letters_state, geo_lock, "backup letters")
+    for attempt in range(3):  # GitHub API иногда отваливается по таймауту — повторяем
+        ok_geo = _save_json_to_github(f"backups/geo_{today}.json", geo_state, geo_lock, "backup geo")
+        ok_letters = _save_json_to_github(f"backups/letters_{today}.json", letters_state, geo_lock, "backup letters")
+        if ok_geo and ok_letters:
+            break
+        print(f"[paint_bot] backup attempt {attempt + 1} incomplete (geo={ok_geo}, letters={ok_letters}), retrying", flush=True)
+        time.sleep(5)
     old = (datetime.datetime.now(MSK_TZ) - datetime.timedelta(days=BACKUP_KEEP_DAYS + 1)).strftime("%Y-%m-%d")
     for name in (f"geo_{old}.json", f"letters_{old}.json"):
         _delete_github_file(f"backups/{name}")
