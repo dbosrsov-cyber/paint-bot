@@ -59,8 +59,9 @@ GEO_TOKEN_ENV = "GEO_GITHUB_TOKEN"  # токен добавляется в Rende
 
 # Письмо летит по прямой: 100 км за 10 минут
 LETTER_SPEED_KM_PER_MIN = 10.0
-# ТЕСТОВОЕ ускорение доставки для конкретных адресатов (0.5 км/мин = 500 м/мин)
-LETTER_SPEED_OVERRIDES_KM_PER_MIN = {"Sumai": 0.5, "ПМ": 0.5}
+# ТЕСТОВОЕ ускорение: 500 км/мин для обмена между парой Sumai <-> ПМ (в обе стороны)
+LETTER_TEST_SPEED_KM_PER_MIN = 500.0
+LETTER_TEST_PAIRS = {frozenset(("Sumai", "ПМ"))}
 LETTER_MAX_TEXT = 100
 LETTER_READ_KEEP_SEC = 3600  # прочитанное письмо можно перечитывать час, потом удаляется
 
@@ -178,9 +179,11 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def letter_speed_km_per_min(letter: dict) -> float:
-    """Скорость доставки письма: по умолчанию 10 км/мин, для адресатов из
-    LETTER_SPEED_OVERRIDES_KM_PER_MIN — индивидуальная (тестовая отладка)."""
-    return LETTER_SPEED_OVERRIDES_KM_PER_MIN.get(letter["to"], LETTER_SPEED_KM_PER_MIN)
+    """Скорость доставки письма: по умолчанию 10 км/мин, для тестовых пар
+    (сейчас Sumai <-> ПМ) — LETTER_TEST_SPEED_KM_PER_MIN."""
+    if frozenset((letter["from"], letter["to"])) in LETTER_TEST_PAIRS:
+        return LETTER_TEST_SPEED_KM_PER_MIN
+    return LETTER_SPEED_KM_PER_MIN
 
 
 def letter_progress(letter: dict):
@@ -851,7 +854,9 @@ class AppHandler(BaseHTTPRequestHandler):
                     "start_ts": time.time(), "arrived": False,
                 }
             letters_save_to_github()
-            speed = LETTER_SPEED_OVERRIDES_KM_PER_MIN.get(to_user, LETTER_SPEED_KM_PER_MIN)
+            speed = (LETTER_TEST_SPEED_KM_PER_MIN
+                     if frozenset((user, to_user)) in LETTER_TEST_PAIRS
+                     else LETTER_SPEED_KM_PER_MIN)
             eta = int(total / speed) + 1
             self._json_response(200, {"eta_min": eta})
             return
