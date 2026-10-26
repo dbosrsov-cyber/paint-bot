@@ -464,21 +464,30 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
 
   // ---------- Письма ----------
   const letterMarkers = {};  // letter_id -> L.marker
-  function letterIcon(arrived) {
+  function letterIcon(l) {
+    // ✉️ в пути • 📬 доставлено, не прочитано • 📭 доставлено и прочитано
+    const e = !l.arrived ? '✉️' : (l.read ? '📭' : '📬');
     return L.divIcon({
       html: '<div style="font-size:26px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))">'
-        + (arrived ? '📬' : '✉️') + '</div>',
+        + e + '</div>',
       className: 'emoji-marker',
       iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -14],
     });
   }
   function renderLetter(l) {
-    const mk = L.marker([l.lat, l.lon], {icon: letterIcon(l.arrived)}).addTo(map);
-    if (l.mine && l.arrived) {
+    const mk = L.marker([l.lat, l.lon], {icon: letterIcon(l)}).addTo(map);
+    if (l.mine && l.arrived && !l.read) {
       mk.bindPopup('📬 Письмо доставлено тебе!<br><b>Нажми на него ещё раз, чтобы прочитать</b>');
+      mk.on('click', () => readLetter(l.id));
+    } else if (l.mine && l.arrived) {
+      mk.bindPopup('📭 Письмо прочитано.<br><i>Нажми, чтобы перечитать (в течение часа)</i>');
       mk.on('click', () => readLetter(l.id));
     } else if (l.mine) {
       mk.bindPopup('✉️ Твоё письмо ещё в пути к тебе…');
+    } else if (l.arrived && !l.read) {
+      mk.bindPopup('📬 Письмо доставлено адресату, ждёт прочтения');
+    } else if (l.arrived) {
+      mk.bindPopup('📭 Письмо доставлено и прочитано');
     } else {
       mk.bindPopup('📨 Письмо в пути… (адресат: ' + escapeHtml(l.to_name) + ')');
     }
@@ -494,6 +503,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     if (r.ok) {
       const mk = letterMarkers[id];
       if (mk) {
+        mk.setIcon(letterIcon({arrived: true, read: true}));  // прочитано — сразу 📭
         mk.bindPopup('📬 Письмо от <b>' + escapeHtml(data.from) + '</b>:<br>'
           + '<span style="font-size:17px">«' + escapeHtml(data.text) + '»</span><br>'
           + '<i>Можно перечитать в течение часа</i>');
@@ -709,6 +719,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     letters_out.append({
                         "id": lid, "lat": round(lat, 6), "lon": round(lon, 6),
                         "arrived": arrived,
+                        "read": letter.get("read_ts") is not None,
                         "mine": letter["to"] == viewer,
                         "to_name": (dest or {}).get("name", "удалённой метке"),
                     })
