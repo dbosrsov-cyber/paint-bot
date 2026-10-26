@@ -62,6 +62,8 @@ LETTER_SPEED_KM_PER_MIN = 10.0
 # ТЕСТОВОЕ ускорение: 500 км/мин для обмена между парой Sumai <-> ПМ (в обе стороны)
 LETTER_TEST_SPEED_KM_PER_MIN = 500.0
 LETTER_TEST_PAIRS = {frozenset(("Sumai", "ПМ"))}
+# Письма ОТ этих отправителей летят в N раз быстрее базовой скорости (Андрюха — далеко, США)
+LETTER_FAST_SENDERS = {"Андрюха": 3.0}
 LETTER_MAX_TEXT = 100
 LETTER_READ_KEEP_SEC = 3600  # прочитанное письмо можно перечитывать час, потом удаляется
 
@@ -179,8 +181,11 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def letter_speed_km_per_min(letter: dict) -> float:
-    """Скорость доставки письма: по умолчанию 10 км/мин, для тестовых пар
-    (сейчас Sumai <-> ПМ) — LETTER_TEST_SPEED_KM_PER_MIN."""
+    """Скорость доставки письма, км/мин: базовая 10; у «быстрых» отправителей
+    (сейчас Андрюха) — базовая × множитель; для тестовых пар — 500."""
+    mult = LETTER_FAST_SENDERS.get(letter.get("from"))
+    if mult:
+        return LETTER_SPEED_KM_PER_MIN * mult
     if frozenset((letter["from"], letter["to"])) in LETTER_TEST_PAIRS:
         return LETTER_TEST_SPEED_KM_PER_MIN
     return LETTER_SPEED_KM_PER_MIN
@@ -216,7 +221,9 @@ def white_png() -> bytes:
 
 
 # Сколько секунд замок «Рисует...» держится без отправки рисунка
-PAINT_LOCK_TIMEOUT = 180
+PAINT_LOCK_TIMEOUT = 60
+# Час бездействия с рисунком — лист автоматически «уходит в музей»
+PAINT_IDLE_TIMEOUT = 3600
 
 
 def new_paint_state() -> dict:
@@ -226,6 +233,7 @@ def new_paint_state() -> dict:
         "webapp": False,
         "drawer": None,  # имя того, кто сейчас рисует (мягкая очередь)
         "lock_time": 0.0,
+        "last_activity": None,  # когда последний раз открывали холст/сохраняли рисунок
         "dirty_img": False,  # картинка менялась с последней отправки в чат
         "rendered_drawer": None,  # чей замок отображён на сообщении сейчас
     }
@@ -720,6 +728,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 if url.path == "/begin":
                     state["drawer"] = user
                     state["lock_time"] = time.time()
+                    state["last_activity"] = time.time()
                     paint_update_queue.put(chat_id)
                 elif state.get("drawer") == user:
                     # освобождает только тот, кто успел занять (или замок уже чужой)
@@ -754,6 +763,7 @@ class AppHandler(BaseHTTPRequestHandler):
         state["image"] = png_bytes
         state["dirty_img"] = True
         state["drawer"] = None  # рисунок отправлен — холст свободен
+        state["last_activity"] = time.time()
         paint_update_queue.put(chat_id)
         self._respond(200, b"ok")
 
@@ -854,7 +864,9 @@ class AppHandler(BaseHTTPRequestHandler):
                     "start_ts": time.time(), "arrived": False,
                 }
             letters_save_to_github()
-            speed = (LETTER_TEST_SPEED_KM_PER_MIN
+            fast_mult = LETTER_FAST_SENDERS.get(user)
+            speed = (LETTER_SPEED_KM_PER_MIN * fast_mult if fast_mult else
+                     LETTER_TEST_SPEED_KM_PER_MIN
                      if frozenset((user, to_user)) in LETTER_TEST_PAIRS
                      else LETTER_SPEED_KM_PER_MIN)
             eta = int(total / speed) + 1
@@ -1142,6 +1154,28 @@ async def process_paint_updates(context: ContextTypes.DEFAULT_TYPE) -> None:
             state["rendered_drawer"] = state.get("drawer")
         except Exception:
             pass
+
+
+async def paint_periodic_sweep(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Периодически снимает зависшие замки «Рисует...» (даже если в чате тишина)
+    и уводит в музей листы, над которыми час никто не работал."""
+    now = time.time()
+    for chat_id, state in list(paint_state.items()):
+        if state.get("drawer") and now - state.get("lock_time", 0) > PAINT_LOCK_TIMEOUT:
+            state["drawer"] = None
+            paint_update_queue.put(chat_id)  # кнопка «Открыть холст» вернётся
+        last = state.get("last_activity")
+        if last is not None and now - last > PAINT_IDLE_TIMEOUT:
+            try:
+                await context.bot.send_photo(
+                    chat_id,
+                    photo=io.BytesIO(state["image"]),
+                    caption="🖼 Финальное творчество вашего чатика. "
+                            "Отправляю в Музей Современного Искусства",
+                )
+            except Exception as e:
+                print(f"[paint_bot] музей: не смог забрать рисунок чата {chat_id}: {e!r}", flush=True)
+            del paint_state[chat_id]
 
 
 def end_duel(chat_id: int, user_id: int) -> str | None:
@@ -1599,6 +1633,7 @@ def main() -> None:
     app.add_handler(ChatMemberHandler(on_my_chat_member, chat_member_types=ChatMemberHandler.MY_CHAT_MEMBER))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.job_queue.run_repeating(process_paint_updates, interval=1.0)
+    app.job_queue.run_repeating(paint_periodic_sweep, interval=15.0)
     app.run_polling()
 
 
