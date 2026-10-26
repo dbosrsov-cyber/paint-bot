@@ -636,7 +636,6 @@ class AppHandler(BaseHTTPRequestHandler):
             chat_id = int(params.get("chat", ["0"])[0])
             viewer = params.get("user", [""])[0]
             with geo_lock:
-                markers = [dict(m) for m in geo_state.get(chat_id, {}).values()]
                 letters_out = []
                 changed = False
                 for lid, letter in list(letters_state.items()):
@@ -656,6 +655,7 @@ class AppHandler(BaseHTTPRequestHandler):
                         "mine": letter["to"] == viewer,
                         "to_name": (dest or {}).get("name", "удалённой метке"),
                     })
+                markers = [dict(m) for m in geo_state.get(chat_id, {}).values()]
             if changed:
                 geo_save_to_github()
                 letters_save_to_github()
