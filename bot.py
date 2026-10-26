@@ -775,14 +775,22 @@ def end_geo(chat_id: int) -> str | None:
 
 
 def close_activity(chat_id: int, user_id: int, kind: str) -> str:
-    """Завершить активность по выбору (duel/paint/geo/solo) и вернуть текст для пользователя."""
+    """Завершить активность по выбору (duel/paint/solo) и вернуть текст для пользователя."""
     if kind == "duel":
         return end_duel(chat_id, user_id) or "Дуэль уже завершена."
     if kind == "paint":
         return end_paint(chat_id) or "Рисовалка уже завершена."
-    if kind == "geo":
-        return end_geo(chat_id) or "Карта чата уже пустая."
     return end_solo(chat_id, user_id) or "Игра уже завершена."
+
+
+async def cmd_delpointgeo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/delpointgeo — СЕКРЕТНАЯ команда админа: стереть все метки чата с карты."""
+    if update.effective_user.id != ADMIN_ID:
+        return  # для остальных команда невидима
+    if not chat_allowed(update.effective_chat):
+        return
+    text = end_geo(update.message.chat_id) or "🌍 Карта этого чата уже пустая."
+    await update.message.reply_text(text)
 
 
 async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -799,8 +807,6 @@ async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         options.append(("⚔️ Дуэль", "stop:duel"))
     if chat_id in paint_state:
         options.append(("🎨 Рисовалка", "stop:paint"))
-    if geo_state.get(chat_id):
-        options.append(("🌍 География чата", "stop:geo"))
     if (chat_id, user.id) in solo_games:
         options.append(("🐂 Соло «Быки и коровы»", "stop:solo"))
 
@@ -1177,6 +1183,7 @@ def main() -> None:
     app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CommandHandler("helpsum", cmd_help))
     app.add_handler(CommandHandler("myid", cmd_myid))
+    app.add_handler(CommandHandler("delpointgeo", cmd_delpointgeo))
     app.add_handler(CallbackQueryHandler(on_game_menu, pattern="^game:"))
     app.add_handler(CallbackQueryHandler(on_challenge_button, pattern="^duel:"))
     app.add_handler(CallbackQueryHandler(on_paint_wait, pattern="^paint_wait$"))
