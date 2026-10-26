@@ -1,11 +1,13 @@
 import base64
 import io
 import json
+import math
 import os
 import queue
 import random
 import threading
 import time
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 import urllib.error
@@ -40,15 +42,24 @@ paint_state = {}
 # Очередь чатов, где обновилась картинка (их надо перерисовать в Telegram)
 paint_update_queue = queue.Queue()
 
-# География чата: {chat_id: {user_key: {"user", "name", "lat", "lon"}}}
+# География чата: {chat_id: {user_key: {"user", "name", "icon", "lat", "lon", "got", "read"}}}
 # Хранится в GitHub-репозитории paint-bot-data (файл geo.json), чтобы переживать перезапуски.
 geo_state = {}
 geo_lock = threading.Lock()
 
-# Репозиторий для данных (не трогать main — иначе каждая метка будет триггерить автодеплой Render)
+# Письма между метками: {letter_id: {"id","chat","from","from_name","to","text",
+#          "from_lat","from_lon","to_lat","to_lon","start_ts","arrived"}}
+letters_state = {}
+
+# Репозиторий для данных (не трогать main — иначе каждая запись будет триггерить автодеплой Render)
 GEO_REPO = "dbosrsov-cyber/paint-bot-data"
 GEO_FILE = "geo.json"
+LETTERS_FILE = "letters.json"
 GEO_TOKEN_ENV = "GEO_GITHUB_TOKEN"  # токен добавляется в Render как переменная окружения
+
+# Письмо летит по прямой: 100 км за 10 минут
+LETTER_SPEED_KM_PER_MIN = 10.0
+LETTER_MAX_TEXT = 100
 
 # Статистика: {user_id: {"games", "wins", "best"}}
 stats = {}
@@ -74,7 +85,7 @@ def geo_token() -> str:
     return os.environ.get(GEO_TOKEN_ENV, "").strip()
 
 
-def geo_github_request(method: str, extra_headers: dict | None = None) -> urllib.request.Request:
+def geo_github_request(method: str, filename: str, extra_headers: dict | None = None) -> urllib.request.Request:
     headers = {
         "Authorization": f"Bearer {geo_token()}",
         "Accept": "application/vnd.github+json",
@@ -82,55 +93,96 @@ def geo_github_request(method: str, extra_headers: dict | None = None) -> urllib
     }
     headers.update(extra_headers or {})
     return urllib.request.Request(
-        f"https://api.github.com/repos/{GEO_REPO}/contents/{GEO_FILE}", headers=headers, method=method
+        f"https://api.github.com/repos/{GEO_REPO}/contents/{filename}", headers=headers, method=method
     )
 
 
-def geo_save_to_github() -> None:
-    """Сохранить geo_state в geo.json репозитория данных. Без токена — пропускаем."""
+def _save_json_to_github(filename: str, state: dict, lock: threading.Lock, label: str) -> None:
     if not geo_token():
         return
     try:
-        with geo_lock:
-            payload = json.dumps(geo_state, ensure_ascii=False).encode("utf-8")
+        with lock:
+            payload = json.dumps(state, ensure_ascii=False).encode("utf-8")
         body = {
-            "message": "geo: update markers",
+            "message": f"{label}: update",
             "content": base64.b64encode(payload).decode("ascii"),
         }
         try:
-            current = json.load(urllib.request.urlopen(geo_github_request("GET"), timeout=15))
+            current = json.load(urllib.request.urlopen(geo_github_request("GET", filename), timeout=15))
             body["sha"] = current["sha"]
         except urllib.error.HTTPError as e:
             if e.code != 404:
                 raise  # файл ещё не создан — пишем без sha
-        req = geo_github_request(
-            "PUT", {"Content-Type": "application/json"}
-        )
+        req = geo_github_request("PUT", filename, {"Content-Type": "application/json"})
         req.data = json.dumps(body).encode("utf-8")
         urllib.request.urlopen(req, timeout=15)
     except Exception as e:
-        print(f"[paint_bot] geo save failed: {e!r}", flush=True)
+        print(f"[paint_bot] {label} save failed: {e!r}", flush=True)
+
+
+def _load_json_from_github(filename: str, label: str):
+    """Вернуть распарсенный JSON из файла репозитория; None, если файла нет/токена нет."""
+    if not geo_token():
+        return None
+    try:
+        data = json.load(urllib.request.urlopen(geo_github_request("GET", filename), timeout=15))
+        return json.loads(base64.b64decode(data["content"]).decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            print(f"[paint_bot] {label} load failed: {e!r}", flush=True)
+        return None
+    except Exception as e:
+        print(f"[paint_bot] {label} load failed: {e!r}", flush=True)
+        return None
+
+
+def geo_save_to_github() -> None:
+    _save_json_to_github(GEO_FILE, geo_state, geo_lock, "geo")
 
 
 def geo_load_from_github() -> None:
-    """Загрузить метки из geo.json при старте сервиса. Без токена или файла — пусто."""
     if not geo_token():
         print("[paint_bot] GEO_GITHUB_TOKEN не задан — метки живут только в памяти", flush=True)
         return
-    try:
-        data = json.load(urllib.request.urlopen(geo_github_request("GET"), timeout=15))
-        raw = base64.b64decode(data["content"]).decode("utf-8")
-        loaded = json.loads(raw)
-        geo_state.update({int(cid): markers for cid, markers in loaded.items()})
-        total = sum(len(m) for m in geo_state.values())
-        print(f"[paint_bot] geo: загружено {total} меток из Git", flush=True)
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            print("[paint_bot] geo: файла geo.json ещё нет — начинаем с чистого листа", flush=True)
-        else:
-            print(f"[paint_bot] geo load failed: {e!r}", flush=True)
-    except Exception as e:
-        print(f"[paint_bot] geo load failed: {e!r}", flush=True)
+    loaded = _load_json_from_github(GEO_FILE, "geo")
+    if loaded is None:
+        print("[paint_bot] geo: файла geo.json ещё нет — начинаем с чистого листа", flush=True)
+        return
+    geo_state.update({int(cid): markers for cid, markers in loaded.items()})
+    total = sum(len(m) for m in geo_state.values())
+    print(f"[paint_bot] geo: загружено {total} меток из Git", flush=True)
+
+
+def letters_save_to_github() -> None:
+    _save_json_to_github(LETTERS_FILE, letters_state, geo_lock, "letters")
+
+
+def letters_load_from_github() -> None:
+    loaded = _load_json_from_github(LETTERS_FILE, "letters")
+    if loaded:
+        letters_state.update(loaded)
+        print(f"[paint_bot] letters: загружено {len(loaded)} писем из Git", flush=True)
+
+
+def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Расстояние по прямой между координатами, км."""
+    r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lon2 - lon1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+def letter_progress(letter: dict):
+    """Текущая позиция письма (по прямой) и флаг прибытия. Скорость: 100 км за 10 мин."""
+    total = haversine_km(letter["from_lat"], letter["from_lon"], letter["to_lat"], letter["to_lon"])
+    elapsed_min = (time.time() - letter["start_ts"]) / 60.0
+    done_km = min(elapsed_min * LETTER_SPEED_KM_PER_MIN, total)
+    frac = done_km / total if total > 0 else 1.0
+    lat = letter["from_lat"] + (letter["to_lat"] - letter["from_lat"]) * frac
+    lon = letter["from_lon"] + (letter["to_lon"] - letter["from_lon"]) * frac
+    return lat, lon, total <= 0 or done_km >= total
 
 
 def white_png() -> bytes:
@@ -305,6 +357,12 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   <input id="name" placeholder="Твоё имя" maxlength="24">
   <button id="saveBtn">📍 Поставить метку</button>
   <button id="distBtn" style="background:#888;">📏 Расстояние</button>
+  <button id="letterBtn" style="background:#888;">✉️ Письмо</button>
+</div>
+<div class="bar" id="letterBar" style="display:none;">
+  <input id="letterText" placeholder="Текст письма (до 100 символов)" maxlength="100" style="flex:2;">
+  <button id="letterSend">Отправить</button>
+  <button id="letterCancel" style="background:#ddd;color:#333;">Отмена</button>
 </div>
 <div id="status"></div>
 <script>
@@ -359,12 +417,59 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     let html = '<span style="font-size:22px">' + emoji + '</span> <b>' + escapeHtml(m.name) + '</b><br>'
       + m.lat.toFixed(3) + ', ' + m.lon.toFixed(3);
     if (m.user === userKey()) {
+      const got = m.got || 0, read = m.read || 0;
+      html += '<br>📬 получено ' + got + ' • прочитано ' + read + ' • непрочитано ' + (got - read);
       html += '<br><a href="#" onclick="delMarker(); return false;">🗑 Удалить мою метку</a>';
     }
     mk.bindPopup(html);
-    mk.on('click', () => { if (distMode) pickPoint(m); });
+    mk.on('click', () => {
+      if (distMode) pickPoint(m);
+      else if (letterMode) tryLetterTarget(m);
+    });
     markers[m.user] = mk;
   }
+
+  // ---------- Письма ----------
+  const letterMarkers = {};  // letter_id -> L.marker
+  function letterIcon(arrived) {
+    return L.divIcon({
+      html: '<div style="font-size:26px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))">'
+        + (arrived ? '📬' : '✉️') + '</div>',
+      className: 'emoji-marker',
+      iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -14],
+    });
+  }
+  function renderLetter(l) {
+    const mk = L.marker([l.lat, l.lon], {icon: letterIcon(l.arrived)}).addTo(map);
+    let html;
+    if (l.mine && l.arrived) {
+      html = '📬 Письмо доставлено тебе!<br>'
+        + '<a href="#" onclick="readLetter(\'' + l.id + '\'); return false;">📖 Прочитать</a>';
+    } else if (l.mine) {
+      html = '✉️ Твоё письмо ещё в пути к тебе…';
+    } else {
+      html = '📨 Письмо в пути… (адресат: ' + escapeHtml(l.to_name) + ')';
+    }
+    mk.bindPopup(html);
+    letterMarkers[l.id] = mk;
+  }
+
+  async function readLetter(id) {
+    const r = await fetch('/georead', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey(), id: id})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      status('📬 Письмо от ' + data.from + ': «' + data.text + '» — прочитано и удалено');
+      load();
+    } else if (r.status === 409) {
+      status('✉️ Письмо ещё в пути — придёт, прочитаешь 🙂');
+    } else {
+      status('⚠️ ' + (data.error || 'не получилось прочитать'));
+    }
+  }
+  window.readLetter = readLetter;
 
   // ---------- Расстояние и время в пути (по прямой) ----------
   const toRad = d => d * Math.PI / 180;
@@ -383,16 +488,55 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     return Math.floor(h / 24) + ' дн ' + (h % 24) + ' ч';
   }
 
-  let distMode = false, pointA = null, distLine = null;
+  let distMode = false, letterMode = false, pointA = null, distLine = null;
   const distBtn = document.getElementById('distBtn');
-  distBtn.onclick = () => {
-    distMode = !distMode;
+  const letterBtn = document.getElementById('letterBtn');
+  const letterBar = document.getElementById('letterBar');
+  let letterTarget = null;
+  function setMode(mode) {
+    distMode = mode === 'dist';
+    letterMode = mode === 'letter';
     pointA = null;
     if (distLine) { map.removeLayer(distLine); distLine = null; }
     distBtn.style.background = distMode ? '#e05a3a' : '#888';
-    status(distMode
-      ? '📏 Кликни первую метку (или точку на карте), потом вторую'
-      : 'Режим расстояния выключен');
+    letterBtn.style.background = letterMode ? '#e05a3a' : '#888';
+    if (!letterMode) { letterBar.style.display = 'none'; letterTarget = null; }
+    status(distMode ? '📏 Кликни первую метку (или точку на карте), потом вторую'
+      : letterMode ? '✉️ Кликни метку ДРУГОГО участника, чтобы отправить письмо'
+      : 'Режим выключен');
+  }
+  distBtn.onclick = () => setMode(distMode ? null : 'dist');
+  letterBtn.onclick = () => setMode(letterMode ? null : 'letter');
+
+  function tryLetterTarget(m) {
+    if (m.user === userKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
+    letterTarget = m;
+    letterBar.style.display = 'flex';
+    status('✉️ Письмо для ' + m.name + ' — напиши текст (до 100 символов)');
+  }
+  document.getElementById('letterCancel').onclick = () => setMode(null);
+  document.getElementById('letterSend').onclick = async () => {
+    const textEl = document.getElementById('letterText');
+    const text = textEl.value.trim();
+    if (!text) { status('Письмо пустое — напиши что-нибудь 🙂'); return; }
+    if (!letterTarget) { setMode(null); return; }
+    const target = letterTarget;
+    const r = await fetch('/geosend', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName(),
+                          to_user: target.user, text: text})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      textEl.value = '';
+      setMode(null);
+      status('✉️ Отправлено! Прибудет примерно через ' + data.eta_min + ' мин');
+      load();
+    } else if (r.status === 409) {
+      status('⚠️ Уже есть письмо в пути к ' + target.name + ' — дождись доставки');
+    } else {
+      status('⚠️ ' + (data.error || 'не отправилось'));
+    }
   };
 
   function pickPoint(p) {
@@ -412,19 +556,25 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   }
 
   async function load() {
-    const r = await fetch('/geo?chat=' + chat + '&t=' + Date.now());
+    const r = await fetch('/geodata?chat=' + chat + '&user=' + encodeURIComponent(userKey()) + '&t=' + Date.now());
     const data = await r.json();
     Object.values(markers).forEach(m => map.removeLayer(m));
     Object.keys(markers).forEach(k => delete markers[k]);
+    Object.values(letterMarkers).forEach(m => map.removeLayer(m));
+    Object.keys(letterMarkers).forEach(k => delete letterMarkers[k]);
     (data.markers || []).forEach(renderMarker);
-    status('🌍 Меток в чате: ' + (data.markers || []).length);
+    (data.letters || []).forEach(renderLetter);
+    status('🌍 Меток: ' + (data.markers || []).length + ' • ✉️ Писем на карте: '
+      + (data.letters || []).length);
   }
+  setInterval(load, 60000);  // автообновление; позиции писем считает сервер по времени
 
   map.on('click', e => {
     if (distMode) {
       pickPoint({lat: e.latlng.lat, lon: e.latlng.lng, name: 'точка на карте'});
       return;
     }
+    if (letterMode) { status('✉️ Кликни по МЕТКЕ участника (животное на карте), а не просто по карте'); return; }
     pending = e.latlng;
     status('Точка: ' + e.latlng.lat.toFixed(4) + ', ' + e.latlng.lng.toFixed(4) + ' — жми «Поставить метку»');
   });
@@ -482,13 +632,36 @@ class AppHandler(BaseHTTPRequestHandler):
             self._respond(200, state["image"] if state else white_png(), "image/png")
         elif url.path == "/geomap":
             self._respond(200, GEO_HTML_PAGE.encode("utf-8"), "text/html; charset=utf-8")
-        elif url.path == "/geo":
+        elif url.path == "/geodata":
             chat_id = int(params.get("chat", ["0"])[0])
+            viewer = params.get("user", [""])[0]
             with geo_lock:
-                markers = list(geo_state.get(chat_id, {}).values())
+                markers = [dict(m) for m in geo_state.get(chat_id, {}).values()]
+                letters_out = []
+                changed = False
+                for lid, letter in list(letters_state.items()):
+                    if letter["chat"] != chat_id:
+                        continue
+                    lat, lon, arrived = letter_progress(letter)
+                    if arrived and not letter["arrived"]:
+                        letter["arrived"] = True
+                        dest = geo_state.get(chat_id, {}).get(letter["to"])
+                        if dest is not None:
+                            dest["got"] = dest.get("got", 0) + 1
+                        changed = True
+                    dest = geo_state.get(chat_id, {}).get(letter["to"])
+                    letters_out.append({
+                        "id": lid, "lat": round(lat, 6), "lon": round(lon, 6),
+                        "arrived": arrived,
+                        "mine": letter["to"] == viewer,
+                        "to_name": (dest or {}).get("name", "удалённой метке"),
+                    })
+            if changed:
+                geo_save_to_github()
+                letters_save_to_github()
             self._respond(
                 200,
-                json.dumps({"markers": markers}, ensure_ascii=False).encode("utf-8"),
+                json.dumps({"markers": markers, "letters": letters_out}, ensure_ascii=False).encode("utf-8"),
                 "application/json; charset=utf-8",
             )
         elif url.path in ("/begin", "/end"):
@@ -513,6 +686,9 @@ class AppHandler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         if url.path in ("/geomark", "/geodel"):
             self._handle_geo_post(url)
+            return
+        if url.path in ("/geosend", "/georead"):
+            self._handle_letter_post(url)
             return
         if url.path != "/save":
             self._respond(404, b"not found")
@@ -560,9 +736,12 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._respond(400, b"bad coords")
                 return
             with geo_lock:
-                geo_state.setdefault(chat_id, {})[user] = {
+                chat_markers = geo_state.setdefault(chat_id, {})
+                old = chat_markers.get(user, {})
+                chat_markers[user] = {
                     "user": user, "name": name, "icon": icon,
                     "lat": round(lat, 6), "lon": round(lon, 6),
+                    "got": old.get("got", 0), "read": old.get("read", 0),
                 }
             geo_save_to_github()
             self._respond(200, b"ok")
@@ -573,9 +752,86 @@ class AppHandler(BaseHTTPRequestHandler):
                 if markers and user in markers:
                     del markers[user]
                     removed = True
+                # письма, шедшие к удалённой метке, тоже удаляются
+                doomed = [lid for lid, l in letters_state.items()
+                          if l["chat"] == chat_id and l["to"] == user]
+                for lid in doomed:
+                    del letters_state[lid]
             if removed:
                 geo_save_to_github()
+            if doomed:
+                letters_save_to_github()
             self._respond(200, b"ok")
+
+    def _json_response(self, code: int, obj: dict) -> None:
+        self._respond(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"),
+                      "application/json; charset=utf-8")
+
+    def _handle_letter_post(self, url):
+        """Отправить (/geosend) или прочитать (/georead) письмо."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        if url.path == "/geosend":
+            to_user = str(payload.get("to_user", ""))[:64]
+            name = (str(payload.get("name"))[:32]).strip() or "Аноним"
+            text = str(payload.get("text", "")).strip()
+            if not user or not to_user or user == to_user or not text:
+                self._json_response(400, {"error": "bad request"})
+                return
+            if len(text) > LETTER_MAX_TEXT:
+                self._json_response(400, {"error": f"слишком длинное (максимум {LETTER_MAX_TEXT})"})
+                return
+            with geo_lock:
+                markers = geo_state.get(chat_id, {})
+                frm, to = markers.get(user), markers.get(to_user)
+                if frm is None or to is None:
+                    self._json_response(404, {"error": "нет метки у отправителя или адресата"})
+                    return
+                for letter in letters_state.values():
+                    if letter["chat"] == chat_id and letter["from"] == user and letter["to"] == to_user:
+                        self._json_response(409, {"error": "уже есть письмо в пути этому адресату"})
+                        return
+                lid = uuid.uuid4().hex[:10]
+                total = haversine_km(frm["lat"], frm["lon"], to["lat"], to["lon"])
+                letters_state[lid] = {
+                    "id": lid, "chat": chat_id, "from": user, "from_name": name,
+                    "to": to_user, "text": text,
+                    "from_lat": frm["lat"], "from_lon": frm["lon"],
+                    "to_lat": to["lat"], "to_lon": to["lon"],
+                    "start_ts": time.time(), "arrived": False,
+                }
+            letters_save_to_github()
+            eta = int(total / LETTER_SPEED_KM_PER_MIN) + 1
+            self._json_response(200, {"eta_min": eta})
+            return
+        # /georead
+        lid = str(payload.get("id", ""))[:16]
+        with geo_lock:
+            letter = letters_state.get(lid)
+            if letter is None or letter["chat"] != chat_id:
+                self._json_response(404, {"error": "письмо не найдено"})
+                return
+            if letter["to"] != user:
+                self._json_response(403, {"error": "это письмо не тебе"})
+                return
+            _, _, arrived = letter_progress(letter)
+            if not arrived:
+                self._json_response(409, {"error": "письмо ещё в пути"})
+                return
+            result = {"from": letter["from_name"], "text": letter["text"]}
+            del letters_state[lid]
+            dest = geo_state.get(chat_id, {}).get(user)
+            if dest is not None:
+                dest["read"] = dest.get("read", 0) + 1
+        geo_save_to_github()
+        letters_save_to_github()
+        self._json_response(200, result)
 
     def log_message(self, format, *args):
         pass  # не спамить в логи
@@ -1252,8 +1508,9 @@ async def on_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 def main() -> None:
-    # Поднимаем сохранённые метки географии из GitHub (после перезапусков)
+    # Поднимаем сохранённые метки географии и письма из GitHub (после перезапусков)
     geo_load_from_github()
+    letters_load_from_github()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
