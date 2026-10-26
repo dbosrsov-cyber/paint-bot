@@ -300,6 +300,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
 <div class="bar">
   <input id="name" placeholder="Твоё имя" maxlength="24">
   <button id="saveBtn">📍 Поставить метку</button>
+  <button id="distBtn" style="background:#888;">📏 Расстояние</button>
 </div>
 <div id="status"></div>
 <script>
@@ -331,7 +332,53 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
       html += '<br><a href="#" onclick="delMarker(); return false;">🗑 Удалить мою метку</a>';
     }
     mk.bindPopup(html);
+    mk.on('click', () => { if (distMode) pickPoint(m); });
     markers[m.user] = mk;
+  }
+
+  // ---------- Расстояние и время в пути (по прямой) ----------
+  const toRad = d => d * Math.PI / 180;
+  function haversineKm(a, b) {
+    const R = 6371;
+    const dLat = toRad(b.lat - a.lat), dLon = toRad(b.lon - a.lon);
+    const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(s));
+  }
+  function fmtKm(km) { return km < 10 ? km.toFixed(1) + ' км' : Math.round(km).toLocaleString('ru-RU') + ' км'; }
+  function fmtTime(km, speed) {
+    const mins = Math.round(km / speed * 60);
+    if (mins < 60) return mins + ' мин';
+    const h = Math.floor(mins / 60), m = mins % 60;
+    if (h < 24) return m ? h + ' ч ' + m + ' мин' : h + ' ч';
+    return Math.floor(h / 24) + ' дн ' + (h % 24) + ' ч';
+  }
+
+  let distMode = false, pointA = null, distLine = null;
+  const distBtn = document.getElementById('distBtn');
+  distBtn.onclick = () => {
+    distMode = !distMode;
+    pointA = null;
+    if (distLine) { map.removeLayer(distLine); distLine = null; }
+    distBtn.style.background = distMode ? '#e05a3a' : '#888';
+    status(distMode
+      ? '📏 Кликни первую метку (или точку на карте), потом вторую'
+      : 'Режим расстояния выключен');
+  };
+
+  function pickPoint(p) {
+    if (!pointA) { pointA = p; status('📍 Точка А: ' + p.name + ' — теперь выбери вторую'); return; }
+    if (haversineKm(pointA, p) < 0.05) { status('Это то же место — выбери другую точку'); return; }
+    const km = haversineKm(pointA, p);
+    if (distLine) map.removeLayer(distLine);
+    distLine = L.polyline(
+      [[pointA.lat, pointA.lon], [p.lat, p.lon]],
+      {color: '#e05a3a', dashArray: '8 6', weight: 3}
+    ).addTo(map);
+    status('📏 ' + pointA.name + ' → ' + p.name + ': ' + fmtKm(km)
+      + ' • 🚶 ' + fmtTime(km, 5)
+      + ' • 🚗 ' + fmtTime(km, 80)
+      + ' • ✈️ ' + fmtTime(km, 800) + ' (по прямой)');
+    pointA = null;
   }
 
   async function load() {
@@ -344,6 +391,10 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   }
 
   map.on('click', e => {
+    if (distMode) {
+      pickPoint({lat: e.latlng.lat, lon: e.latlng.lng, name: 'точка на карте'});
+      return;
+    }
     pending = e.latlng;
     status('Точка: ' + e.latlng.lat.toFixed(4) + ', ' + e.latlng.lng.toFixed(4) + ' — жми «Поставить метку»');
   });
