@@ -59,7 +59,10 @@ GEO_TOKEN_ENV = "GEO_GITHUB_TOKEN"  # токен добавляется в Rende
 
 # Письмо летит по прямой: 100 км за 10 минут
 LETTER_SPEED_KM_PER_MIN = 10.0
+# ТЕСТОВОЕ ускорение доставки для конкретных адресатов (0.5 км/мин = 500 м/мин)
+LETTER_SPEED_OVERRIDES_KM_PER_MIN = {"Sumai": 0.5, "ПМ": 0.5}
 LETTER_MAX_TEXT = 100
+LETTER_READ_KEEP_SEC = 3600  # прочитанное письмо можно перечитывать час, потом удаляется
 
 # Статистика: {user_id: {"games", "wins", "best"}}
 stats = {}
@@ -174,15 +177,31 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * r * math.asin(math.sqrt(a))
 
 
+def letter_speed_km_per_min(letter: dict) -> float:
+    """Скорость доставки письма: по умолчанию 10 км/мин, для адресатов из
+    LETTER_SPEED_OVERRIDES_KM_PER_MIN — индивидуальная (тестовая отладка)."""
+    return LETTER_SPEED_OVERRIDES_KM_PER_MIN.get(letter["to"], LETTER_SPEED_KM_PER_MIN)
+
+
 def letter_progress(letter: dict):
-    """Текущая позиция письма (по прямой) и флаг прибытия. Скорость: 100 км за 10 мин."""
+    """Текущая позиция письма (по прямой) и флаг прибытия."""
     total = haversine_km(letter["from_lat"], letter["from_lon"], letter["to_lat"], letter["to_lon"])
     elapsed_min = (time.time() - letter["start_ts"]) / 60.0
-    done_km = min(elapsed_min * LETTER_SPEED_KM_PER_MIN, total)
+    done_km = min(elapsed_min * letter_speed_km_per_min(letter), total)
     frac = done_km / total if total > 0 else 1.0
     lat = letter["from_lat"] + (letter["to_lat"] - letter["from_lat"]) * frac
     lon = letter["from_lon"] + (letter["to_lon"] - letter["from_lon"]) * frac
     return lat, lon, total <= 0 or done_km >= total
+
+
+def tg_send_message(chat_id: int, text: str) -> None:
+    """Отправить сообщение в чат напрямую через Bot API (вызывается из HTTP-потока)."""
+    req = urllib.request.Request(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+        data=json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8"),
+        headers={"Content-Type": "application/json"}, method="POST",
+    )
+    urllib.request.urlopen(req, timeout=15).read()
 
 
 def white_png() -> bytes:
@@ -387,8 +406,9 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   let pending = null;
   const markers = {};  // user_key -> L.marker
 
-  // выбор животного для метки
-  const ANIMALS = ['🦊', '🐼', '🦁', '🐸', '🐙', '🦉', '🐢', '🦖', '🐧', '🦄', '🐝', '🦔'];
+  // выбор животного для метки (🐼 и 🐉 — персональные, в общий список не входят)
+  const ANIMALS = ['🦊', '🦁', '🐸', '🐙', '🦉', '🐢', '🦖', '🐧', '🦄', '🐝', '🦔',
+    '🐯', '🐨', '🐰', '🐻', '🐺', '🦩', '🐬', '🦒', '🐘', '🦅'];
   let curIcon = ANIMALS[0];
   const animalsBar = document.getElementById('animals');
   ANIMALS.forEach((a, i) => {
@@ -459,12 +479,19 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
-      status('📬 Письмо от ' + data.from + ': «' + data.text + '» — прочитано и удалено');
-      load();
+      const mk = letterMarkers[id];
+      if (mk) {
+        mk.bindPopup('📬 Письмо от <b>' + escapeHtml(data.from) + '</b>:<br>'
+          + '<span style="font-size:17px">«' + escapeHtml(data.text) + '»</span><br>'
+          + '<i>Можно перечитать в течение часа</i>');
+        mk.openPopup();
+      }
+      status('📬 Письмо от ' + data.from + ': «' + data.text + '»' + (data.re_read ? ' (перечитано)' : ''));
     } else if (r.status === 409) {
       status('✉️ Письмо ещё в пути — придёт, прочитаешь 🙂');
     } else {
       status('⚠️ ' + (data.error || 'не получилось прочитать'));
+      if (r.status === 404) load();
     }
   }
   window.readLetter = readLetter;
@@ -636,8 +663,15 @@ class AppHandler(BaseHTTPRequestHandler):
             with geo_lock:
                 letters_out = []
                 changed = False
+                now = time.time()
                 for lid, letter in list(letters_state.items()):
                     if letter["chat"] != chat_id:
+                        continue
+                    # прочитанное письмо живёт час и удаляется
+                    read_ts = letter.get("read_ts")
+                    if read_ts is not None and now - read_ts > LETTER_READ_KEEP_SEC:
+                        del letters_state[lid]
+                        changed = True
                         continue
                     lat, lon, arrived = letter_progress(letter)
                     if arrived and not letter["arrived"]:
@@ -645,7 +679,19 @@ class AppHandler(BaseHTTPRequestHandler):
                         dest = geo_state.get(chat_id, {}).get(letter["to"])
                         if dest is not None:
                             dest["got"] = dest.get("got", 0) + 1
+                            dest_name = dest.get("name", letter["to"])
+                        else:
+                            dest_name = letter["to"]
                         changed = True
+                        # уведомление адресату в чат Telegram (один раз, при доставке)
+                        try:
+                            tg_send_message(
+                                chat_id,
+                                f"📬 {dest_name}! Тебе прибыло письмо — открой карту чата "
+                                "и нажми на 📬, чтобы прочитать.",
+                            )
+                        except Exception as e:
+                            print(f"[paint_bot] уведомление о письме не ушло: {e!r}", flush=True)
                     dest = geo_state.get(chat_id, {}).get(letter["to"])
                     letters_out.append({
                         "id": lid, "lat": round(lat, 6), "lon": round(lon, 6),
@@ -805,7 +851,8 @@ class AppHandler(BaseHTTPRequestHandler):
                     "start_ts": time.time(), "arrived": False,
                 }
             letters_save_to_github()
-            eta = int(total / LETTER_SPEED_KM_PER_MIN) + 1
+            speed = LETTER_SPEED_OVERRIDES_KM_PER_MIN.get(to_user, LETTER_SPEED_KM_PER_MIN)
+            eta = int(total / speed) + 1
             self._json_response(200, {"eta_min": eta})
             return
         # /georead
@@ -822,11 +869,30 @@ class AppHandler(BaseHTTPRequestHandler):
             if not arrived:
                 self._json_response(409, {"error": "письмо ещё в пути"})
                 return
-            result = {"from": letter["from_name"], "text": letter["text"]}
-            del letters_state[lid]
-            dest = geo_state.get(chat_id, {}).get(user)
-            if dest is not None:
-                dest["read"] = dest.get("read", 0) + 1
+            now = time.time()
+            read_ts = letter.get("read_ts")
+            if read_ts is not None and now - read_ts > LETTER_READ_KEEP_SEC:
+                del letters_state[lid]
+                expired = True
+            else:
+                expired = False
+            if not expired:
+                if read_ts is None:
+                    # первое чтение: фиксируем время и счётчик «прочитано»
+                    letter["read_ts"] = now
+                    dest = geo_state.get(chat_id, {}).get(user)
+                    if dest is not None:
+                        dest["read"] = dest.get("read", 0) + 1
+                result = {
+                    "from": letter["from_name"],
+                    "text": letter["text"],
+                    "re_read": read_ts is not None,
+                }
+        if expired:
+            geo_save_to_github()
+            letters_save_to_github()
+            self._json_response(404, {"error": "письмо удалено по истечении часа"})
+            return
         geo_save_to_github()
         letters_save_to_github()
         self._json_response(200, result)
