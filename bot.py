@@ -293,10 +293,14 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   input { flex:1; min-width:140px; padding:10px; border-radius:8px; border:1px solid #ccc; font-size:15px; }
   button { padding:10px 14px; border-radius:8px; border:none; font-size:15px; background:#2ea6ff; color:#fff; }
   #status { padding:0 8px; color:#555; font-size:14px; min-height:18px; }
+  .an { font-size:24px; background:#fff; border:2px solid #ddd; border-radius:8px; padding:4px 8px; cursor:pointer; }
+  .an.on { border-color:#e05a3a; background:#ffe9e2; transform:scale(1.12); }
+  .emoji-marker { background:none; border:none; }
 </style>
 </head>
 <body>
 <div id="map"></div>
+<div class="bar" id="animals"></div>
 <div class="bar">
   <input id="name" placeholder="Твоё имя" maxlength="24">
   <button id="saveBtn">📍 Поставить метку</button>
@@ -325,9 +329,35 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   let pending = null;
   const markers = {};  // user_key -> L.marker
 
+  // выбор животного для метки
+  const ANIMALS = ['🦊', '🐼', '🦁', '🐸', '🐙', '🦉', '🐢', '🦖', '🐧', '🦄', '🐝', '🦔'];
+  let curIcon = ANIMALS[0];
+  const animalsBar = document.getElementById('animals');
+  ANIMALS.forEach((a, i) => {
+    const b = document.createElement('button');
+    b.className = 'an' + (i === 0 ? ' on' : '');
+    b.textContent = a;
+    b.onclick = () => {
+      curIcon = a;
+      document.querySelectorAll('.an').forEach(x => x.classList.remove('on'));
+      b.classList.add('on');
+    };
+    animalsBar.appendChild(b);
+  });
+
+  function animalIcon(emoji) {
+    return L.divIcon({
+      html: '<div style="font-size:28px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))">' + emoji + '</div>',
+      className: 'emoji-marker',
+      iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -14],
+    });
+  }
+
   function renderMarker(m) {
-    const mk = L.marker([m.lat, m.lon]).addTo(map);
-    let html = '<b>' + escapeHtml(m.name) + '</b><br>' + m.lat.toFixed(3) + ', ' + m.lon.toFixed(3);
+    const emoji = m.icon || '📍';
+    const mk = L.marker([m.lat, m.lon], {icon: animalIcon(emoji)}).addTo(map);
+    let html = '<span style="font-size:22px">' + emoji + '</span> <b>' + escapeHtml(m.name) + '</b><br>'
+      + m.lat.toFixed(3) + ', ' + m.lon.toFixed(3);
     if (m.user === userKey()) {
       html += '<br><a href="#" onclick="delMarker(); return false;">🗑 Удалить мою метку</a>';
     }
@@ -405,7 +435,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     const r = await fetch('/geomark', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName(),
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), icon: curIcon,
                             lat: pending.lat, lon: pending.lng})
     });
     if (r.ok) { status('✅ Метка поставлена!'); pending = null; load(); }
@@ -520,6 +550,7 @@ class AppHandler(BaseHTTPRequestHandler):
         if url.path == "/geomark":
             try:
                 name = (str(payload.get("name"))[:32] or "Аноним").strip() or "Аноним"
+                icon = str(payload.get("icon", "📍"))[:8] or "📍"
                 lat = float(payload["lat"])
                 lon = float(payload["lon"])
             except Exception:
@@ -530,7 +561,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             with geo_lock:
                 geo_state.setdefault(chat_id, {})[user] = {
-                    "user": user, "name": name,
+                    "user": user, "name": name, "icon": icon,
                     "lat": round(lat, 6), "lon": round(lon, 6),
                 }
             geo_save_to_github()
