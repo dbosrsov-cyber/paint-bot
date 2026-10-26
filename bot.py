@@ -62,7 +62,8 @@ LETTER_SPEED_KM_PER_MIN = 10.0
 # ТЕСТОВОЕ ускорение: 500 км/мин для обмена между парой Sumai <-> ПМ (в обе стороны)
 LETTER_TEST_SPEED_KM_PER_MIN = 500.0
 LETTER_TEST_PAIRS = {frozenset(("Sumai", "ПМ"))}
-# Письма ОТ этих отправителей летят в N раз быстрее базовой скорости (Андрюха — далеко, США)
+# Письма, где отправитель ИЛИ адресат — из этого списка, летят в N раз быстрее
+# базовой скорости (Андрюха — далеко, США — иначе обмен с ним идёт сутками)
 LETTER_FAST_SENDERS = {"Андрюха": 3.0}
 LETTER_MAX_TEXT = 100
 LETTER_READ_KEEP_SEC = 3600  # прочитанное письмо можно перечитывать час, потом удаляется
@@ -181,9 +182,9 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def letter_speed_km_per_min(letter: dict) -> float:
-    """Скорость доставки письма, км/мин: базовая 10; у «быстрых» отправителей
-    (сейчас Андрюха) — базовая × множитель; для тестовых пар — 500."""
-    mult = LETTER_FAST_SENDERS.get(letter.get("from"))
+    """Скорость доставки письма, км/мин: базовая 10; если отправитель ИЛИ адресат —
+    «быстрый» (сейчас Андрюха) — базовая × множитель; для тестовых пар — 500."""
+    mult = LETTER_FAST_SENDERS.get(letter.get("from")) or LETTER_FAST_SENDERS.get(letter["to"])
     if mult:
         return LETTER_SPEED_KM_PER_MIN * mult
     if frozenset((letter["from"], letter["to"])) in LETTER_TEST_PAIRS:
@@ -864,7 +865,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     "start_ts": time.time(), "arrived": False,
                 }
             letters_save_to_github()
-            fast_mult = LETTER_FAST_SENDERS.get(user)
+            fast_mult = LETTER_FAST_SENDERS.get(user) or LETTER_FAST_SENDERS.get(to_user)
             speed = (LETTER_SPEED_KM_PER_MIN * fast_mult if fast_mult else
                      LETTER_TEST_SPEED_KM_PER_MIN
                      if frozenset((user, to_user)) in LETTER_TEST_PAIRS
