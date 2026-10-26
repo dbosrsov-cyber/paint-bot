@@ -1716,8 +1716,6 @@ def main() -> None:
     app.job_queue.run_repeating(paint_periodic_sweep, interval=15.0)
     # автобэкап меток и писем: каждый день в 01:00 по Москве
     app.job_queue.run_daily(backup_job, time=datetime.time(1, 0, tzinfo=MSK_TZ))
-    # ВРЕМЕННО: проверка автобэкапа через 120 с после старта (убрать после верификации)
-    app.job_queue.run_once(backup_job, when=120)
     app.run_polling()
 
 
