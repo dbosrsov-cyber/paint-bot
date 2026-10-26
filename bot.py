@@ -522,7 +522,8 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
       html: '<div style="font-size:26px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))">'
         + e + '</div>',
       className: 'emoji-marker',
-      iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -14],
+      // якорь НИЖЕ иконки: письмо висит над меткой (зазор ~8px) и не перекрывает животное
+      iconSize: [36, 36], iconAnchor: [18, 44], popupAnchor: [0, -44],
     });
   }
   function renderLetter(l) {
