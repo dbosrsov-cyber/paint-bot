@@ -8,6 +8,8 @@ import random
 import threading
 import time
 import uuid
+import asyncio
+import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 import urllib.error
@@ -170,6 +172,43 @@ def letters_load_from_github() -> None:
     if loaded:
         letters_state.update(loaded)
         print(f"[paint_bot] letters: загружено {len(loaded)} писем из Git", flush=True)
+
+
+# ---------- Автобэкап меток и писем ----------
+
+MSK_TZ = datetime.timezone(datetime.timedelta(hours=3))  # московское время (UTC+3, без летнего)
+BACKUP_KEEP_DAYS = 14  # сколько дневных снапшотов держать в backups/
+
+
+def _delete_github_file(filename: str) -> None:
+    """Удалить файл из paint-bot-data (молча, если его нет)."""
+    if not geo_token():
+        return
+    try:
+        current = json.load(urllib.request.urlopen(geo_github_request("GET", filename), timeout=15))
+        req = geo_github_request("DELETE", filename)
+        req.data = json.dumps({"message": f"cleanup {filename}", "sha": current["sha"]}).encode("utf-8")
+        urllib.request.urlopen(req, timeout=15)
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            print(f"[paint_bot] backup cleanup failed for {filename}: {e!r}", flush=True)
+    except Exception as e:
+        print(f"[paint_bot] backup cleanup failed for {filename}: {e!r}", flush=True)
+
+
+def backup_geo_data() -> None:
+    """Дневной снапшот geo.json и letters.json в paint-bot-data/backups/ — страховка
+    от случайного удаления меток: основной geo.json перезаписывается мгновенно,
+    а из снапшота можно вернуть состояние за конкретный день."""
+    if not geo_token():
+        return
+    today = datetime.datetime.now(MSK_TZ).strftime("%Y-%m-%d")
+    _save_json_to_github(f"backups/geo_{today}.json", geo_state, geo_lock, "backup geo")
+    _save_json_to_github(f"backups/letters_{today}.json", letters_state, geo_lock, "backup letters")
+    old = (datetime.datetime.now(MSK_TZ) - datetime.timedelta(days=BACKUP_KEEP_DAYS + 1)).strftime("%Y-%m-%d")
+    for name in (f"geo_{old}.json", f"letters_{old}.json"):
+        _delete_github_file(f"backups/{name}")
+    print(f"[paint_bot] backup {today} done", flush=True)
 
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -1206,6 +1245,11 @@ async def paint_periodic_sweep(context: ContextTypes.DEFAULT_TYPE) -> None:
             del paint_state[chat_id]
 
 
+async def backup_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Ежедневный бэкап меток и писем (сетевые запросы — в отдельном потоке)."""
+    await asyncio.to_thread(backup_geo_data)
+
+
 def end_duel(chat_id: int, user_id: int) -> str | None:
     """Завершить дуэль, если игрок её участник. Вернуть текст результата или None."""
     duel = duels.get(chat_id)
@@ -1662,6 +1706,10 @@ def main() -> None:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.job_queue.run_repeating(process_paint_updates, interval=1.0)
     app.job_queue.run_repeating(paint_periodic_sweep, interval=15.0)
+    # автобэкап меток и писем: каждый день в 01:00 по Москве
+    app.job_queue.run_daily(backup_job, time=datetime.time(1, 0, tzinfo=MSK_TZ))
+    # ВРЕМЕННО: проверка автобэкапа через 120 с после старта (убрать после верификации)
+    app.job_queue.run_once(backup_job, when=120)
     app.run_polling()
 
 
