@@ -603,6 +603,16 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     pointA = null;
   }
 
+  // если метка уже поставлена — убираем инструменты постановки (эмодзи, кнопку, имя),
+  // остаются только 📏 и ✉️; удаление метки вернёт всё обратно
+  function updateMineUI() {
+    const mine = !!markers[userKey()];
+    document.getElementById('animals').style.display = mine ? 'none' : 'flex';
+    document.getElementById('saveBtn').style.display = mine ? 'none' : '';
+    nameInput.disabled = mine;
+    nameInput.title = mine ? 'Имя закреплено за твоей меткой. Удали метку, чтобы изменить.' : '';
+  }
+
   async function load() {
     const r = await fetch('/geodata?chat=' + chat + '&user=' + encodeURIComponent(userKey()) + '&t=' + Date.now());
     const data = await r.json();
@@ -612,6 +622,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     Object.keys(letterMarkers).forEach(k => delete letterMarkers[k]);
     (data.markers || []).forEach(renderMarker);
     (data.letters || []).forEach(renderLetter);
+    updateMineUI();
     status('🌍 Меток: ' + (data.markers || []).length + ' • ✉️ Писем на карте: '
       + (data.letters || []).length);
   }
@@ -623,6 +634,10 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
       return;
     }
     if (letterMode) { status('✉️ Кликни по МЕТКЕ участника (животное на карте), а не просто по карте'); return; }
+    if (markers[userKey()]) {
+      status('У тебя уже есть метка. Чтобы поставить новую — кликни по своему животному и выбери «Удалить мою метку»');
+      return;
+    }
     pending = e.latlng;
     status('Точка: ' + e.latlng.lat.toFixed(4) + ', ' + e.latlng.lng.toFixed(4) + ' — жми «Поставить метку»');
   });
