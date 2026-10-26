@@ -441,16 +441,14 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   }
   function renderLetter(l) {
     const mk = L.marker([l.lat, l.lon], {icon: letterIcon(l.arrived)}).addTo(map);
-    let html;
     if (l.mine && l.arrived) {
-      html = '📬 Письмо доставлено тебе!<br>'
-        + '<a href="#" onclick="readLetter(\'' + l.id + '\'); return false;">📖 Прочитать</a>';
+      mk.bindPopup('📬 Письмо доставлено тебе!<br><b>Нажми на него ещё раз, чтобы прочитать</b>');
+      mk.on('click', () => readLetter(l.id));
     } else if (l.mine) {
-      html = '✉️ Твоё письмо ещё в пути к тебе…';
+      mk.bindPopup('✉️ Твоё письмо ещё в пути к тебе…');
     } else {
-      html = '📨 Письмо в пути… (адресат: ' + escapeHtml(l.to_name) + ')';
+      mk.bindPopup('📨 Письмо в пути… (адресат: ' + escapeHtml(l.to_name) + ')');
     }
-    mk.bindPopup(html);
     letterMarkers[l.id] = mk;
   }
 
