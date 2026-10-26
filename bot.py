@@ -8,6 +8,8 @@ import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
+import urllib.error
+import urllib.request
 
 from PIL import Image
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, MessageEntity, Update, WebAppInfo
@@ -38,6 +40,16 @@ paint_state = {}
 # Очередь чатов, где обновилась картинка (их надо перерисовать в Telegram)
 paint_update_queue = queue.Queue()
 
+# География чата: {chat_id: {user_key: {"user", "name", "lat", "lon"}}}
+# Хранится в GitHub-репозитории paint-bot-data (файл geo.json), чтобы переживать перезапуски.
+geo_state = {}
+geo_lock = threading.Lock()
+
+# Репозиторий для данных (не трогать main — иначе каждая метка будет триггерить автодеплой Render)
+GEO_REPO = "dbosrsov-cyber/paint-bot-data"
+GEO_FILE = "geo.json"
+GEO_TOKEN_ENV = "GEO_GITHUB_TOKEN"  # токен добавляется в Render как переменная окружения
+
 # Статистика: {user_id: {"games", "wins", "best"}}
 stats = {}
 
@@ -54,6 +66,71 @@ def chat_allowed(chat) -> bool:
     if chat.type in ("group", "supergroup", "channel"):
         return chat.id in ALLOWED_GROUPS
     return True
+
+
+# ---------- География чата: сохранение меток в GitHub ----------
+
+def geo_token() -> str:
+    return os.environ.get(GEO_TOKEN_ENV, "").strip()
+
+
+def geo_github_request(method: str, extra_headers: dict | None = None) -> urllib.request.Request:
+    headers = {
+        "Authorization": f"Bearer {geo_token()}",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    headers.update(extra_headers or {})
+    return urllib.request.Request(
+        f"https://api.github.com/repos/{GEO_REPO}/contents/{GEO_FILE}", headers=headers, method=method
+    )
+
+
+def geo_save_to_github() -> None:
+    """Сохранить geo_state в geo.json репозитория данных. Без токена — пропускаем."""
+    if not geo_token():
+        return
+    try:
+        with geo_lock:
+            payload = json.dumps(geo_state, ensure_ascii=False).encode("utf-8")
+        body = {
+            "message": "geo: update markers",
+            "content": base64.b64encode(payload).decode("ascii"),
+        }
+        try:
+            current = json.load(urllib.request.urlopen(geo_github_request("GET"), timeout=15))
+            body["sha"] = current["sha"]
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                raise  # файл ещё не создан — пишем без sha
+        req = geo_github_request(
+            "PUT", {"Content-Type": "application/json"}
+        )
+        req.data = json.dumps(body).encode("utf-8")
+        urllib.request.urlopen(req, timeout=15)
+    except Exception as e:
+        print(f"[paint_bot] geo save failed: {e!r}", flush=True)
+
+
+def geo_load_from_github() -> None:
+    """Загрузить метки из geo.json при старте сервиса. Без токена или файла — пусто."""
+    if not geo_token():
+        print("[paint_bot] GEO_GITHUB_TOKEN не задан — метки живут только в памяти", flush=True)
+        return
+    try:
+        data = json.load(urllib.request.urlopen(geo_github_request("GET"), timeout=15))
+        raw = base64.b64decode(data["content"]).decode("utf-8")
+        loaded = json.loads(raw)
+        geo_state.update({int(cid): markers for cid, markers in loaded.items()})
+        total = sum(len(m) for m in geo_state.values())
+        print(f"[paint_bot] geo: загружено {total} меток из Git", flush=True)
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            print("[paint_bot] geo: файла geo.json ещё нет — начинаем с чистого листа", flush=True)
+        else:
+            print(f"[paint_bot] geo load failed: {e!r}", flush=True)
+    except Exception as e:
+        print(f"[paint_bot] geo load failed: {e!r}", flush=True)
 
 
 def white_png() -> bytes:
@@ -199,6 +276,108 @@ HTML_PAGE = """<!DOCTYPE html>
 </html>"""
 
 
+# ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
+
+GEO_HTML_PAGE = """<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  body { margin:0; font-family:sans-serif; background:#f0f0f0; }
+  #map { width:100%; height:72vh; }
+  .bar { padding:8px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+  input { flex:1; min-width:140px; padding:10px; border-radius:8px; border:1px solid #ccc; font-size:15px; }
+  button { padding:10px 14px; border-radius:8px; border:none; font-size:15px; background:#2ea6ff; color:#fff; }
+  #status { padding:0 8px; color:#555; font-size:14px; min-height:18px; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div class="bar">
+  <input id="name" placeholder="Твоё имя" maxlength="24">
+  <button id="saveBtn">📍 Поставить метку</button>
+</div>
+<div id="status"></div>
+<script>
+  const tg = window.Telegram.WebApp;
+  tg.ready(); tg.expand();
+  const chat = new URLSearchParams(location.search).get('chat') || '0';
+
+  const map = L.map('map').setView([55, 45], 3);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    {maxZoom: 18, attribution: '© OpenStreetMap'}).addTo(map);
+  const status = t => document.getElementById('status').textContent = t;
+  const escapeHtml = s => { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; };
+
+  const tgUser = (tg.initDataUnsafe && tg.initDataUnsafe.user) || null;
+  const nameInput = document.getElementById('name');
+  nameInput.value = localStorage.getItem('geo_name')
+    || (tgUser && (tgUser.username ? '@' + tgUser.username : tgUser.first_name)) || '';
+  const userKey = () => String((tgUser && tgUser.id) || nameInput.value.trim() || 'anon');
+  const userName = () => (tgUser && (tgUser.username ? '@' + tgUser.username : tgUser.first_name))
+    || nameInput.value.trim() || 'Аноним';
+
+  let pending = null;
+  const markers = {};  // user_key -> L.marker
+
+  function renderMarker(m) {
+    const mk = L.marker([m.lat, m.lon]).addTo(map);
+    let html = '<b>' + escapeHtml(m.name) + '</b><br>' + m.lat.toFixed(3) + ', ' + m.lon.toFixed(3);
+    if (m.user === userKey()) {
+      html += '<br><a href="#" onclick="delMarker(); return false;">🗑 Удалить мою метку</a>';
+    }
+    mk.bindPopup(html);
+    markers[m.user] = mk;
+  }
+
+  async function load() {
+    const r = await fetch('/geo?chat=' + chat + '&t=' + Date.now());
+    const data = await r.json();
+    Object.values(markers).forEach(m => map.removeLayer(m));
+    Object.keys(markers).forEach(k => delete markers[k]);
+    (data.markers || []).forEach(renderMarker);
+    status('🌍 Меток в чате: ' + (data.markers || []).length);
+  }
+
+  map.on('click', e => {
+    pending = e.latlng;
+    status('Точка: ' + e.latlng.lat.toFixed(4) + ', ' + e.latlng.lng.toFixed(4) + ' — жми «Поставить метку»');
+  });
+
+  document.getElementById('saveBtn').onclick = async () => {
+    if (!pending) { status('Сначала кликни по карте в месте своего города'); return; }
+    if (nameInput.value.trim()) localStorage.setItem('geo_name', nameInput.value.trim());
+    const r = await fetch('/geomark', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName(),
+                            lat: pending.lat, lon: pending.lng})
+    });
+    if (r.ok) { status('✅ Метка поставлена!'); pending = null; load(); }
+    else status('Ошибка, попробуй ещё раз');
+  };
+
+  async function delMarker() {
+    await fetch('/geodel', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey()})
+    });
+    load();
+  }
+  window.delMarker = delMarker;
+
+  nameInput.onchange = () => { localStorage.setItem('geo_name', nameInput.value.trim()); load(); };
+  load();
+</script>
+</body>
+</html>"""
+
+
 class AppHandler(BaseHTTPRequestHandler):
     """HTTP-часть сервиса: / — проверка живости, /app — холст, /canvas — PNG, /save — приём рисунка."""
 
@@ -220,6 +399,17 @@ class AppHandler(BaseHTTPRequestHandler):
             chat_id = int(params.get("chat", ["0"])[0])
             state = paint_state.get(chat_id)
             self._respond(200, state["image"] if state else white_png(), "image/png")
+        elif url.path == "/geomap":
+            self._respond(200, GEO_HTML_PAGE.encode("utf-8"), "text/html; charset=utf-8")
+        elif url.path == "/geo":
+            chat_id = int(params.get("chat", ["0"])[0])
+            with geo_lock:
+                markers = list(geo_state.get(chat_id, {}).values())
+            self._respond(
+                200,
+                json.dumps({"markers": markers}, ensure_ascii=False).encode("utf-8"),
+                "application/json; charset=utf-8",
+            )
         elif url.path in ("/begin", "/end"):
             # мягкая очередь: отметить, что кто-то открыл/закрыл холст
             chat_id = int(params.get("chat", ["0"])[0])
@@ -240,6 +430,9 @@ class AppHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         url = urlparse(self.path)
+        if url.path in ("/geomark", "/geodel"):
+            self._handle_geo_post(url)
+            return
         if url.path != "/save":
             self._respond(404, b"not found")
             return
@@ -259,6 +452,48 @@ class AppHandler(BaseHTTPRequestHandler):
         state["drawer"] = None  # рисунок отправлен — холст свободен
         paint_update_queue.put(chat_id)
         self._respond(200, b"ok")
+
+    def _handle_geo_post(self, url):
+        """Поставить (/geomark) или удалить (/geodel) метку на карте чата."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+        except Exception:
+            self._respond(400, b"bad request")
+            return
+        if not user:
+            self._respond(400, b"bad request")
+            return
+        if url.path == "/geomark":
+            try:
+                name = (str(payload.get("name"))[:32] or "Аноним").strip() or "Аноним"
+                lat = float(payload["lat"])
+                lon = float(payload["lon"])
+            except Exception:
+                self._respond(400, b"bad request")
+                return
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                self._respond(400, b"bad coords")
+                return
+            with geo_lock:
+                geo_state.setdefault(chat_id, {})[user] = {
+                    "user": user, "name": name,
+                    "lat": round(lat, 6), "lon": round(lon, 6),
+                }
+            geo_save_to_github()
+            self._respond(200, b"ok")
+        else:  # /geodel
+            removed = False
+            with geo_lock:
+                markers = geo_state.get(chat_id)
+                if markers and user in markers:
+                    del markers[user]
+                    removed = True
+            if removed:
+                geo_save_to_github()
+            self._respond(200, b"ok")
 
     def log_message(self, format, *args):
         pass  # не спамить в логи
@@ -342,6 +577,7 @@ GAME_MENU = InlineKeyboardMarkup(
     [
         [InlineKeyboardButton("🐂 Быки и коровы", callback_data="game:bulls")],
         [InlineKeyboardButton("🎨 Рисовалка", callback_data="game:paint")],
+        [InlineKeyboardButton("🌍 География чата", callback_data="game:geo")],
     ]
 )
 
@@ -406,6 +642,20 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await query.edit_message_text("🎨 Рисовалка запущена! Лист появился в чате выше — жми «Открыть холст».")
         return
 
+    if game_key == "geo":
+        is_private = query.message.chat.type == "private"
+        count = len(geo_state.get(chat_id, {}))
+        text = (
+            "🌍 География чата!\nКаждый участник открывает карту и ставит метку своего города. "
+            "Метки общие для этого чата и не видны в других чатах."
+            + (f"\nСейчас меток: {count}." if count else "")
+        )
+        if not is_private:
+            text += "\n(в группах кнопка открывает карту в браузере)"
+        await context.bot.send_message(chat_id, text, reply_markup=geo_keyboard(chat_id, is_private))
+        await query.edit_message_text("🌍 Карта запущена — сообщение с кнопкой появилось в чате выше.")
+        return
+
     await query.answer("Эта игра появится позже 🙂", show_alert=True)
 
 
@@ -418,6 +668,15 @@ def paint_keyboard(chat_id: int, webapp: bool = True, drawer: str | None = None)
         btn = InlineKeyboardButton("🖌 Открыть холст", web_app=WebAppInfo(url=url))
     else:
         btn = InlineKeyboardButton("🖌 Открыть холст (браузер)", url=url)
+    return InlineKeyboardMarkup([[btn]])
+
+
+def geo_keyboard(chat_id: int, webapp: bool) -> InlineKeyboardMarkup:
+    url = f"{APP_URL}/geomap?chat={chat_id}"
+    if webapp:
+        btn = InlineKeyboardButton("🌍 Открыть карту", web_app=WebAppInfo(url=url))
+    else:
+        btn = InlineKeyboardButton("🌍 Открыть карту (браузер)", url=url)
     return InlineKeyboardMarkup([[btn]])
 
 
@@ -505,12 +764,24 @@ def end_solo(chat_id: int, user_id: int) -> str | None:
     return "Игра завершена.\nНовая игра — /startsum"
 
 
+def end_geo(chat_id: int) -> str | None:
+    """Стереть все метки чата с карты. Вернуть текст результата или None."""
+    if not geo_state.get(chat_id):
+        return None
+    with geo_lock:
+        geo_state.pop(chat_id, None)
+    geo_save_to_github()
+    return "🌍 География чата очищена — все метки стёрты. Новая карта — через меню /startsum"
+
+
 def close_activity(chat_id: int, user_id: int, kind: str) -> str:
-    """Завершить активность по выбору (duel/paint/solo) и вернуть текст для пользователя."""
+    """Завершить активность по выбору (duel/paint/geo/solo) и вернуть текст для пользователя."""
     if kind == "duel":
         return end_duel(chat_id, user_id) or "Дуэль уже завершена."
     if kind == "paint":
         return end_paint(chat_id) or "Рисовалка уже завершена."
+    if kind == "geo":
+        return end_geo(chat_id) or "Карта чата уже пустая."
     return end_solo(chat_id, user_id) or "Игра уже завершена."
 
 
@@ -528,6 +799,8 @@ async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         options.append(("⚔️ Дуэль", "stop:duel"))
     if chat_id in paint_state:
         options.append(("🎨 Рисовалка", "stop:paint"))
+    if geo_state.get(chat_id):
+        options.append(("🌍 География чата", "stop:geo"))
     if (chat_id, user.id) in solo_games:
         options.append(("🐂 Соло «Быки и коровы»", "stop:solo"))
 
@@ -891,6 +1164,8 @@ async def on_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 def main() -> None:
+    # Поднимаем сохранённые метки географии из GitHub (после перезапусков)
+    geo_load_from_github()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
