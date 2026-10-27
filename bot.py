@@ -679,10 +679,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-27-2145"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-27-2150"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-27-2145 -->
+<!-- build:2026-10-27-2150 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1841,7 +1841,7 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             n = len(s.get("chapters", []))
             text = (info + "\n\n———\n📜 Сага УЖЕ начата! Глав: "
                     f"{n}/{SAGA_MAX_CHAPTERS}. Жду продолжения «saga <твоя глава>» в чате.")
-            kb = InlineKeyboardMarkup([[InlineKeyboardButton("🏁 Завершить Сагу", callback_data="saga:finish")]])
+            kb = InlineKeyboardMarkup([[InlineKeyboardButton("🏁 Завершить Сагу", callback_data="saga:confirm")]])
             await query.edit_message_text(text, reply_markup=kb)
         return
 
@@ -1870,6 +1870,27 @@ async def on_saga_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "Продолжение — сообщением «saga <твоя глава>». Две главы подряд одним "
             "автором нельзя; авторы анонимны."
         )
+        return
+    if action == "confirm":
+        if chat_id not in saga_state:
+            await query.edit_message_text("📜 Саги сейчас нет — начни новую в меню /startsum.")
+            return
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Да, завершить", callback_data="saga:finish")],
+            [InlineKeyboardButton("↩️ Отмена", callback_data="saga:cancel")],
+        ])
+        await query.edit_message_text(
+            "⚠️ Ты точно хочешь прервать текущую Сагу Чата и завершить её?",
+            reply_markup=kb)
+        return
+    if action == "cancel":
+        s = saga_state.get(chat_id)
+        if s is None:
+            await query.edit_message_text("📜 Саги сейчас нет — начни новую в меню /startsum.")
+            return
+        await query.edit_message_text(
+            f"📜 Сага продолжается! Глав: {len(s.get('chapters', []))}/{SAGA_MAX_CHAPTERS}. "
+            "Жду «saga <твоя глава>» в чате 🙂")
         return
     # finish
     if chat_id not in saga_state:
