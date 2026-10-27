@@ -413,7 +413,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
+BUILD_TAG = "2026-10-27-1040"  # менять при каждом деплое — диагностика, что на Render свежий код
+
 GEO_HTML_PAGE = """<!DOCTYPE html>
+<!-- build:2026-10-27-1040 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
