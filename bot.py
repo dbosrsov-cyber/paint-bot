@@ -679,10 +679,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-27-2150"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-27-2156"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-27-2150 -->
+<!-- build:2026-10-27-2156 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -769,10 +769,10 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     const mk = L.marker([m.lat, m.lon], {icon: animalIcon(emoji)}).addTo(map);
     let html = '<span style="font-size:22px">' + emoji + '</span> <b>' + escapeHtml(m.name) + '</b><br>'
       + m.lat.toFixed(3) + ', ' + m.lon.toFixed(3);
+    if (m.poops) html += '<br>💩 розовых какашек: ' + m.poops;
     if (m.user === userKey()) {
       const got = m.got || 0, read = m.read || 0;
       html += '<br>📬 получено ' + got + ' • прочитано ' + read + ' • непрочитано ' + (got - read);
-      if (m.poops) html += '<br>💩 розовых какашек: ' + m.poops;
       // непрочитанные письма — ссылки: даже если маркеры писем наложены друг на друга,
       // каждое доступно по клику из карточки своей метки
       lastLetters.filter(l => l.mine && l.arrived && !l.read).forEach(l => {
