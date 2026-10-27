@@ -5,6 +5,7 @@ import math
 import os
 import queue
 import random
+import re
 import threading
 import time
 import uuid
@@ -214,6 +215,76 @@ def volcano_load_from_github() -> None:
     print(f"[paint_bot] volcano: загружено вулканов {len(volcano_state)}, какашек {len(poops_state)}", flush=True)
 
 
+# ---------- СагаЧата: анонимное коллективное сочинение ----------
+# saga: {chat_id: {"chapters": [str, ...], "last_author": int|None, "started_ts": float}}
+# Авторство нигде не хранится и не показывается: last_author — только чтобы
+# запретить одному человеку писать две главы подряд.
+saga_state = {}
+SAGA_FILE = "saga.json"
+SAGA_MAX_CHAPTERS = 30
+SAGA_MIN_LEN = 30
+SAGA_MAX_LEN = 280
+SAGA_PREFIX = "saga"  # глава = сообщение «saga <текст>»
+
+SAGA_ZAGINS = [
+    "В то утро в чате пропал последний спокойный человек, и никто даже не удивился.",
+    "Андрюха поставил метку в океан, а утром метка ответила ему «привет».",
+    "Старейшины чата собрались тайно и решили: пора начинать Сагу.",
+    "Никто не знал, что бот мечтал стать писателем, пока он сам не начал эту историю.",
+    "Письмо из географии прибыло пустым, а внутри оказалась только записка «начинайте».",
+    "Ванильный Вулкан проснулся и прошептал историю, которую слышал от гор.",
+    "Розовая Какашка приземлилась не в ту метку — и это перевернуло всё.",
+    "На холсте рисовалки ночью проступили слова: «Продолжите за меня».",
+    "Группа приняла правило: кто последний, тот начинает легенду. Оказалось, что последний — бот.",
+    "Стая диких эмодзи животных перешла из карты прямо в текст чата.",
+    "Одиннадцать быков и ни одной коровы: совпадение? История начинается.",
+    "В чат добавили нового участника, но все поняли: участник добавил чат.",
+]
+
+SAGA_END_RE = re.compile(r"(конец|the end)[\.!\s…]*$", re.IGNORECASE)
+
+
+def saga_save_to_github() -> None:
+    _save_json_to_github(SAGA_FILE, saga_state, geo_lock, "saga")
+
+
+def saga_load_from_github() -> None:
+    loaded = _load_json_from_github(SAGA_FILE, "saga")
+    if loaded:
+        saga_state.update({int(cid): s for cid, s in loaded.items()})
+        print(f"[paint_bot] saga: загружено {len(loaded)} саг из Git", flush=True)
+
+
+async def saga_publish(bot, chat_id: int) -> None:
+    """Опубликовать эпос в чат (частями, если длинно) и стереть сагу."""
+    s = saga_state.pop(chat_id, None)
+    if s is None:
+        return
+    saga_save_to_github()
+    chapters = s.get("chapters", [])
+    if not chapters:
+        await bot.send_message(chat_id, "📜 Сага завершена, но в ней не оказалось глав 🙂")
+        return
+    date = datetime.datetime.now(MSK_TZ).strftime("%d.%m.%Y")
+    parts, current = [], ""
+    for ch in chapters:
+        piece = ch if not current else "\n\n" + ch
+        if len(current) + len(piece) > 3800:
+            parts.append(current)
+            current = ch
+        else:
+            current += piece
+    parts.append(current)
+    await bot.send_message(chat_id, f"📜 САГА ЧАТА от {date} — финал! Всего глав: {len(chapters)}")
+    for i, part in enumerate(parts):
+        header = "📜 (продолжение)\n\n" if i else ""
+        await bot.send_message(chat_id, header + part)
+    await bot.send_message(
+        chat_id,
+        "📜 Конец саги! Авторы остались анонимными. Новую можно начать в меню /startsum.",
+    )
+
+
 # ---------- Автобэкап меток и писем ----------
 
 MSK_TZ = datetime.timezone(datetime.timedelta(hours=3))  # московское время (UTC+3, без летнего)
@@ -248,12 +319,13 @@ def backup_geo_data() -> None:
         ok_letters = _save_json_to_github(f"backups/letters_{today}.json", letters_state, geo_lock, "backup letters")
         _vol_payload = {"volcanoes": {str(k): v for k, v in volcano_state.items()}, "poops": poops_state}
         ok_volcano = _save_json_to_github(f"backups/volcano_{today}.json", _vol_payload, geo_lock, "backup volcano")
-        if ok_geo and ok_letters and ok_volcano:
+        ok_saga = _save_json_to_github(f"backups/saga_{today}.json", saga_state, geo_lock, "backup saga")
+        if ok_geo and ok_letters and ok_volcano and ok_saga:
             break
-        print(f"[paint_bot] backup attempt {attempt + 1} incomplete (geo={ok_geo}, letters={ok_letters}, volcano={ok_volcano}), retrying", flush=True)
+        print(f"[paint_bot] backup attempt {attempt + 1} incomplete (geo={ok_geo}, letters={ok_letters}, volcano={ok_volcano}, saga={ok_saga}), retrying", flush=True)
         time.sleep(5)
     old = (datetime.datetime.now(MSK_TZ) - datetime.timedelta(days=BACKUP_KEEP_DAYS + 1)).strftime("%Y-%m-%d")
-    for name in (f"geo_{old}.json", f"letters_{old}.json", f"volcano_{old}.json"):
+    for name in (f"geo_{old}.json", f"letters_{old}.json", f"volcano_{old}.json", f"saga_{old}.json"):
         _delete_github_file(f"backups/{name}")
     print(f"[paint_bot] backup {today} done", flush=True)
 
@@ -520,10 +592,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-27-1340"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-27-1705"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-27-1340 -->
+<!-- build:2026-10-27-1705 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1400,6 +1472,7 @@ GAME_MENU = InlineKeyboardMarkup(
         [InlineKeyboardButton("🐂 Быки и коровы", callback_data="game:bulls")],
         [InlineKeyboardButton("🎨 Рисовалка", callback_data="game:paint")],
         [InlineKeyboardButton("🌍 География чата", callback_data="game:geo")],
+        [InlineKeyboardButton("📜 СагаЧата", callback_data="game:saga")],
     ]
 )
 
@@ -1478,7 +1551,62 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await query.edit_message_text("🌍 Карта запущена — сообщение с кнопкой появилось в чате выше.")
         return
 
+    if game_key == "saga":
+        s = saga_state.get(chat_id)
+        if s is None:
+            text = (
+                "📜 СагаЧата — общая история чата!\n\n"
+                "Бот начинает сагу первой главой. Дальше участники продолжают её "
+                "по одной главе — сообщением вида:\n"
+                "«saga <твоя глава>»\n\n"
+                "Правила: глава от 30 до 280 символов; нельзя писать две главы подряд; "
+                "авторы анонимны; досрочно заканчивать историю нельзя. "
+                f"После {SAGA_MAX_CHAPTERS} глав сага публикуется финальным эпосом."
+            )
+            kb = InlineKeyboardMarkup([[InlineKeyboardButton("📜 Новая Сага", callback_data="saga:new")]])
+            await query.edit_message_text(text, reply_markup=kb)
+        else:
+            n = len(s.get("chapters", []))
+            kb = InlineKeyboardMarkup([[InlineKeyboardButton("🏁 Завершить Сагу", callback_data="saga:finish")]])
+            await query.edit_message_text(
+                f"📜 Сага начата! Глав: {n}/{SAGA_MAX_CHAPTERS}. "
+                "Продолжение — сообщением «saga <твоя глава>» в чат.",
+                reply_markup=kb,
+            )
+        return
+
     await query.answer("Эта игра появится позже 🙂", show_alert=True)
+
+
+async def on_saga_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Кнопки саги: saga:new — начать, saga:finish — завершить с публикацией эпоса."""
+    if not chat_allowed(update.effective_chat):
+        await update.callback_query.answer()
+        return
+    query = update.callback_query
+    await query.answer()
+    action = query.data.split(":", 1)[1]
+    chat_id = query.message.chat_id
+    if action == "new":
+        if chat_id in saga_state:
+            await query.answer("Сага уже идёт 🙂", show_alert=True)
+            return
+        zagin = random.choice(SAGA_ZAGINS)
+        saga_state[chat_id] = {"chapters": [zagin], "last_author": None,
+                               "started_ts": time.time()}
+        saga_save_to_github()
+        await query.edit_message_text(
+            f"📜 Сага чата началась! Глава 1/{SAGA_MAX_CHAPTERS}:\n«{zagin}»\n\n"
+            "Продолжение — сообщением «saga <твоя глава>». Две главы подряд одним "
+            "автором нельзя; авторы анонимны."
+        )
+        return
+    # finish
+    if chat_id not in saga_state:
+        await query.edit_message_text("📜 Саги сейчас нет — начни новую в меню /startsum.")
+        return
+    await query.edit_message_text("📜 Завершаю сагу и публикую эпос…")
+    await saga_publish(context.bot, chat_id)
 
 
 def paint_keyboard(chat_id: int, webapp: bool = True, drawer: str | None = None) -> InlineKeyboardMarkup:
@@ -1629,6 +1757,8 @@ def close_activity(chat_id: int, user_id: int, kind: str) -> str:
         return end_duel(chat_id, user_id) or "Дуэль уже завершена."
     if kind == "paint":
         return end_paint(chat_id) or "Рисовалка уже завершена."
+    if kind == "saga":
+        return "📜 Сага завершается — публикую эпос…"  # публикация — в вызывающем обработчике
     return end_solo(chat_id, user_id) or "Игра уже завершена."
 
 
@@ -1658,6 +1788,8 @@ async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         options.append(("🎨 Рисовалка", "stop:paint"))
     if (chat_id, user.id) in solo_games:
         options.append(("🐂 Соло «Быки и коровы»", "stop:solo"))
+    if chat_id in saga_state:
+        options.append(("📜 СагаЧата", "stop:saga"))
 
     if not options:
         await update.message.reply_text(
@@ -1665,7 +1797,12 @@ async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
     if len(options) == 1:
-        await update.message.reply_text(close_activity(chat_id, user.id, options[0][1].split(":", 1)[1]))
+        kind = options[0][1].split(":", 1)[1]
+        if kind == "saga":
+            await update.message.reply_text("📜 Завершаю сагу — публикую эпос…")
+            await saga_publish(context.bot, chat_id)
+        else:
+            await update.message.reply_text(close_activity(chat_id, user.id, kind))
         return
     kb = InlineKeyboardMarkup(
         [[InlineKeyboardButton(label, callback_data=cb)] for label, cb in options]
@@ -1679,7 +1816,13 @@ async def on_stop_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await update.callback_query.answer()
         return
     query = update.callback_query
-    text = close_activity(update.effective_chat.id, query.from_user.id, query.data.split(":", 1)[1])
+    kind = query.data.split(":", 1)[1]
+    if kind == "saga":
+        await query.answer()
+        await query.edit_message_text("📜 Завершаю сагу — публикую эпос…")
+        await saga_publish(context.bot, update.effective_chat.id)
+        return
+    text = close_activity(update.effective_chat.id, query.from_user.id, kind)
     await query.answer()
     await query.edit_message_text(text)
 
@@ -1692,7 +1835,10 @@ HELP_TEXT = (
     "🐄 коровы — цифра есть в числе, но стоит не там.\n\n"
     "✍️ Формат хода: сообщение ch1234 — «ch» и сразу 4 цифры, пробелов нет. "
     "На обычные сообщения бот не реагирует.\n\n"
-    "▶️ Игры: /startsum — меню выбора (сейчас доступна «Быки и коровы» против компьютера).\n\n"
+    "▶️ Игры: /startsum — меню выбора.\n\n"
+    "📜 СагаЧата — общая анонимная история чата: продолжение сообщением "
+    "«saga <глава>» (30–280 символов, две главы подряд одним автором нельзя, "
+    "авторы не раскрываются).\n\n"
     "⚔️ Дуэль двух игроков (в группе):\n"
     "1. Оба игрока один раз открывают меня в личке и нажимают /start.\n"
     "2. В группе вызывающий отвечает (reply) на сообщение противника командой /playsum "
@@ -1971,11 +2117,50 @@ async def on_duel_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, gues
     )
 
 
+async def on_saga_chapter(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Глава саги: сообщение «saga <текст>» (префикс регистронезависим)."""
+    chat_id = update.message.chat_id
+    s = saga_state.get(chat_id)
+    if s is None:
+        return  # сага не идёт — молчим
+    body = update.message.text[len(SAGA_PREFIX):].strip()
+    n = len(s["chapters"])
+    if len(body) < SAGA_MIN_LEN:
+        await update.message.reply_text(
+            f"📜 Коротковато — глава от {SAGA_MIN_LEN} символов. Добавь деталей 🙂")
+        return
+    if len(body) > SAGA_MAX_LEN:
+        await update.message.reply_text(
+            f"📜 Длинновато — максимум {SAGA_MAX_LEN} символов. Разбей на две главы 🙂")
+        return
+    if SAGA_END_RE.search(body):
+        await update.message.reply_text(
+            "📜 Досрочно заканчивать сагу нельзя — история длиннее, чем кажется 🙂")
+        return
+    if s["last_author"] == update.effective_user.id:
+        await update.message.reply_text(
+            "📜 Две главы подряд одним автором нельзя — пусть продолжит кто-то другой 🙂")
+        return
+    s["chapters"].append(body)
+    s["last_author"] = update.effective_user.id
+    saga_save_to_github()
+    n += 1
+    if n >= SAGA_MAX_CHAPTERS:
+        await update.message.reply_text(f"✅ Глава {n}/{SAGA_MAX_CHAPTERS} принята — сага завершена!")
+        await saga_publish(context.bot, chat_id)
+    else:
+        await update.message.reply_text(f"✅ Глава {n}/{SAGA_MAX_CHAPTERS} принята.")
+
+
 async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Точка входа: реагируем только на ходы формата ch1234, всё остальное — молчим."""
+    """Точка входа: «saga <текст>» — глава саги; ch1234 — ход быков; иначе молчим."""
     if not chat_allowed(update.effective_chat):
         return
     remember_user(update.effective_user)
+    text = update.message.text or ""
+    if text.lower().startswith(SAGA_PREFIX + " "):
+        await on_saga_chapter(update, context)
+        return
     guess = parse_ch(update.message.text)
     if guess is None:
         return  # не формат хода — бот молчит
@@ -2023,6 +2208,7 @@ def main() -> None:
     geo_load_from_github()
     letters_load_from_github()
     volcano_load_from_github()
+    saga_load_from_github()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
@@ -2036,6 +2222,7 @@ def main() -> None:
     app.add_handler(CommandHandler("myid", cmd_myid))
     app.add_handler(CommandHandler("delpointgeo", cmd_delpointgeo))
     app.add_handler(CallbackQueryHandler(on_game_menu, pattern="^game:"))
+    app.add_handler(CallbackQueryHandler(on_saga_action, pattern="^saga:"))
     app.add_handler(CallbackQueryHandler(on_challenge_button, pattern="^duel:"))
     app.add_handler(CallbackQueryHandler(on_paint_wait, pattern="^paint_wait$"))
     app.add_handler(CallbackQueryHandler(on_stop_choice, pattern="^stop:"))
