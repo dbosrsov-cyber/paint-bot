@@ -244,6 +244,85 @@ SAGA_ZAGINS = [
 
 SAGA_END_RE = re.compile(r"(конец|the end)[\.!\s…]*$", re.IGNORECASE)
 
+# ---------- Метеорит и ресурс «ЗвезднаяПыль» ----------
+# meteor: {chat_id: {"current": {"lat","lon","fall_ts","taken"} | None,
+#                     "craters": [{"lat","lon","fall_ts","zp"}...],   # воронки навсегда
+#                     "next_fall": float}}
+# stardust: {"chat_id|user_key": int} — личный баланс звёздной пыли
+meteor_state = {}
+stardust_state = {}
+METEOR_FILE = "meteor.json"
+METEOR_LIFETIME_SEC = 300     # 5 минут на сбор пыли из свежей воронки
+METEOR_PERIOD_SEC = 3600      # перерыв между падениями — час (+ случайные 0–50 мин)
+LETTER_BOOST_MIN = 30         # ускорение: +30 минут пройденного полёта за 1 ЗП
+
+METEOR_NOTIFY_TEXT = ("☄️ МЕТЕОРИТ! На карту чата упал метеорит — спеши собрать "
+                      "ресурс ЗвезднаяПыль! Открой карту, найди воронку 💥 и жми "
+                      "«Забрать ЗП» — кто первый, тому и пыль. Пыль нужна, чтобы "
+                      "ускорять письма ✉️⏩")
+
+
+def meteor_save_to_github() -> None:
+    payload = {"meteors": {str(k): v for k, v in meteor_state.items()},
+               "stardust": stardust_state}
+    _save_json_to_github(METEOR_FILE, payload, geo_lock, "meteor")
+
+
+def meteor_load_from_github() -> None:
+    loaded = _load_json_from_github(METEOR_FILE, "meteor")
+    if not loaded:
+        return
+    meteor_state.update({int(cid): m for cid, m in loaded.get("meteors", {}).items()})
+    stardust_state.update(loaded.get("stardust", {}))
+    print(f"[paint_bot] meteor: чатов {len(meteor_state)}, балансов пыли {len(stardust_state)}", flush=True)
+
+
+def stardust_get(chat_id: int, user: str) -> int:
+    return stardust_state.get(f"{chat_id}|{user}", 0)
+
+
+def meteor_check(chat_id: int):
+    """Проверить/обновить состояние метеоритов чата.
+    Вернуть (свежий активный метеорит или None, только что упал — bool, что-то изменилось — bool)."""
+    now = time.time()
+    changed = False
+    m = meteor_state.get(chat_id)
+    if m is None:
+        m = {"current": None, "craters": [], "next_fall": 0.0}
+        meteor_state[chat_id] = m
+        changed = True
+    cur = m.get("current")
+    if cur is not None and now - cur["fall_ts"] >= METEOR_LIFETIME_SEC:
+        # окно сбора закрылось: воронка остаётся на карте навсегда
+        m["craters"].append({"lat": cur["lat"], "lon": cur["lon"],
+                             "fall_ts": cur["fall_ts"], "zp": 1 if cur["taken"] else 0})
+        m["current"] = None
+        changed = True
+    fell = False
+    if m.get("current") is None and now >= m.get("next_fall", 0.0):
+        lat, lon = random_point_near_moscow(VOLCANO_RADIUS_KM)
+        m["current"] = {"lat": lat, "lon": lon, "fall_ts": now, "taken": False}
+        m["next_fall"] = now + METEOR_PERIOD_SEC + random.uniform(0, 3000)
+        fell = True
+        changed = True
+    return m.get("current"), fell, changed
+
+
+def meteor_fall_job(context) -> None:
+    """Фоновая проверка раз в минуту: падение метеоритов + уведомление в чат."""
+    for chat_id in ALLOWED_GROUPS:
+        with geo_lock:
+            cur, fell, changed = meteor_check(chat_id)
+        if changed:
+            meteor_save_to_github()
+        if not fell:
+            continue
+        try:
+            tg_send_message(chat_id, METEOR_NOTIFY_TEXT)
+            logline(f"meteor fell chat={chat_id} lat={cur['lat']:.2f} lon={cur['lon']:.2f} +notify")
+        except Exception as e:
+            logline(f"meteor fell chat={chat_id}, но уведомление не ушло: {e!r}")
+
 
 def saga_save_to_github() -> None:
     _save_json_to_github(SAGA_FILE, saga_state, geo_lock, "saga")
@@ -321,12 +400,14 @@ def backup_geo_data() -> None:
         _vol_payload = {"volcanoes": {str(k): v for k, v in volcano_state.items()}, "poops": poops_state}
         ok_volcano = _save_json_to_github(f"backups/volcano_{today}.json", _vol_payload, geo_lock, "backup volcano")
         ok_saga = _save_json_to_github(f"backups/saga_{today}.json", saga_state, geo_lock, "backup saga")
-        if ok_geo and ok_letters and ok_volcano and ok_saga:
+        _met_payload = {"meteors": {str(k): v for k, v in meteor_state.items()}, "stardust": stardust_state}
+        ok_meteor = _save_json_to_github(f"backups/meteor_{today}.json", _met_payload, geo_lock, "backup meteor")
+        if ok_geo and ok_letters and ok_volcano and ok_saga and ok_meteor:
             break
-        print(f"[paint_bot] backup attempt {attempt + 1} incomplete (geo={ok_geo}, letters={ok_letters}, volcano={ok_volcano}, saga={ok_saga}), retrying", flush=True)
+        print(f"[paint_bot] backup attempt {attempt + 1} incomplete (geo={ok_geo}, letters={ok_letters}, volcano={ok_volcano}, saga={ok_saga}, meteor={ok_meteor}), retrying", flush=True)
         time.sleep(5)
     old = (datetime.datetime.now(MSK_TZ) - datetime.timedelta(days=BACKUP_KEEP_DAYS + 1)).strftime("%Y-%m-%d")
-    for name in (f"geo_{old}.json", f"letters_{old}.json", f"volcano_{old}.json", f"saga_{old}.json"):
+    for name in (f"geo_{old}.json", f"letters_{old}.json", f"volcano_{old}.json", f"saga_{old}.json", f"meteor_{old}.json"):
         _delete_github_file(f"backups/{name}")
     print(f"[paint_bot] backup {today} done", flush=True)
 
@@ -593,10 +674,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-27-2105"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-27-2135"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-27-2105 -->
+<!-- build:2026-10-27-2135 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -720,6 +801,9 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   }
   function renderLetter(l) {
     const mk = L.marker([l.lat, l.lon], {icon: letterIcon(l)}).addTo(map);
+    // кнопка ускорения — на любом письме в полёте (чужом и своём), любой пользователь
+    const boostBtn = '<br><button onclick="boostLetter(&quot;' + l.id
+      + '&quot;)">⏩ Ускорить (1 ЗП)</button>';
     if (l.mine && l.arrived && !l.read) {
       mk.bindPopup('📬 Письмо доставлено тебе!<br><b>Нажми на него ещё раз, чтобы прочитать</b>');
       mk.on('click', () => readLetter(l.id));
@@ -727,13 +811,13 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
       mk.bindPopup('📭 Письмо прочитано.<br><i>Нажми, чтобы перечитать</i>');
       mk.on('click', () => readLetter(l.id));
     } else if (l.mine) {
-      mk.bindPopup('✉️ Твоё письмо ещё в пути к тебе…');
+      mk.bindPopup('✉️ Твоё письмо ещё в пути к тебе…' + boostBtn);
     } else if (l.arrived && !l.read) {
       mk.bindPopup('📬 Письмо доставлено адресату, ждёт прочтения');
     } else if (l.arrived) {
       mk.bindPopup('📭 Письмо доставлено и прочитано');
     } else {
-      mk.bindPopup('📨 Письмо в пути… (адресат: ' + escapeHtml(l.to_name) + ')');
+      mk.bindPopup('📨 Письмо в пути… (адресат: ' + escapeHtml(l.to_name) + ')' + boostBtn);
     }
     letterMarkers[l.id] = mk;
   }
@@ -832,6 +916,59 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     }
     poopMarkers[p.id] = mk;
   }
+
+  // ---------- Метеорит и ЗвезднаяПыль ----------
+  const meteorMarkers = [];   // воронки (метеориты)
+  function meteorIcon() {
+    // в 2 раза крупнее аватаров меток (аватар — шрифт 28px)
+    return L.divIcon({
+      html: '<div style="font-size:56px;line-height:1;filter:drop-shadow(0 2px 3px rgba(0,0,0,.5))">💥</div>',
+      className: 'emoji-marker',
+      iconSize: [72, 72], iconAnchor: [36, 36], popupAnchor: [0, -30],
+    });
+  }
+  function renderMeteor(m) {
+    const mk = L.marker([m.lat, m.lon], {icon: meteorIcon()}).addTo(map);
+    let html;
+    if (m.fresh && m.zp) {
+      html = '<b>☄️ Метеоритная воронка</b><br>Остаток ЗП: <b>1</b><br>'
+        + '<button onclick="claimMeteor()">🌟 Забрать ЗП</button>';
+    } else if (m.fresh) {
+      html = '<b>☄️ Метеоритная воронка</b><br>Остаток ЗП: <b>0</b> (уже забрали)';
+    } else {
+      html = '💥 Древняя воронка от метеорита<br>Остаток ЗП: 0';
+    }
+    mk.bindPopup(html);
+    meteorMarkers.push(mk);
+  }
+  window.claimMeteor = async () => {
+    const r = await fetch('/meteor', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey()})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      status('🌟 +1 ЗвезднаяПыль! Баланс: ' + data.balance);
+      load();
+    } else {
+      status('⚠️ ' + (data.error || 'пыль не забралась'));
+      if (r.status === 404 || r.status === 409) load();
+    }
+  };
+  window.boostLetter = async (id) => {
+    const r = await fetch('/letterboost', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey(), id: id})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      status('⏩ Письмо ускорено на ' + data.boost_min + ' мин полёта! Баланс ЗП: ' + data.balance);
+      load();
+    } else {
+      status('⚠️ ' + (data.error || 'не ускорилось'));
+      if (r.status === 409) load();
+    }
+  };
 
   // ---------- Расстояние и время в пути (по прямой) ----------
   const toRad = d => d * Math.PI / 180;
@@ -937,14 +1074,19 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     Object.values(poopMarkers).forEach(m => map.removeLayer(m));
     Object.keys(poopMarkers).forEach(k => delete poopMarkers[k]);
     lastLetters = data.letters || [];
+    meteorMarkers.forEach(m => map.removeLayer(m));
+    meteorMarkers.length = 0;
     (data.markers || []).forEach(renderMarker);
     (data.letters || []).forEach(renderLetter);
     (data.poops || []).forEach(renderPoop);
+    (data.meteors || []).forEach(renderMeteor);
     if (data.volcano) renderVolcano(data.volcano);
     else if (volcanoMarker) { map.removeLayer(volcanoMarker); volcanoMarker = null; }
     updateMineUI();
     status('🌍 Меток: ' + (data.markers || []).length + ' • ✉️ Писем на карте: '
-      + (data.letters || []).length + (data.volcano ? ' • 🌋 ВУЛКАН НА КАРТЕ!' : ''));
+      + (data.letters || []).length + ' • ☄️ ЗП: ' + (data.stardust || 0)
+      + (data.volcano ? ' • 🌋 ВУЛКАН НА КАРТЕ!' : '')
+      + (data.meteors && data.meteors.some(m => m.fresh && m.zp) ? ' • 💥 МЕТЕОРИТ!' : ''));
   }
   setInterval(load, 60000);  // автообновление; позиции писем считает сервер по времени
 
@@ -1100,6 +1242,17 @@ class AppHandler(BaseHTTPRequestHandler):
                     remain = max(0, int(VOLCANO_LIFETIME_SEC - (time.time() - v["spawn_ts"])))
                     volcano_out = {"lat": v["lat"], "lon": v["lon"],
                                    "used": v["used"], "remain_sec": remain}
+                # ---------- Метеорит: свежая воронка + все старые ----------
+                meteors_out = []
+                m = meteor_state.get(chat_id)
+                if m is not None:
+                    for c in m.get("craters", []):
+                        meteors_out.append({"lat": c["lat"], "lon": c["lon"],
+                                            "zp": c.get("zp", 0), "fresh": False})
+                    cur = m.get("current")
+                    if cur is not None and time.time() - cur["fall_ts"] < METEOR_LIFETIME_SEC:
+                        meteors_out.append({"lat": cur["lat"], "lon": cur["lon"],
+                                            "zp": 0 if cur["taken"] else 1, "fresh": True})
                 # ---------- Розовые какашки: позиции и прибытия ----------
                 poops_out = []
                 for pid, poop in list(poops_state.items()):
@@ -1148,7 +1301,9 @@ class AppHandler(BaseHTTPRequestHandler):
             self._respond(
                 200,
                 json.dumps({"markers": markers, "letters": letters_out,
-                            "volcano": volcano_out, "poops": poops_out}, ensure_ascii=False).encode("utf-8"),
+                            "volcano": volcano_out, "poops": poops_out,
+                            "meteors": meteors_out, "stardust": stardust_get(chat_id, viewer)},
+                           ensure_ascii=False).encode("utf-8"),
                 "application/json; charset=utf-8",
             )
         elif url.path in ("/begin", "/end"):
@@ -1180,6 +1335,12 @@ class AppHandler(BaseHTTPRequestHandler):
             return
         if url.path == "/volcano":
             self._handle_volcano_post(url)
+            return
+        if url.path == "/meteor":
+            self._handle_meteor_post(url)
+            return
+        if url.path == "/letterboost":
+            self._handle_letter_boost_post(url)
             return
         if url.path != "/save":
             self._respond(404, b"not found")
@@ -1425,6 +1586,72 @@ class AppHandler(BaseHTTPRequestHandler):
         eta = int(total / poop_speed_km_per_min(poops_state[pid])) + 1
         self._json_response(200, {"eta_min": eta})
         return
+
+    def _handle_meteor_post(self, url):
+        """Забрать ЗвезднуюПыль из свежей воронки: +1 на личный баланс, один раз на падение."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        if not user:
+            self._json_response(400, {"error": "bad request"})
+            return
+        with geo_lock:
+            meteor_check(chat_id)  # переложить просроченную воронку в craters
+            m = meteor_state.get(chat_id)
+            cur = m.get("current") if m else None
+            if cur is None:
+                self._json_response(404, {"error": "свежего метеорита нет — жди следующего"})
+                return
+            if cur["taken"]:
+                self._json_response(409, {"error": "пыль уже забрали — остаток ЗП = 0"})
+                return
+            cur["taken"] = True
+            key = f"{chat_id}|{user}"
+            stardust_state[key] = stardust_state.get(key, 0) + 1
+            balance = stardust_state[key]
+            meteor_save_to_github()
+        logline(f"200 /meteor chat={chat_id} user={user!r} balance={balance}")
+        self._json_response(200, {"balance": balance})
+
+    def _handle_letter_boost_post(self, url):
+        """Ускорить чужое или своё письмо в полёте: −1 ЗП, +30 минут пройденного пути."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+            lid = str(payload.get("id", ""))[:16]
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        if not user or not lid:
+            self._json_response(400, {"error": "bad request"})
+            return
+        key = f"{chat_id}|{user}"
+        if stardust_state.get(key, 0) < 1:
+            self._json_response(403, {"error": "Нет Звездной Пыли для ускорения"})
+            return
+        with geo_lock:
+            letter = letters_state.get(lid)
+            if letter is None or letter["chat"] != chat_id:
+                self._json_response(404, {"error": "письмо не найдено"})
+                return
+            _, _, arrived = letter_progress(letter)
+            if arrived:
+                self._json_response(409, {"error": "письмо уже доставлено — ускорять нечего"})
+                return
+            stardust_state[key] -= 1
+            balance = stardust_state[key]
+            letter["start_ts"] -= LETTER_BOOST_MIN * 60  # мгновенно +30 минут полёта
+            letters_save_to_github()
+            meteor_save_to_github()
+        logline(f"200 /letterboost chat={chat_id} user={user!r} letter={lid} balance={balance}")
+        self._json_response(200, {"balance": balance, "boost_min": LETTER_BOOST_MIN})
 
     def log_message(self, format, *args):
         pass  # не спамить в логи
@@ -2249,6 +2476,7 @@ def main() -> None:
     letters_load_from_github()
     volcano_load_from_github()
     saga_load_from_github()
+    meteor_load_from_github()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
@@ -2274,6 +2502,8 @@ def main() -> None:
     app.job_queue.run_daily(backup_job, time=datetime.time(1, 0, tzinfo=MSK_TZ))
     # вулканы: фоновый спавн + уведомление в чат при появлении
     app.job_queue.run_repeating(volcano_spawn_job, interval=60.0, first=10.0)
+    # метеориты: фоновое падение + уведомление в чат
+    app.job_queue.run_repeating(meteor_fall_job, interval=60.0, first=20.0)
     app.run_polling()
 
 
