@@ -413,10 +413,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-27-1255"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-27-1300"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-27-1255 -->
+<!-- build:2026-10-27-1300 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -973,9 +973,9 @@ class AppHandler(BaseHTTPRequestHandler):
                             f"start_type={type(_start).__name__} start={_start!r} now={_now:.0f} "
                             f"elapsed_min={_elapsed!r} speed={_sp} total_km={_tot:.1f} live={_live} "
                             f"lp_firstline={letter_progress.__code__.co_firstlineno}")
-                    _, _, in_flight = letter_progress(letter)
-                    if in_flight:
-                        logline(f"409 /geosend user={user!r} to={to_user!r} lid={letter['id']} in_flight=True")
+                    _, _, arrived_flag = letter_progress(letter)
+                    if not arrived_flag:  # письмо реально ещё летит — только это блокирует пару
+                        logline(f"409 /geosend user={user!r} to={to_user!r} lid={letter['id']} still_flying")
                         self._json_response(409, {"error": "уже есть письмо в пути этому адресату (lid=" + letter["id"] + ")"})
                         return
                 logline(f"check /geosend pass user={user!r} to={to_user!r} matching={matched}")
