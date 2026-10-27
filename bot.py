@@ -593,10 +593,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-27-1750"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-27-1925"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-27-1750 -->
+<!-- build:2026-10-27-1925 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2154,6 +2154,11 @@ async def on_saga_chapter(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     s["chapters"].append(body)
     s["last_author"] = update.effective_user.id
     saga_save_to_github()
+    # политика анонимности: само сообщение с текстом главы стираем из чата
+    try:
+        await context.bot.delete_message(chat_id, update.message.message_id)
+    except Exception as e:
+        print(f"[paint_bot] не смог удалить сообщение главы: {e!r}", flush=True)
     n += 1
     if n >= SAGA_MAX_CHAPTERS:
         await update.message.reply_text(f"✅ Глава {n}/{SAGA_MAX_CHAPTERS} принята — сага завершена!")
