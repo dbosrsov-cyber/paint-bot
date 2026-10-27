@@ -413,10 +413,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-27-1040"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-27-1100"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-27-1040 -->
+<!-- build:2026-10-27-1100 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -943,7 +943,12 @@ class AppHandler(BaseHTTPRequestHandler):
                         continue
                     _, _, in_flight = letter_progress(letter)
                     if in_flight:
-                        self._json_response(409, {"error": "уже есть письмо в пути этому адресату"})
+                        dbg = (f"debug: user={user!r} to={to_user!r} chat={chat_id} "
+                               f"letter={letter['id']} start={letter['start_ts']:.0f} "
+                               f"now={time.time():.0f} total={haversine_km(letter['from_lat'], letter['from_lon'], letter['to_lat'], letter['to_lon']):.0f}km "
+                               f"speed={letter_speed_km_per_min(letter):.1f}")
+                        print(f"[paint_bot] 409 /geosend {dbg}", flush=True)
+                        self._json_response(409, {"error": "уже есть письмо в пути этому адресату. " + dbg})
                         return
                 lid = uuid.uuid4().hex[:10]
                 total = haversine_km(frm["lat"], frm["lon"], to["lat"], to["lon"])
@@ -954,7 +959,9 @@ class AppHandler(BaseHTTPRequestHandler):
                     "to_lat": to["lat"], "to_lon": to["lon"],
                     "start_ts": time.time(), "arrived": False,
                 }
-            letters_save_to_github()
+            saved = letters_save_to_github()
+            print(f"[paint_bot] 200 /geosend user={user!r} to={to_user!r} chat={chat_id} id={lid} "
+                  f"saved={saved}", flush=True)
             fast_mult = LETTER_FAST_SENDERS.get(user) or LETTER_FAST_SENDERS.get(to_user)
             speed = (LETTER_SPEED_KM_PER_MIN * fast_mult if fast_mult else
                      LETTER_TEST_SPEED_KM_PER_MIN
