@@ -91,7 +91,7 @@ VOLCANO_LIFETIME_SEC = 300       # вулкан на карте ровно 5 м�
 VOLCANO_PERIOD_SEC = 3600        # перерыв между спавнами — час
 VOLCANO_RADIUS_KM = 8000         # от Москвы (суше и море равнозначны)
 MOSCOW_LAT, MOSCOW_LON = 55.7558, 37.6173
-POOP_SPEED_KM_PER_MIN = LETTER_SPEED_KM_PER_MIN  # какашка летит со скоростью писем
+POOP_SPEED_KM_PER_MIN = LETTER_SPEED_KM_PER_MIN * 2.0  # какашки летят вдвое быстрее писем
 
 # Статистика: {user_id: {"games", "wins", "best"}}
 stats = {}
@@ -520,10 +520,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-27-1330"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-27-1335"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-27-1330 -->
+<!-- build:2026-10-27-1335 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -746,9 +746,9 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     } else if (p.mine) {
       mk.bindPopup('💩 Тебе прилетела Розовая Какашка! Поздравляем 🩷😄');
     } else if (!p.arrived) {
-      mk.bindPopup('💩 Розовая Какашка в пути… (адресат: ' + escapeHtml(p.to_name) + ')');
+      mk.bindPopup('💩 Розовая Какашка в пути… (адресат: *****)');
     } else {
-      mk.bindPopup('💩 Доставлено: ' + escapeHtml(p.to_name));
+      mk.bindPopup('💩 Доставлено адресату');
     }
     poopMarkers[p.id] = mk;
   }
