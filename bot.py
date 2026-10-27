@@ -520,10 +520,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-27-1335"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-27-1340"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-27-1335 -->
+<!-- build:2026-10-27-1340 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -741,12 +741,11 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   }
   function renderPoop(p) {
     const mk = L.marker([p.lat, p.lon], {icon: poopIcon(p)}).addTo(map);
-    if (p.mine && !p.arrived) {
-      mk.bindPopup('💩 Розовая Какашка летит к тебе…');
+    if (!p.arrived) {
+      // до доставки адресат неизвестен никому — даже самому адресату
+      mk.bindPopup('💩 Розовая Какашка в пути… (адресат: *****)');
     } else if (p.mine) {
       mk.bindPopup('💩 Тебе прилетела Розовая Какашка! Поздравляем 🩷😄');
-    } else if (!p.arrived) {
-      mk.bindPopup('💩 Розовая Какашка в пути… (адресат: *****)');
     } else {
       mk.bindPopup('💩 Доставлено адресату');
     }
