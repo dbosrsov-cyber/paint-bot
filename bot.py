@@ -413,10 +413,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-27-1100"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-27-1130"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-27-1100 -->
+<!-- build:2026-10-27-1130 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -636,7 +636,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
       status('✉️ Отправлено! Прибудет примерно через ' + data.eta_min + ' мин');
       load();
     } else if (r.status === 409) {
-      status('⚠️ Уже есть письмо в пути к ' + target.name + ' — дождись доставки');
+      status('⚠️ ' + (data.error || ('Уже есть письмо в пути к ' + target.name + ' — дождись доставки')));
     } else {
       status('⚠️ ' + (data.error || 'не отправилось'));
     }
@@ -727,6 +727,18 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
 </html>"""
 
 
+# ---------- Кольцевой буфер последних логов (читается через GET /geologs) ----------
+
+RECENT_LOGS: list[str] = []
+
+
+def logline(msg: str) -> None:
+    RECENT_LOGS.append(f"{datetime.datetime.now(MSK_TZ).strftime('%m-%d %H:%M:%S')} {msg}")
+    if len(RECENT_LOGS) > 200:
+        del RECENT_LOGS[:-200]
+    print(f"[paint_bot] {msg}", flush=True)
+
+
 class AppHandler(BaseHTTPRequestHandler):
     """HTTP-часть сервиса: / — проверка живости, /app — холст, /canvas — PNG, /save — приём рисунка."""
 
@@ -742,6 +754,9 @@ class AppHandler(BaseHTTPRequestHandler):
         params = parse_qs(url.query)
         if url.path in ("/", ""):
             self._respond(200, "paint_bot is running".encode("utf-8"))
+        elif url.path == "/geologs":
+            # служебный: последние строки лога (читаемы без доступа к дашборду Render)
+            self._respond(200, "\n".join(RECENT_LOGS[-100:]).encode("utf-8"))
         elif url.path == "/app":
             self._respond(200, HTML_PAGE.encode("utf-8"), "text/html; charset=utf-8")
         elif url.path == "/canvas":
@@ -947,7 +962,7 @@ class AppHandler(BaseHTTPRequestHandler):
                                f"letter={letter['id']} start={letter['start_ts']:.0f} "
                                f"now={time.time():.0f} total={haversine_km(letter['from_lat'], letter['from_lon'], letter['to_lat'], letter['to_lon']):.0f}km "
                                f"speed={letter_speed_km_per_min(letter):.1f}")
-                        print(f"[paint_bot] 409 /geosend {dbg}", flush=True)
+                        logline(f"409 /geosend {dbg}")
                         self._json_response(409, {"error": "уже есть письмо в пути этому адресату. " + dbg})
                         return
                 lid = uuid.uuid4().hex[:10]
@@ -960,8 +975,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     "start_ts": time.time(), "arrived": False,
                 }
             saved = letters_save_to_github()
-            print(f"[paint_bot] 200 /geosend user={user!r} to={to_user!r} chat={chat_id} id={lid} "
-                  f"saved={saved}", flush=True)
+            logline(f"200 /geosend user={user!r} to={to_user!r} chat={chat_id} id={lid} saved={saved}")
             fast_mult = LETTER_FAST_SENDERS.get(user) or LETTER_FAST_SENDERS.get(to_user)
             speed = (LETTER_SPEED_KM_PER_MIN * fast_mult if fast_mult else
                      LETTER_TEST_SPEED_KM_PER_MIN
