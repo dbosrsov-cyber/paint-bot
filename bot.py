@@ -593,10 +593,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-27-1925"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-27-2105"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-27-1925 -->
+<!-- build:2026-10-27-2105 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -687,6 +687,12 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
       const got = m.got || 0, read = m.read || 0;
       html += '<br>📬 получено ' + got + ' • прочитано ' + read + ' • непрочитано ' + (got - read);
       if (m.poops) html += '<br>💩 розовых какашек: ' + m.poops;
+      // непрочитанные письма — ссылки: даже если маркеры писем наложены друг на друга,
+      // каждое доступно по клику из карточки своей метки
+      lastLetters.filter(l => l.mine && l.arrived && !l.read).forEach(l => {
+        html += '<br><a href="#" onclick="readLetter(&quot;' + l.id
+          + '&quot;); return false;">📬 письмо от ' + escapeHtml(l.from_name) + ' — прочитать</a>';
+      });
       html += '<br><a href="#" onclick="delMarker(); return false;">🗑 Удалить мою метку</a>';
     }
     mk.bindPopup(html);
@@ -700,6 +706,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
 
   // ---------- Письма ----------
   const letterMarkers = {};  // letter_id -> L.marker
+  let lastLetters = [];      // последние полученные с сервера письма (для списка в карточке метки)
   function letterIcon(l) {
     // ✉️ в пути • 📬 доставлено, не прочитано • 📭 доставлено и прочитано
     const e = !l.arrived ? '✉️' : (l.read ? '📭' : '📬');
@@ -929,6 +936,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     Object.keys(letterMarkers).forEach(k => delete letterMarkers[k]);
     Object.values(poopMarkers).forEach(m => map.removeLayer(m));
     Object.keys(poopMarkers).forEach(k => delete poopMarkers[k]);
+    lastLetters = data.letters || [];
     (data.markers || []).forEach(renderMarker);
     (data.letters || []).forEach(renderLetter);
     (data.poops || []).forEach(renderPoop);
@@ -1065,8 +1073,25 @@ class AppHandler(BaseHTTPRequestHandler):
                         "arrived": arrived,
                         "read": letter.get("read_ts") is not None,
                         "mine": letter["to"] == viewer,
+                        "to": letter["to"],
+                        "from_name": letter.get("from_name", "?"),
                         "to_name": (dest or {}).get("name", "удалённой метке"),
                     })
+                # прибывшие письма одного адресата лежат в точке его метки друг
+                # на друге — клик достаётся только верхнему; разносим по кругу
+                by_dest = {}
+                for it in letters_out:
+                    if it["arrived"]:
+                        by_dest.setdefault(it["to"], []).append(it)
+                for items in by_dest.values():
+                    if len(items) < 2:
+                        continue
+                    base_lat, base_lon = items[0]["lat"], items[0]["lon"]
+                    lat_cos = max(math.cos(math.radians(base_lat)), 0.3)
+                    for i, it in enumerate(items):
+                        ang = 2 * math.pi * i / len(items)
+                        it["lat"] = round(base_lat + 0.003 * math.cos(ang), 6)
+                        it["lon"] = round(base_lon + 0.003 * math.sin(ang) / lat_cos, 6)
                 markers = [dict(m) for m in geo_state.get(chat_id, {}).values()]
                 # ---------- Ванильный Вулкан ----------
                 v, _spawned_now = volcano_get_active(chat_id)
