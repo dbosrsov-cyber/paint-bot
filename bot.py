@@ -413,10 +413,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-27-1200"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-27-1255"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-27-1200 -->
+<!-- build:2026-10-27-1255 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -953,9 +953,11 @@ class AppHandler(BaseHTTPRequestHandler):
                 # блокирует отправку только письмо, реально летящее к этому адресату;
                 # доставленные/прочитанные не мешают (а удаление писем отключено — иначе
                 # первая же доставка вечно блокировала бы пару)
+                matched = 0
                 for letter in letters_state.values():
                     if letter["chat"] != chat_id or letter["from"] != user or letter["to"] != to_user:
                         continue
+                    matched += 1
                     # диагностика: считаем встроенной математикой и логируем сырые данные
                     _now = time.time()
                     _start = letter["start_ts"]
@@ -973,8 +975,10 @@ class AppHandler(BaseHTTPRequestHandler):
                             f"lp_firstline={letter_progress.__code__.co_firstlineno}")
                     _, _, in_flight = letter_progress(letter)
                     if in_flight:
+                        logline(f"409 /geosend user={user!r} to={to_user!r} lid={letter['id']} in_flight=True")
                         self._json_response(409, {"error": "уже есть письмо в пути этому адресату (lid=" + letter["id"] + ")"})
                         return
+                logline(f"check /geosend pass user={user!r} to={to_user!r} matching={matched}")
                 lid = uuid.uuid4().hex[:10]
                 total = haversine_km(frm["lat"], frm["lon"], to["lat"], to["lon"])
                 letters_state[lid] = {
@@ -984,15 +988,22 @@ class AppHandler(BaseHTTPRequestHandler):
                     "to_lat": to["lat"], "to_lon": to["lon"],
                     "start_ts": time.time(), "arrived": False,
                 }
-            saved = letters_save_to_github()
-            logline(f"200 /geosend user={user!r} to={to_user!r} chat={chat_id} id={lid} saved={saved}")
-            fast_mult = LETTER_FAST_SENDERS.get(user) or LETTER_FAST_SENDERS.get(to_user)
-            speed = (LETTER_SPEED_KM_PER_MIN * fast_mult if fast_mult else
-                     LETTER_TEST_SPEED_KM_PER_MIN
-                     if frozenset((user, to_user)) in LETTER_TEST_PAIRS
-                     else LETTER_SPEED_KM_PER_MIN)
-            eta = int(total / speed) + 1
-            self._json_response(200, {"eta_min": eta})
+            try:
+                saved = letters_save_to_github()
+                logline(f"200 /geosend user={user!r} to={to_user!r} chat={chat_id} id={lid} saved={saved}")
+                fast_mult = LETTER_FAST_SENDERS.get(user) or LETTER_FAST_SENDERS.get(to_user)
+                speed = (LETTER_SPEED_KM_PER_MIN * fast_mult if fast_mult else
+                         LETTER_TEST_SPEED_KM_PER_MIN
+                         if frozenset((user, to_user)) in LETTER_TEST_PAIRS
+                         else LETTER_SPEED_KM_PER_MIN)
+                eta = int(total / speed) + 1
+                self._json_response(200, {"eta_min": eta})
+            except Exception as e:
+                logline(f"ERROR /geosend after insert user={user!r} to={to_user!r}: {e!r}")
+                try:
+                    self._json_response(500, {"error": "внутренняя ошибка, попробуй ещё раз"})
+                except Exception:
+                    pass
             return
         # /georead
         lid = str(payload.get("id", ""))[:16]
