@@ -413,10 +413,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-27-1130"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-27-1200"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-27-1130 -->
+<!-- build:2026-10-27-1200 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -956,14 +956,24 @@ class AppHandler(BaseHTTPRequestHandler):
                 for letter in letters_state.values():
                     if letter["chat"] != chat_id or letter["from"] != user or letter["to"] != to_user:
                         continue
+                    # диагностика: считаем встроенной математикой и логируем сырые данные
+                    _now = time.time()
+                    _start = letter["start_ts"]
+                    _sp = letter_speed_km_per_min(letter)
+                    _tot = haversine_km(letter["from_lat"], letter["from_lon"],
+                                        letter["to_lat"], letter["to_lon"])
+                    try:
+                        _elapsed = (_now - _start) / 60.0
+                        _live = (_tot <= 0) or (_elapsed * _sp >= _tot)
+                    except Exception as _e:
+                        _elapsed, _live = f"ERR {_e!r}", None
+                    logline(f"check /geosend user={user!r} to={to_user!r} lid={letter['id']} "
+                            f"start_type={type(_start).__name__} start={_start!r} now={_now:.0f} "
+                            f"elapsed_min={_elapsed!r} speed={_sp} total_km={_tot:.1f} live={_live} "
+                            f"lp_firstline={letter_progress.__code__.co_firstlineno}")
                     _, _, in_flight = letter_progress(letter)
                     if in_flight:
-                        dbg = (f"debug: user={user!r} to={to_user!r} chat={chat_id} "
-                               f"letter={letter['id']} start={letter['start_ts']:.0f} "
-                               f"now={time.time():.0f} total={haversine_km(letter['from_lat'], letter['from_lon'], letter['to_lat'], letter['to_lon']):.0f}km "
-                               f"speed={letter_speed_km_per_min(letter):.1f}")
-                        logline(f"409 /geosend {dbg}")
-                        self._json_response(409, {"error": "уже есть письмо в пути этому адресату. " + dbg})
+                        self._json_response(409, {"error": "уже есть письмо в пути этому адресату (lid=" + letter["id"] + ")"})
                         return
                 lid = uuid.uuid4().hex[:10]
                 total = haversine_km(frm["lat"], frm["lon"], to["lat"], to["lon"])
