@@ -305,23 +305,44 @@ def random_point_near_moscow(radius_km: float):
     return math.degrees(lat2), (math.degrees(lon2) + 540) % 360 - 180
 
 
+VOLCANO_NOTIFY_TEXT = ("🌋 Ванильный Какашечный Вулкан готов к Извержению! "
+                       "Он появился на карте чата на 5 минут — успей нажать на него и "
+                       "направить Розовую Какашку 💩🩷 в любого участника. "
+                       "Кто первый изверг, тот и молодец 🙂")
+
+
 def volcano_get_active(chat_id: int):
-    """Активный вулкан чата; если срок истёк и прошёл час — заспавнить новый.
-    Спавн срабатывает при запросе карты, поэтому минута появления получается
-    случайной (зависит от того, когда карту открыли)."""
+    """Активный вулкан чата и флаг «только что заспавнился».
+    Спавн идёт по расписанию: после каждого спавна next_spawn ставится на
+    час + случайные 0–50 минут — момент появления каждый раз разный."""
     now = time.time()
     v = volcano_state.get(chat_id)
     if v is not None and now - v["spawn_ts"] < VOLCANO_LIFETIME_SEC:
-        return v
-    last_spawn = v["spawn_ts"] if v else 0.0
-    if now - last_spawn >= VOLCANO_PERIOD_SEC:
+        return v, False
+    next_spawn = v.get("next_spawn", 0.0) if v else 0.0
+    if now >= next_spawn:
         lat, lon = random_point_near_moscow(VOLCANO_RADIUS_KM)
-        v = {"lat": lat, "lon": lon, "spawn_ts": now, "used": False}
+        v = {"lat": lat, "lon": lon, "spawn_ts": now, "used": False,
+             "next_spawn": now + VOLCANO_PERIOD_SEC + random.uniform(0, 3000)}
         volcano_state[chat_id] = v
         volcano_save_to_github()
         print(f"[paint_bot] 🌋 вулкан для чата {chat_id}: {lat:.2f}, {lon:.2f}", flush=True)
-        return v
-    return None  # перерыв между спавнами ещё не закончился
+        return v, True
+    return None, False  # перерыв между спавнами ещё не закончился
+
+
+def volcano_spawn_job(context) -> None:
+    """Фоновая проверка раз в минуту: спавн вулканов и уведомление в чат."""
+    for chat_id in ALLOWED_GROUPS:
+        with geo_lock:
+            v, spawned = volcano_get_active(chat_id)
+        if not spawned:
+            continue
+        try:
+            tg_send_message(chat_id, VOLCANO_NOTIFY_TEXT)
+            logline(f"volcano spawned chat={chat_id} lat={v['lat']:.2f} lon={v['lon']:.2f} +notify")
+        except Exception as e:
+            logline(f"volcano spawned chat={chat_id}, но уведомление не ушло: {e!r}")
 
 
 def poop_speed_km_per_min(poop: dict) -> float:
@@ -499,10 +520,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-27-1325"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-27-1330"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-27-1325 -->
+<!-- build:2026-10-27-1330 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -975,7 +996,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     })
                 markers = [dict(m) for m in geo_state.get(chat_id, {}).values()]
                 # ---------- Ванильный Вулкан ----------
-                v = volcano_get_active(chat_id)
+                v, _spawned_now = volcano_get_active(chat_id)
                 volcano_out = None
                 if v is not None:
                     remain = max(0, int(VOLCANO_LIFETIME_SEC - (time.time() - v["spawn_ts"])))
@@ -2025,6 +2046,8 @@ def main() -> None:
     app.job_queue.run_repeating(paint_periodic_sweep, interval=15.0)
     # автобэкап меток и писем: каждый день в 01:00 по Москве
     app.job_queue.run_daily(backup_job, time=datetime.time(1, 0, tzinfo=MSK_TZ))
+    # вулканы: фоновый спавн + уведомление в чат при появлении
+    app.job_queue.run_repeating(volcano_spawn_job, interval=60.0, first=10.0)
     app.run_polling()
 
 
