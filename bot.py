@@ -592,10 +592,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-27-1705"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-27-1740"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-27-1705 -->
+<!-- build:2026-10-27-1740 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1552,27 +1552,25 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     if game_key == "saga":
+        info = (
+            "📜 СагаЧата — общая история чата!\n\n"
+            "Бот начинает сагу первой главой. Дальше участники продолжают её "
+            "по одной главе — сообщением вида:\n"
+            "«saga <твоя глава>»\n\n"
+            "Правила: глава от 30 до 280 символов; нельзя писать две главы подряд; "
+            "авторы анонимны; досрочно заканчивать историю нельзя. "
+            f"После {SAGA_MAX_CHAPTERS} глав сага публикуется финальным эпосом."
+        )
         s = saga_state.get(chat_id)
         if s is None:
-            text = (
-                "📜 СагаЧата — общая история чата!\n\n"
-                "Бот начинает сагу первой главой. Дальше участники продолжают её "
-                "по одной главе — сообщением вида:\n"
-                "«saga <твоя глава>»\n\n"
-                "Правила: глава от 30 до 280 символов; нельзя писать две главы подряд; "
-                "авторы анонимны; досрочно заканчивать историю нельзя. "
-                f"После {SAGA_MAX_CHAPTERS} глав сага публикуется финальным эпосом."
-            )
             kb = InlineKeyboardMarkup([[InlineKeyboardButton("📜 Новая Сага", callback_data="saga:new")]])
-            await query.edit_message_text(text, reply_markup=kb)
+            await query.edit_message_text(info, reply_markup=kb)
         else:
             n = len(s.get("chapters", []))
+            text = (info + "\n\n———\n📜 Сага УЖЕ начата! Глав: "
+                    f"{n}/{SAGA_MAX_CHAPTERS}. Жду продолжения «saga <твоя глава>» в чате.")
             kb = InlineKeyboardMarkup([[InlineKeyboardButton("🏁 Завершить Сагу", callback_data="saga:finish")]])
-            await query.edit_message_text(
-                f"📜 Сага начата! Глав: {n}/{SAGA_MAX_CHAPTERS}. "
-                "Продолжение — сообщением «saga <твоя глава>» в чат.",
-                reply_markup=kb,
-            )
+            await query.edit_message_text(text, reply_markup=kb)
         return
 
     await query.answer("Эта игра появится позже 🙂", show_alert=True)
