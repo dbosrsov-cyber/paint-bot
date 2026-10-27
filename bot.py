@@ -932,8 +932,14 @@ class AppHandler(BaseHTTPRequestHandler):
                 if frm is None or to is None:
                     self._json_response(404, {"error": "нет метки у отправителя или адресата"})
                     return
+                # блокирует отправку только письмо, реально летящее к этому адресату;
+                # доставленные/прочитанные не мешают (а удаление писем отключено — иначе
+                # первая же доставка вечно блокировала бы пару)
                 for letter in letters_state.values():
-                    if letter["chat"] == chat_id and letter["from"] == user and letter["to"] == to_user:
+                    if letter["chat"] != chat_id or letter["from"] != user or letter["to"] != to_user:
+                        continue
+                    _, _, in_flight = letter_progress(letter)
+                    if in_flight:
                         self._json_response(409, {"error": "уже есть письмо в пути этому адресату"})
                         return
                 lid = uuid.uuid4().hex[:10]
