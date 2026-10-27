@@ -93,6 +93,7 @@ VOLCANO_PERIOD_SEC = 3600        # перерыв между спавнами �
 VOLCANO_RADIUS_KM = 8000         # от Москвы (суше и море равнозначны)
 MOSCOW_LAT, MOSCOW_LON = 55.7558, 37.6173
 POOP_SPEED_KM_PER_MIN = LETTER_SPEED_KM_PER_MIN * 2.0  # какашки летят вдвое быстрее писем
+POOP_ARRIVED_TTL_SEC = 300  # прибывшая какашка исчезает с карты через 5 минут (счётчик остаётся)
 
 # Статистика: {user_id: {"games", "wins", "best"}}
 stats = {}
@@ -592,10 +593,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-27-1740"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-27-1750"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-27-1740 -->
+<!-- build:2026-10-27-1750 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -808,7 +809,8 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
       html: '<div style="font-size:26px;line-height:1;background:#ffb6d5;border:2px solid #ff69b4;'
         + 'border-radius:50%;padding:3px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))">💩</div>',
       className: 'emoji-marker',
-      iconSize: [40, 40], iconAnchor: [20, 20], popupAnchor: [0, -24],
+      // якорь НИЖЕ иконки: какашка висит над меткой, не перекрывая её (как письма)
+      iconSize: [40, 40], iconAnchor: [20, 52], popupAnchor: [0, -52],
     });
   }
   function renderPoop(p) {
@@ -1081,6 +1083,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     plat, plon, parrived = poop_progress(poop)
                     if parrived and not poop["arrived"]:
                         poop["arrived"] = True
+                        poop["arrived_ts"] = now
                         dest = geo_state.get(chat_id, {}).get(poop["to"])
                         if dest is not None:
                             dest["poops"] = dest.get("poops", 0) + 1
@@ -1098,6 +1101,15 @@ class AppHandler(BaseHTTPRequestHandler):
                             )
                         except Exception as e:
                             print(f"[paint_bot] уведомление о какашке не ушло: {e!r}", flush=True)
+                    if parrived:
+                        # прибывшая какашка исчезает через 5 минут (счётчик адресата уже увеличен)
+                        arrived_ts = poop.get("arrived_ts")
+                        if arrived_ts is None:  # старые записи без метки времени
+                            poop["arrived_ts"] = now
+                        elif now - arrived_ts > POOP_ARRIVED_TTL_SEC:
+                            del poops_state[pid]
+                            changed = True
+                            continue
                     poops_out.append({
                         "id": pid, "lat": round(plat, 6), "lon": round(plon, 6),
                         "arrived": parrived,
