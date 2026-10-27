@@ -47,7 +47,9 @@ paint_update_queue = queue.Queue()
 # География чата: {chat_id: {user_key: {"user", "name", "icon", "lat", "lon", "got", "read"}}}
 # Хранится в GitHub-репозитории paint-bot-data (файл geo.json), чтобы переживать перезапуски.
 geo_state = {}
-geo_lock = threading.Lock()
+# RLock, а не Lock: внутри обработчиков под этим замком вызываются
+# save-функции, которые тоже берут geo_lock (тот же поток) — обычный Lock дал бы дедлок
+geo_lock = threading.RLock()
 
 # Письма между метками: {letter_id: {"id","chat","from","from_name","to","text",
 #          "from_lat","from_lon","to_lat","to_lon","start_ts","arrived"}}
@@ -497,10 +499,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-27-1315"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-27-1320"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-27-1315 -->
+<!-- build:2026-10-27-1320 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
