@@ -254,7 +254,7 @@ stardust_state = {}
 METEOR_FILE = "meteor.json"
 METEOR_LIFETIME_SEC = 300     # 5 минут на сбор пыли из свежей воронки
 METEOR_PERIOD_SEC = 3600      # перерыв между падениями — час (+ случайные 0–50 мин)
-LETTER_BOOST_MIN = 30         # ускорение: +30 минут пройденного полёта за 1 ЗП
+LETTER_BOOST_KM = 1000        # ускорение: мгновенное продвижение письма на 1000 км, стакается
 
 METEOR_NOTIFY_TEXT = ("☄️ МЕТЕОРИТ! На карту чата упал метеорит — спеши собрать "
                       "ресурс ЗвезднаяПыль! Открой карту, найди воронку 💥 и жми "
@@ -300,7 +300,7 @@ def meteor_check(chat_id: int):
         changed = True
     fell = False
     if m.get("current") is None and now >= m.get("next_fall", 0.0):
-        lat, lon = random_point_near_moscow(VOLCANO_RADIUS_KM)
+        lat, lon = random_point_anywhere()  # зона падения — вся карта
         m["current"] = {"lat": lat, "lon": lon, "fall_ts": now, "taken": False}
         m["next_fall"] = now + METEOR_PERIOD_SEC + random.uniform(0, 3000)
         fell = True
@@ -457,6 +457,11 @@ def random_point_near_moscow(radius_km: float):
     lon2 = lon1 + math.atan2(math.sin(bearing) * math.sin(angular) * math.cos(lat1),
                              math.cos(angular) - math.sin(lat1) * math.sin(lat2))
     return math.degrees(lat2), (math.degrees(lon2) + 540) % 360 - 180
+
+
+def random_point_anywhere():
+    """Случайная точка на всей карте (равномерно по широте и долготе)."""
+    return random.uniform(-85, 85), random.uniform(-180, 180)
 
 
 VOLCANO_NOTIFY_TEXT = ("🌋 Ванильный Какашечный Вулкан готов к Извержению! "
@@ -674,10 +679,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-27-2135"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-27-2145"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-27-2135 -->
+<!-- build:2026-10-27-2145 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -962,7 +967,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
-      status('⏩ Письмо ускорено на ' + data.boost_min + ' мин полёта! Баланс ЗП: ' + data.balance);
+      status('⏩ Письмо продвинулось на ' + data.boost_km + ' км! Баланс ЗП: ' + data.balance);
       load();
     } else {
       status('⚠️ ' + (data.error || 'не ускорилось'));
@@ -1647,11 +1652,14 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             stardust_state[key] -= 1
             balance = stardust_state[key]
-            letter["start_ts"] -= LETTER_BOOST_MIN * 60  # мгновенно +30 минут полёта
+            # мгновенное продвижение на 1000 км по траектории: сдвиг start_ts так,
+            # чтобы пройденная дистанция выросла ровно на LETTER_BOOST_KM (стакается)
+            speed = letter_speed_km_per_min(letter)
+            letter["start_ts"] -= (LETTER_BOOST_KM / speed) * 60 if speed > 0 else 0
             letters_save_to_github()
             meteor_save_to_github()
         logline(f"200 /letterboost chat={chat_id} user={user!r} letter={lid} balance={balance}")
-        self._json_response(200, {"balance": balance, "boost_min": LETTER_BOOST_MIN})
+        self._json_response(200, {"balance": balance, "boost_km": LETTER_BOOST_KM})
 
     def log_message(self, format, *args):
         pass  # не спамить в логи
