@@ -499,10 +499,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-27-1320"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-27-1325"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-27-1320 -->
+<!-- build:2026-10-27-1325 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -681,7 +681,12 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     const left = Math.floor(v.remain_sec / 60) + ':' + String(v.remain_sec % 60).padStart(2, '0');
     const btn = v.used ? '' : '<br><button onclick="startVolcano()">💥 Извержение</button>';
     mk.bindPopup('<b>Ванильный Вулкан Какашек</b> 🌋<br>Извержений доступно: <b>'
-      + (v.used ? 0 : 1) + '</b><br>Осталось: ' + left + btn);
+      + (v.used ? 0 : 1) + '</b><br>Осталось: ' + left + btn
+      + '<br><hr style="margin:6px 0;border:none;border-top:1px solid #ddd">'
+      + '<small><b>Как пользоваться:</b> жми «💥 Извержение» и кликни метку '
+      + 'другого участника — ему полетит Розовая Какашка 💩🩷 '
+      + 'со скоростью писем.<br>На весь вулкан — одно извержение: '
+      + 'кто успел первым, тот и изверг 🙂</small>');
     volcanoMarker = mk;
   }
   window.startVolcano = () => {
