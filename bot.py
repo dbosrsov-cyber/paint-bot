@@ -53,10 +53,19 @@ geo_lock = threading.Lock()
 #          "from_lat","from_lon","to_lat","to_lon","start_ts","arrived"}}
 letters_state = {}
 
+# Ванильный Вулкан Какашек: на каждый чат свой экземпляр.
+# volcano: {chat_id: {"lat","lon","spawn_ts","used"}} — живёт 5 минут, спавн раз в час
+# в случайной точке в радиусе 8000 км от Москвы (суше и море равнозначны).
+# poops: {poop_id: {"id","chat","to","to_name","from_lat","from_lon","to_lat","to_lon",
+#          "start_ts","arrived"}} — розовые какашки, летящие от вулкана к метке адресата.
+volcano_state = {}
+poops_state = {}
+
 # Репозиторий для данных (не трогать main — иначе каждая запись будет триггерить автодеплой Render)
 GEO_REPO = "dbosrsov-cyber/paint-bot-data"
 GEO_FILE = "geo.json"
 LETTERS_FILE = "letters.json"
+VOLCANO_FILE = "volcano.json"
 GEO_TOKEN_ENV = "GEO_GITHUB_TOKEN"  # токен добавляется в Render как переменная окружения
 
 # Письмо летит по прямой: 100 км за 10 минут
@@ -74,6 +83,13 @@ LETTER_READ_KEEP_SEC = 3600  # прочитанное письмо можно п
 # НЕ удаляются по истечении часа, письма в пути НЕ удаляются при сносе адресной метки.
 # Логику удаления перестроим позже. Вернуть прежнее поведение = поставить False.
 LETTERS_NEVER_DELETE = True
+
+# ---------- Ванильный Вулкан Какашек ----------
+VOLCANO_LIFETIME_SEC = 300       # вулкан на карте ровно 5 минут
+VOLCANO_PERIOD_SEC = 3600        # перерыв между спавнами — час
+VOLCANO_RADIUS_KM = 8000         # от Москвы (суше и море равнозначны)
+MOSCOW_LAT, MOSCOW_LON = 55.7558, 37.6173
+POOP_SPEED_KM_PER_MIN = LETTER_SPEED_KM_PER_MIN  # какашка летит со скоростью писем
 
 # Статистика: {user_id: {"games", "wins", "best"}}
 stats = {}
@@ -181,6 +197,21 @@ def letters_load_from_github() -> None:
         print(f"[paint_bot] letters: загружено {len(loaded)} писем из Git", flush=True)
 
 
+def volcano_save_to_github() -> None:
+    payload = {"volcanoes": {str(k): v for k, v in volcano_state.items()},
+               "poops": poops_state}
+    _save_json_to_github(VOLCANO_FILE, payload, geo_lock, "volcano")
+
+
+def volcano_load_from_github() -> None:
+    loaded = _load_json_from_github(VOLCANO_FILE, "volcano")
+    if not loaded:
+        return
+    volcano_state.update({int(cid): v for cid, v in loaded.get("volcanoes", {}).items()})
+    poops_state.update(loaded.get("poops", {}))
+    print(f"[paint_bot] volcano: загружено вулканов {len(volcano_state)}, какашек {len(poops_state)}", flush=True)
+
+
 # ---------- Автобэкап меток и писем ----------
 
 MSK_TZ = datetime.timezone(datetime.timedelta(hours=3))  # московское время (UTC+3, без летнего)
@@ -213,12 +244,14 @@ def backup_geo_data() -> None:
     for attempt in range(3):  # GitHub API иногда отваливается по таймауту — повторяем
         ok_geo = _save_json_to_github(f"backups/geo_{today}.json", geo_state, geo_lock, "backup geo")
         ok_letters = _save_json_to_github(f"backups/letters_{today}.json", letters_state, geo_lock, "backup letters")
-        if ok_geo and ok_letters:
+        _vol_payload = {"volcanoes": {str(k): v for k, v in volcano_state.items()}, "poops": poops_state}
+        ok_volcano = _save_json_to_github(f"backups/volcano_{today}.json", _vol_payload, geo_lock, "backup volcano")
+        if ok_geo and ok_letters and ok_volcano:
             break
-        print(f"[paint_bot] backup attempt {attempt + 1} incomplete (geo={ok_geo}, letters={ok_letters}), retrying", flush=True)
+        print(f"[paint_bot] backup attempt {attempt + 1} incomplete (geo={ok_geo}, letters={ok_letters}, volcano={ok_volcano}), retrying", flush=True)
         time.sleep(5)
     old = (datetime.datetime.now(MSK_TZ) - datetime.timedelta(days=BACKUP_KEEP_DAYS + 1)).strftime("%Y-%m-%d")
-    for name in (f"geo_{old}.json", f"letters_{old}.json"):
+    for name in (f"geo_{old}.json", f"letters_{old}.json", f"volcano_{old}.json"):
         _delete_github_file(f"backups/{name}")
     print(f"[paint_bot] backup {today} done", flush=True)
 
@@ -252,6 +285,57 @@ def letter_progress(letter: dict):
     frac = done_km / total if total > 0 else 1.0
     lat = letter["from_lat"] + (letter["to_lat"] - letter["from_lat"]) * frac
     lon = letter["from_lon"] + (letter["to_lon"] - letter["from_lon"]) * frac
+    return lat, lon, total <= 0 or done_km >= total
+
+
+# ---------- Ванильный Вулкан Какашек: спавн и полёт какашек ----------
+
+def random_point_near_moscow(radius_km: float):
+    """Случайная точка в круге радиусом radius_km от Москвы (равномерно по площади)."""
+    r = radius_km * math.sqrt(random.random())  # sqrt — чтобы точки не кучковались у центра
+    bearing = random.uniform(0, 2 * math.pi)
+    lat1, lon1 = math.radians(MOSCOW_LAT), math.radians(MOSCOW_LON)
+    angular = r / 6371.0
+    lat2 = math.asin(math.sin(lat1) * math.cos(angular)
+                     + math.cos(lat1) * math.sin(angular) * math.cos(bearing))
+    lon2 = lon1 + math.atan2(math.sin(bearing) * math.sin(angular) * math.cos(lat1),
+                             math.cos(angular) - math.sin(lat1) * math.sin(lat2))
+    return math.degrees(lat2), (math.degrees(lon2) + 540) % 360 - 180
+
+
+def volcano_get_active(chat_id: int):
+    """Активный вулкан чата; если срок истёк и прошёл час — заспавнить новый.
+    Спавн срабатывает при запросе карты, поэтому минута появления получается
+    случайной (зависит от того, когда карту открыли)."""
+    now = time.time()
+    v = volcano_state.get(chat_id)
+    if v is not None and now - v["spawn_ts"] < VOLCANO_LIFETIME_SEC:
+        return v
+    last_spawn = v["spawn_ts"] if v else 0.0
+    if now - last_spawn >= VOLCANO_PERIOD_SEC:
+        lat, lon = random_point_near_moscow(VOLCANO_RADIUS_KM)
+        v = {"lat": lat, "lon": lon, "spawn_ts": now, "used": False}
+        volcano_state[chat_id] = v
+        volcano_save_to_github()
+        print(f"[paint_bot] 🌋 вулкан для чата {chat_id}: {lat:.2f}, {lon:.2f}", flush=True)
+        return v
+    return None  # перерыв между спавнами ещё не закончился
+
+
+def poop_speed_km_per_min(poop: dict) -> float:
+    """Скорость какашки: как у писем; адресат из LETTER_FAST_SENDERS — ускоренно."""
+    mult = LETTER_FAST_SENDERS.get(poop["to"])
+    return POOP_SPEED_KM_PER_MIN * mult if mult else POOP_SPEED_KM_PER_MIN
+
+
+def poop_progress(poop: dict):
+    """Текущая позиция розовой какашки (по прямой) и флаг прибытия."""
+    total = haversine_km(poop["from_lat"], poop["from_lon"], poop["to_lat"], poop["to_lon"])
+    elapsed_min = (time.time() - poop["start_ts"]) / 60.0
+    done_km = min(elapsed_min * poop_speed_km_per_min(poop), total)
+    frac = done_km / total if total > 0 else 1.0
+    lat = poop["from_lat"] + (poop["to_lat"] - poop["from_lat"]) * frac
+    lon = poop["from_lon"] + (poop["to_lon"] - poop["from_lon"]) * frac
     return lat, lon, total <= 0 or done_km >= total
 
 
@@ -413,10 +497,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-27-1300"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-27-1315"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-27-1300 -->
+<!-- build:2026-10-27-1315 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -506,12 +590,14 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     if (m.user === userKey()) {
       const got = m.got || 0, read = m.read || 0;
       html += '<br>📬 получено ' + got + ' • прочитано ' + read + ' • непрочитано ' + (got - read);
+      if (m.poops) html += '<br>💩 розовых какашек: ' + m.poops;
       html += '<br><a href="#" onclick="delMarker(); return false;">🗑 Удалить мою метку</a>';
     }
     mk.bindPopup(html);
     mk.on('click', () => {
       if (distMode) pickPoint(m);
       else if (letterMode) tryLetterTarget(m);
+      else if (volcanoMode) pickVolcanoTarget(m);
     });
     markers[m.user] = mk;
   }
@@ -573,6 +659,71 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     }
   }
   window.readLetter = readLetter;
+
+  // ---------- Ванильный Вулкан Какашек ----------
+  let volcanoMarker = null;      // L.marker вулкана
+  const poopMarkers = {};        // poop_id -> L.marker
+  let volcanoMode = false;       // ожидание выбора метки-адресата
+
+  function volcanoIcon() {
+    // в 3 раза крупнее обычной метки (обычная — шрифт 28px)
+    return L.divIcon({
+      html: '<div style="font-size:84px;line-height:1;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5))">🌋</div>',
+      className: 'emoji-marker',
+      iconSize: [108, 108], iconAnchor: [54, 54], popupAnchor: [0, -50],
+    });
+  }
+  function renderVolcano(v) {
+    if (volcanoMarker) { map.removeLayer(volcanoMarker); volcanoMarker = null; }
+    const mk = L.marker([v.lat, v.lon], {icon: volcanoIcon()}).addTo(map);
+    const left = Math.floor(v.remain_sec / 60) + ':' + String(v.remain_sec % 60).padStart(2, '0');
+    const btn = v.used ? '' : '<br><button onclick="startVolcano()">💥 Извержение</button>';
+    mk.bindPopup('<b>Ванильный Вулкан Какашек</b> 🌋<br>Извержений доступно: <b>'
+      + (v.used ? 0 : 1) + '</b><br>Осталось: ' + left + btn);
+    volcanoMarker = mk;
+  }
+  window.startVolcano = () => {
+    if (volcanoMarker) volcanoMarker.closePopup();
+    volcanoMode = true;
+    status('🌋 Кликни метку ДРУГОГО участника — в него полетит Розовая Какашка');
+  };
+  async function pickVolcanoTarget(m) {
+    volcanoMode = false;
+    if (m.user === userKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
+    const r = await fetch('/volcano', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey(), to_user: m.user})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      status('💩 Розовая Какашка полетела к ' + m.name + '! Прибудет через ~' + data.eta_min + ' мин');
+      load();
+    } else {
+      status('⚠️ ' + (data.error || 'вулкан не извергся'));
+      if (r.status === 409 || r.status === 404) load();
+    }
+  }
+  function poopIcon(p) {
+    return L.divIcon({
+      html: '<div style="font-size:26px;line-height:1;background:#ffb6d5;border:2px solid #ff69b4;'
+        + 'border-radius:50%;padding:3px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))">💩</div>',
+      className: 'emoji-marker',
+      iconSize: [40, 40], iconAnchor: [20, 20], popupAnchor: [0, -24],
+    });
+  }
+  function renderPoop(p) {
+    const mk = L.marker([p.lat, p.lon], {icon: poopIcon(p)}).addTo(map);
+    if (p.mine && !p.arrived) {
+      mk.bindPopup('💩 Розовая Какашка летит к тебе…');
+    } else if (p.mine) {
+      mk.bindPopup('💩 Тебе прилетела Розовая Какашка! Поздравляем 🩷😄');
+    } else if (!p.arrived) {
+      mk.bindPopup('💩 Розовая Какашка в пути… (адресат: ' + escapeHtml(p.to_name) + ')');
+    } else {
+      mk.bindPopup('💩 Доставлено: ' + escapeHtml(p.to_name));
+    }
+    poopMarkers[p.id] = mk;
+  }
 
   // ---------- Расстояние и время в пути (по прямой) ----------
   const toRad = d => d * Math.PI / 180;
@@ -675,11 +826,16 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     Object.keys(markers).forEach(k => delete markers[k]);
     Object.values(letterMarkers).forEach(m => map.removeLayer(m));
     Object.keys(letterMarkers).forEach(k => delete letterMarkers[k]);
+    Object.values(poopMarkers).forEach(m => map.removeLayer(m));
+    Object.keys(poopMarkers).forEach(k => delete poopMarkers[k]);
     (data.markers || []).forEach(renderMarker);
     (data.letters || []).forEach(renderLetter);
+    (data.poops || []).forEach(renderPoop);
+    if (data.volcano) renderVolcano(data.volcano);
+    else if (volcanoMarker) { map.removeLayer(volcanoMarker); volcanoMarker = null; }
     updateMineUI();
     status('🌍 Меток: ' + (data.markers || []).length + ' • ✉️ Писем на карте: '
-      + (data.letters || []).length);
+      + (data.letters || []).length + (data.volcano ? ' • 🌋 ВУЛКАН НА КАРТЕ!' : ''));
   }
   setInterval(load, 60000);  // автообновление; позиции писем считает сервер по времени
 
@@ -689,6 +845,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
       return;
     }
     if (letterMode) { status('✉️ Кликни по МЕТКЕ участника (животное на карте), а не просто по карте'); return; }
+    if (volcanoMode) { status('🌋 Кликни по МЕТКЕ участника (животное на карте), а не просто по карте'); return; }
     if (markers[userKey()]) {
       status('У тебя уже есть метка. Чтобы поставить новую — кликни по своему животному и выбери «Удалить мою метку»');
       return;
@@ -810,12 +967,52 @@ class AppHandler(BaseHTTPRequestHandler):
                         "to_name": (dest or {}).get("name", "удалённой метке"),
                     })
                 markers = [dict(m) for m in geo_state.get(chat_id, {}).values()]
+                # ---------- Ванильный Вулкан ----------
+                v = volcano_get_active(chat_id)
+                volcano_out = None
+                if v is not None:
+                    remain = max(0, int(VOLCANO_LIFETIME_SEC - (time.time() - v["spawn_ts"])))
+                    volcano_out = {"lat": v["lat"], "lon": v["lon"],
+                                   "used": v["used"], "remain_sec": remain}
+                # ---------- Розовые какашки: позиции и прибытия ----------
+                poops_out = []
+                for pid, poop in list(poops_state.items()):
+                    if poop["chat"] != chat_id:
+                        continue
+                    plat, plon, parrived = poop_progress(poop)
+                    if parrived and not poop["arrived"]:
+                        poop["arrived"] = True
+                        dest = geo_state.get(chat_id, {}).get(poop["to"])
+                        if dest is not None:
+                            dest["poops"] = dest.get("poops", 0) + 1
+                            dest_name = dest.get("name", poop["to"])
+                        else:
+                            dest_name = poop["to"]
+                        changed = True
+                        # уведомление адресату в чат (один раз, при доставке); отправитель анонимен
+                        try:
+                            tg_send_message(
+                                chat_id,
+                                f"🌋 Ванильный Вулкан извергся! К тебе, {dest_name}, прилетела "
+                                "Розовая Какашка 💩🩷. Примирительно улыбнись и неси в дом — "
+                                "принесёт удачу! 😄😊",
+                            )
+                        except Exception as e:
+                            print(f"[paint_bot] уведомление о какашке не ушло: {e!r}", flush=True)
+                    poops_out.append({
+                        "id": pid, "lat": round(plat, 6), "lon": round(plon, 6),
+                        "arrived": parrived,
+                        "mine": poop["to"] == viewer,
+                        "to_name": poop.get("to_name", ""),
+                    })
             if changed:
                 geo_save_to_github()
                 letters_save_to_github()
+                volcano_save_to_github()
             self._respond(
                 200,
-                json.dumps({"markers": markers, "letters": letters_out}, ensure_ascii=False).encode("utf-8"),
+                json.dumps({"markers": markers, "letters": letters_out,
+                            "volcano": volcano_out, "poops": poops_out}, ensure_ascii=False).encode("utf-8"),
                 "application/json; charset=utf-8",
             )
         elif url.path in ("/begin", "/end"):
@@ -844,6 +1041,9 @@ class AppHandler(BaseHTTPRequestHandler):
             return
         if url.path in ("/geosend", "/georead"):
             self._handle_letter_post(url)
+            return
+        if url.path == "/volcano":
+            self._handle_volcano_post(url)
             return
         if url.path != "/save":
             self._respond(404, b"not found")
@@ -1046,6 +1246,49 @@ class AppHandler(BaseHTTPRequestHandler):
         geo_save_to_github()
         letters_save_to_github()
         self._json_response(200, result)
+
+    def _handle_volcano_post(self, url):
+        """Извержение: пользователь целится меткой адресата — от вулкана летит розовая какашка."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+            to_user = str(payload.get("to_user", ""))[:64]
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        if not user or not to_user or user == to_user:
+            self._json_response(400, {"error": "bad request"})
+            return
+        with geo_lock:
+            now = time.time()
+            v = volcano_state.get(chat_id)
+            if v is None or now - v["spawn_ts"] >= VOLCANO_LIFETIME_SEC:
+                self._json_response(404, {"error": "вулкан сейчас не на карте — загляни в следующий час"})
+                return
+            if v["used"]:
+                self._json_response(409, {"error": "вулкан уже извергся — извержений 0"})
+                return
+            dest = geo_state.get(chat_id, {}).get(to_user)
+            if dest is None:
+                self._json_response(404, {"error": "нет такой метки"})
+                return
+            v["used"] = True  # первый успевший занимает извержение (кто использовал — не записывается)
+            pid = uuid.uuid4().hex[:10]
+            total = haversine_km(v["lat"], v["lon"], dest["lat"], dest["lon"])
+            poops_state[pid] = {
+                "id": pid, "chat": chat_id, "to": to_user,
+                "to_name": dest.get("name", to_user),
+                "from_lat": v["lat"], "from_lon": v["lon"],
+                "to_lat": dest["lat"], "to_lon": dest["lon"],
+                "start_ts": now, "arrived": False,
+            }
+        volcano_save_to_github()
+        logline(f"200 /volcano chat={chat_id} user={user!r} -> to={to_user!r} id={pid}")
+        eta = int(total / poop_speed_km_per_min(poops_state[pid])) + 1
+        self._json_response(200, {"eta_min": eta})
+        return
 
     def log_message(self, format, *args):
         pass  # не спамить в логи
@@ -1749,9 +1992,10 @@ async def on_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 
 
 def main() -> None:
-    # Поднимаем сохранённые метки географии и письма из GitHub (после перезапусков)
+    # Поднимаем сохранённые метки географии, письма и вулканы из GitHub (после перезапусков)
     geo_load_from_github()
     letters_load_from_github()
+    volcano_load_from_github()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
