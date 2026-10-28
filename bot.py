@@ -734,10 +734,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-28-1955"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-28-2129"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-28-1955 -->
+<!-- build:2026-10-28-2129 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1887,7 +1887,7 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     if game_key == "bulls":
         key = (chat_id, query.from_user.id)
         old = solo_games.pop(key, None)
-        solo_games[key] = {"type": "bulls", "secret": make_secret(), "attempts": 0}
+        solo_games[key] = {"type": "bulls", "secret": make_secret(), "attempts": 0, "history": []}
         player_stats(query.from_user.id)["games"] += 1
         note = "\n\n♻️ Прежняя игра завершена." if old is not None else ""
         await query.edit_message_text(INTRO_BULLS + note)
@@ -2279,6 +2279,7 @@ async def on_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, guess: st
 
     game["attempts"] += 1
     bulls, cows = bulls_and_cows(game["secret"], guess)
+    game.setdefault("history", []).append((guess, bulls, cows))
     if bulls == 4:
         st = player_stats(update.effective_user.id)
         st["wins"] += 1
@@ -2289,7 +2290,11 @@ async def on_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, guess: st
             f"🎉 Победа! Число {game['secret']} угадано за {game['attempts']} попыток.\nСыграть ещё — /startsum"
         )
     else:
-        await update.message.reply_text(f"{guess} → 🐂 {bulls} · 🐄 {cows} (попытка {game['attempts']})")
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("📜 Мои ходы", callback_data=f"bc_hist:solo:{update.message.chat_id}:{update.effective_user.id}"),
+        ]])
+        await update.message.reply_text(
+            f"{guess} → 🐂 {bulls} · 🐄 {cows} (попытка {game['attempts']})", reply_markup=kb)
 
 
 # ---------- Дуэли Пользователь–Пользователь ----------
@@ -2486,6 +2491,7 @@ async def on_duel_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, gues
     opponent_secret = players[opponent_id]["secret"]
     duel["attempts"][user.id] += 1
     bulls, cows = bulls_and_cows(opponent_secret, guess)
+    players[user.id].setdefault("history", []).append((guess, bulls, cows))
 
     if bulls == 4:
         winner_stats = player_stats(user.id)
@@ -2503,10 +2509,42 @@ async def on_duel_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, gues
 
     duel["turn"] = 1 - duel["turn"]
     next_name = players[duel["order"][duel["turn"]]]["name"]
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("📜 Мои ходы", callback_data=f"bc_hist:duel:{chat_id}:{user.id}"),
+    ]])
     await update.message.reply_text(
         f"{players[user.id]['name']}: {guess} → 🐂 {bulls} · 🐄 {cows} (попытка {duel['attempts'][user.id]})\n"
-        f"Ход: {next_name}"
+        f"Ход: {next_name}",
+        reply_markup=kb,
     )
+
+
+async def on_bc_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Кнопка «📜 Мои ходы» под ответом бота — окошко со всеми названными
+    числами игрока за текущую сессию (последний ход сверху, первый внизу)."""
+    query = update.callback_query
+    _, mode, chat_id_s, user_id_s = query.data.split(":")
+    chat_id, user_id = int(chat_id_s), int(user_id_s)
+    history = None
+    if mode == "solo":
+        game = solo_games.get((chat_id, user_id))
+        history = game.get("history") if game else None
+    else:
+        duel = duels.get(chat_id)
+        player = duel["players"].get(user_id) if duel else None
+        history = player.get("history") if player else None
+    if not history:
+        await query.answer("📜 История пуста — ходов пока не было.", show_alert=True)
+        return
+    lines = [f"{guess} → 🐂 {bulls} · 🐄 {cows}" for guess, bulls, cows in reversed(history)]
+    header = f"📜 Твои ходы ({len(history)}):"
+    text = header + "\n" + "\n".join(lines)
+    if len(text) <= 190:  # лимит alert — 200 символов
+        await query.answer(text, show_alert=True)
+    else:
+        # в окошко помещаются первые строки, полный список — сообщением в чат
+        await query.answer(header + "\n" + "\n".join(lines[:6]) + "\n… (полный список — в чате)", show_alert=True)
+        await context.bot.send_message(chat_id, text)
 
 
 async def on_saga_chapter(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -2624,6 +2662,7 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(on_challenge_button, pattern="^duel:"))
     app.add_handler(CallbackQueryHandler(on_paint_wait, pattern="^paint_wait$"))
     app.add_handler(CallbackQueryHandler(on_stop_choice, pattern="^stop:"))
+    app.add_handler(CallbackQueryHandler(on_bc_history, pattern="^bc_hist:"))
     app.add_handler(ChatMemberHandler(on_my_chat_member, chat_member_types=ChatMemberHandler.MY_CHAT_MEMBER))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.job_queue.run_repeating(process_paint_updates, interval=1.0)
