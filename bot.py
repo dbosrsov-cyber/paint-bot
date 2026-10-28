@@ -734,10 +734,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-28-1330"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-28-1450"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-28-1330 -->
+<!-- build:2026-10-28-1450 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1198,6 +1198,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
 # ---------- Кольцевой буфер последних логов (читается через GET /geologs) ----------
 
 RECENT_LOGS: list[str] = []
+TGINFO_KEY = "sumai-tginfo-2026"  # ключ для служебного эндпоинта /tginfo
 
 
 def logline(msg: str) -> None:
@@ -1225,6 +1226,24 @@ class AppHandler(BaseHTTPRequestHandler):
         elif url.path == "/geologs":
             # служебный: последние строки лога (читаемы без доступа к дашборду Render)
             self._respond(200, "\n".join(RECENT_LOGS[-100:]).encode("utf-8"))
+        elif url.path == "/tginfo":
+            # служебный (ключ): инфо о чате и список админов через Bot API —
+            # нужен, потому что с рабочей сети api.telegram.org недоступен
+            if params.get("key", [""])[0] != TGINFO_KEY:
+                self._respond(403, b"forbidden")
+                return
+            chat_id = params.get("chat", [""])[0]
+            out = {}
+            try:
+                req = urllib.request.Request(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/getChat?chat_id={chat_id}")
+                out["chat"] = json.load(urllib.request.urlopen(req, timeout=15)).get("result")
+                req = urllib.request.Request(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/getChatAdministrators?chat_id={chat_id}")
+                out["admins"] = json.load(urllib.request.urlopen(req, timeout=15)).get("result")
+            except Exception as e:
+                out["error"] = repr(e)
+            self._json_response(200, out)
         elif url.path == "/app":
             self._respond(200, HTML_PAGE.encode("utf-8"), "text/html; charset=utf-8")
         elif url.path == "/canvas":
