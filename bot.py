@@ -734,10 +734,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-28-1450"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-28-1458"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-28-1450 -->
+<!-- build:2026-10-28-1458 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -980,11 +980,11 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   // ---------- Метеорит и ЗвезднаяПыль ----------
   const meteorMarkers = [];   // воронки (метеориты)
   function meteorIcon() {
-    // в 2 раза крупнее аватаров меток (аватар — шрифт 28px)
+    // размер аватара метки (шрифт 28px) — было в 2 раза крупнее, оказалось громоздко
     return L.divIcon({
-      html: '<div style="font-size:56px;line-height:1;filter:drop-shadow(0 2px 3px rgba(0,0,0,.5))">💥</div>',
+      html: '<div style="font-size:28px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))">💥</div>',
       className: 'emoji-marker',
-      iconSize: [72, 72], iconAnchor: [36, 36], popupAnchor: [0, -30],
+      iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -18],
     });
   }
   function renderMeteor(m) {
