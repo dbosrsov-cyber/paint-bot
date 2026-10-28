@@ -548,6 +548,44 @@ def tg_send_message(chat_id: int, text: str) -> None:
     urllib.request.urlopen(req, timeout=15).read()
 
 
+ARRIVAL_NOTIFY_TTL_SEC = 3600  # уведомления о прибытии писем/какашек удаляются через час
+
+
+def tg_send_message_id(chat_id: int, text: str):
+    """Отправить сообщение и вернуть message_id (None при ошибке)."""
+    try:
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+            data=json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8"),
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        resp = json.loads(urllib.request.urlopen(req, timeout=15).read())
+        return resp.get("result", {}).get("message_id")
+    except Exception as e:
+        print(f"[paint_bot] send_message не ушёл: {e!r}", flush=True)
+        return None
+
+
+def tg_delete_message(chat_id: int, msg_id: int) -> None:
+    """Удалить сообщение напрямую через Bot API."""
+    try:
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/deleteMessage",
+            data=json.dumps({"chat_id": chat_id, "message_id": msg_id}).encode("utf-8"),
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        urllib.request.urlopen(req, timeout=15).read()
+    except Exception as e:
+        print(f"[paint_bot] не смог удалить сообщение {chat_id}/{msg_id}: {e!r}", flush=True)
+
+
+def tg_send_with_cleanup(chat_id: int, text: str, ttl_sec: int) -> None:
+    """Отправить уведомление и автоудалить его через ttl_sec (из HTTP-потока)."""
+    msg_id = tg_send_message_id(chat_id, text)
+    if msg_id is not None:
+        threading.Timer(ttl_sec, tg_delete_message, args=(chat_id, msg_id)).start()
+
+
 def white_png() -> bytes:
     """Чистый белый лист 900×900 в PNG."""
     img = Image.new("RGB", (900, 900), "white")
@@ -696,10 +734,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-28-1320"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-28-1330"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-28-1320 -->
+<!-- build:2026-10-28-1330 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1222,12 +1260,14 @@ class AppHandler(BaseHTTPRequestHandler):
                         else:
                             dest_name = letter["to"]
                         changed = True
-                        # уведомление адресату в чат Telegram (один раз, при доставке)
+                        # уведомление адресату в чат Telegram (один раз, при доставке;
+                        # читать письмо можно в течение часа — столько же живёт уведомление)
                         try:
-                            tg_send_message(
+                            tg_send_with_cleanup(
                                 chat_id,
                                 f"📬 {dest_name}! Тебе прибыло письмо — открой карту чата "
                                 "и нажми на 📬, чтобы прочитать.",
+                                ARRIVAL_NOTIFY_TTL_SEC,
                             )
                         except Exception as e:
                             print(f"[paint_bot] уведомление о письме не ушло: {e!r}", flush=True)
@@ -1291,13 +1331,15 @@ class AppHandler(BaseHTTPRequestHandler):
                         else:
                             dest_name = poop["to"]
                         changed = True
-                        # уведомление адресату в чат (один раз, при доставке); отправитель анонимен
+                        # уведомление адресату в чат (один раз, при доставке); отправитель анонимен;
+                        # какашка исчезает с карты через 5 минут — уведомление живёт час
                         try:
-                            tg_send_message(
+                            tg_send_with_cleanup(
                                 chat_id,
                                 f"🌋 Ванильный Вулкан извергся! К тебе, {dest_name}, прилетела "
                                 "Розовая Какашка 💩🩷. Примирительно улыбнись и неси в дом — "
                                 "принесёт удачу! 😄😊",
+                                ARRIVAL_NOTIFY_TTL_SEC,
                             )
                         except Exception as e:
                             print(f"[paint_bot] уведомление о какашке не ушло: {e!r}", flush=True)
