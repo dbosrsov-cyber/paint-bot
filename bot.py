@@ -80,7 +80,7 @@ LETTER_TEST_PAIRS = set()
 # Письма, где отправитель ИЛИ адресат — из этого списка, летят в N раз быстрее
 # базовой скорости (Андрюха — далеко, США; 2.0 = 200 км за 10 мин)
 LETTER_FAST_SENDERS = {"Андрюха": 2.0}
-LETTER_MAX_TEXT = 100
+LETTER_MAX_TEXT = 500
 LETTER_READ_KEEP_SEC = 3600  # прочитанное письмо можно перечитывать час, потом удаляется
 # УДАЛЕНИЕ ПИСЕМ ОТКЛЮЧЕНО (2026-10-26, по просьбе владельца): прочитанные письма
 # НЕ удаляются по истечении часа, письма в пути НЕ удаляются при сносе адресной метки.
@@ -734,10 +734,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-28-1645"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-28-1955"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-28-1645 -->
+<!-- build:2026-10-28-1955 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -767,7 +767,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   <button id="letterBtn" style="background:#888;">✉️ Письмо</button>
 </div>
 <div class="bar" id="letterBar" style="display:none;">
-  <input id="letterText" placeholder="Текст письма (до 100 символов)" maxlength="100" style="flex:2;">
+  <input id="letterText" placeholder="Текст письма (до 500 символов)" maxlength="500" style="flex:2;">
   <button id="letterSend">Отправить</button>
   <button id="letterCancel" style="background:#ddd;color:#333;">Отмена</button>
 </div>
@@ -1071,7 +1071,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     if (m.user === userKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
     letterTarget = m;
     letterBar.style.display = 'flex';
-    status('✉️ Письмо для ' + m.name + ' — напиши текст (до 100 символов)');
+    status('✉️ Письмо для ' + m.name + ' — напиши текст (до 500 символов)');
   }
   document.getElementById('letterCancel').onclick = () => setMode(null);
   document.getElementById('letterSend').onclick = async () => {
