@@ -308,7 +308,7 @@ def meteor_check(chat_id: int):
     return m.get("current"), fell, changed
 
 
-def meteor_fall_job(context) -> None:
+async def meteor_fall_job(context) -> None:
     """Фоновая проверка раз в минуту: падение метеоритов + уведомление в чат."""
     for chat_id in ALLOWED_GROUPS:
         with geo_lock:
@@ -318,7 +318,8 @@ def meteor_fall_job(context) -> None:
         if not fell:
             continue
         try:
-            tg_send_message(chat_id, METEOR_NOTIFY_TEXT)
+            msg = await context.bot.send_message(chat_id, METEOR_NOTIFY_TEXT)
+            schedule_event_cleanup(context, chat_id, msg.message_id, METEOR_LIFETIME_SEC)
             logline(f"meteor fell chat={chat_id} lat={cur['lat']:.2f} lon={cur['lon']:.2f} +notify")
         except Exception as e:
             logline(f"meteor fell chat={chat_id}, но уведомление не ушло: {e!r}")
@@ -490,7 +491,21 @@ def volcano_get_active(chat_id: int):
     return None, False  # перерыв между спавнами ещё не закончился
 
 
-def volcano_spawn_job(context) -> None:
+async def delete_event_message(context) -> None:
+    """Удалить уведомление о событии (вулкан/метеорит) после окончания его жизни."""
+    chat_id, msg_id = context.job.data
+    try:
+        await context.bot.delete_message(chat_id, msg_id)
+    except Exception as e:
+        print(f"[paint_bot] не смог удалить уведомление о событии {chat_id}/{msg_id}: {e!r}", flush=True)
+
+
+def schedule_event_cleanup(context, chat_id: int, msg_id: int, lifetime_sec: int) -> None:
+    """Через lifetime_sec уведомление о событии уже неактуально — удаляем его из чата."""
+    context.job_queue.run_once(delete_event_message, when=lifetime_sec, data=(chat_id, msg_id))
+
+
+async def volcano_spawn_job(context) -> None:
     """Фоновая проверка раз в минуту: спавн вулканов и уведомление в чат."""
     for chat_id in ALLOWED_GROUPS:
         with geo_lock:
@@ -498,7 +513,9 @@ def volcano_spawn_job(context) -> None:
         if not spawned:
             continue
         try:
-            tg_send_message(chat_id, VOLCANO_NOTIFY_TEXT)
+            msg = await context.bot.send_message(chat_id, VOLCANO_NOTIFY_TEXT)
+            # событие живёт 5 минут — после этого уведомление уже неактуально, удаляем
+            schedule_event_cleanup(context, chat_id, msg.message_id, VOLCANO_LIFETIME_SEC)
             logline(f"volcano spawned chat={chat_id} lat={v['lat']:.2f} lon={v['lon']:.2f} +notify")
         except Exception as e:
             logline(f"volcano spawned chat={chat_id}, но уведомление не ушло: {e!r}")
@@ -679,10 +696,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-27-2219"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-28-1320"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-27-2219 -->
+<!-- build:2026-10-28-1320 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
