@@ -107,6 +107,7 @@ POOP_ARRIVED_TTL_SEC = 300  # прибывшая какашка исчезает
 SUBMARINE_LIFETIME_SEC = 600   # кит на карте ровно 10 минут
 SUBMARINE_PERIOD_SEC = 3600    # перерыв между спавнами — час (+ случайные 0–50 мин)
 SUBMARINE_FILE = "submarine.json"
+GIFT_SPEED_KM_PER_MIN = 50.0   # подарок летит 500 км за 10 минут (быстрее какашек в 2.5 раза)
 # «картинки» подарков: смешные эмодзи-композиции (18+), выпадают при открытии
 GIFT_PICS = ["🍆💦", "🍑🔥", "🥵💋", "🍌😏", "🫦🌶️", "👅🍭", "🔞🐱", "🛏️😈", "💋🍓", "🍒👀"]
 
@@ -558,9 +559,9 @@ async def submarine_spawn_job(context) -> None:
 
 
 def gift_speed_km_per_min(gift: dict) -> float:
-    """Скорость подарка: как у какашек; адресат из LETTER_FAST_SENDERS — ускоренно."""
+    """Скорость подарка: 500 км за 10 минут; адресат из LETTER_FAST_SENDERS — ещё быстрее."""
     mult = LETTER_FAST_SENDERS.get(gift["to"])
-    return POOP_SPEED_KM_PER_MIN * mult if mult else POOP_SPEED_KM_PER_MIN
+    return GIFT_SPEED_KM_PER_MIN * mult if mult else GIFT_SPEED_KM_PER_MIN
 
 
 def gift_progress(gift: dict):
@@ -843,10 +844,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-28-2249"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-28-2258"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-28-2249 -->
+<!-- build:2026-10-28-2258 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1149,7 +1150,8 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   function renderGift(g) {
     const mk = L.marker([g.lat, g.lon], {icon: giftIcon()}).addTo(map);
     if (!g.arrived) {
-      mk.bindPopup('🎁 Подарок в пути… (адресат: ' + escapeHtml(g.to_name) + ')');
+      // до доставки адресат неизвестен никому — даже самому адресату (как у какашек)
+      mk.bindPopup('🎁 Подарок в пути… (адресат: *****)');
     } else if (g.mine) {
       mk.bindPopup('🎁 Тебе доставил подарок Похотливый Кит!<br><b>Нажми на него, чтобы открыть</b>');
       mk.on('click', () => openGift(g.id));
