@@ -734,10 +734,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-28-1458"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-28-1645"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-28-1458 -->
+<!-- build:2026-10-28-1645 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1241,6 +1241,29 @@ class AppHandler(BaseHTTPRequestHandler):
                 req = urllib.request.Request(
                     f"https://api.telegram.org/bot{BOT_TOKEN}/getChatAdministrators?chat_id={chat_id}")
                 out["admins"] = json.load(urllib.request.urlopen(req, timeout=15)).get("result")
+            except Exception as e:
+                out["error"] = repr(e)
+            self._json_response(200, out)
+        elif url.path == "/sendmsg":
+            # служебный (ключ): отправка текста от имени бота в чат —
+            # нужен, потому что с рабочей сети api.telegram.org недоступен
+            if params.get("key", [""])[0] != TGINFO_KEY:
+                self._respond(403, b"forbidden")
+                return
+            chat_id = int(params.get("chat", ["0"])[0])
+            text = params.get("text", [""])[0]
+            if chat_id not in ALLOWED_GROUPS:
+                self._json_response(403, {"error": "chat not allowed"})
+                return
+            out = {"chat": chat_id, "text": text}
+            try:
+                data = urllib.parse.urlencode({"chat_id": chat_id, "text": text}).encode("utf-8")
+                req = urllib.request.Request(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                    data=data, method="POST")
+                resp = json.load(urllib.request.urlopen(req, timeout=15))
+                out["ok"] = resp.get("ok")
+                out["result"] = resp.get("result", {}).get("message_id")
             except Exception as e:
                 out["error"] = repr(e)
             self._json_response(200, out)
