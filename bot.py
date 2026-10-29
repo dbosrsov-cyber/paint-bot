@@ -844,10 +844,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-28-2258"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-29-1308"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-28-2258 -->
+<!-- build:2026-10-29-1308 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -921,17 +921,21 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     animalsBar.appendChild(b);
   });
 
-  function animalIcon(emoji) {
+  function animalIcon(emoji, unread) {
+    // рядом с меткой ВСЕГДА ровно один почтовый ящик: 📬 — есть непрочитанные, 📭 — пустой.
+    // Письма в пути на ящик не влияют (видны отдельными ✉️ над меткой).
+    const box = (unread > 0) ? '📬' : '📭';
     return L.divIcon({
-      html: '<div style="font-size:28px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))">' + emoji + '</div>',
+      html: '<div style="position:relative;font-size:28px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))">'
+        + emoji + '<span style="position:absolute;bottom:-7px;right:-12px;font-size:17px">' + box + '</span></div>',
       className: 'emoji-marker',
-      iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -14],
+      iconSize: [44, 44], iconAnchor: [22, 22], popupAnchor: [0, -16],
     });
   }
 
   function renderMarker(m) {
     const emoji = m.icon || '📍';
-    const mk = L.marker([m.lat, m.lon], {icon: animalIcon(emoji)}).addTo(map);
+    const mk = L.marker([m.lat, m.lon], {icon: animalIcon(emoji, m.unread || 0)}).addTo(map);
     let html = '<span style="font-size:22px">' + emoji + '</span> <b>' + escapeHtml(m.name) + '</b><br>'
       + m.lat.toFixed(3) + ', ' + m.lon.toFixed(3);
     if (m.poops) html += '<br>💩 розовых какашек: ' + m.poops;
@@ -972,22 +976,15 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     });
   }
   function renderLetter(l) {
+    // прибывшие письма маркеров не создают: их показывает почтовый ящик на метке адресата
+    // (📬/📭 прямо на иконке) + ссылки «прочитать» в попапе самой метки
+    if (l.arrived) return;
     const mk = L.marker([l.lat, l.lon], {icon: letterIcon(l)}).addTo(map);
     // кнопка ускорения — на любом письме в полёте (чужом и своём), любой пользователь
     const boostBtn = '<br><button onclick="boostLetter(&quot;' + l.id
       + '&quot;)">⏩ Ускорить (1 ЗП)</button>';
-    if (l.mine && l.arrived && !l.read) {
-      mk.bindPopup('📬 Письмо доставлено тебе!<br><b>Нажми на него ещё раз, чтобы прочитать</b>');
-      mk.on('click', () => readLetter(l.id));
-    } else if (l.mine && l.arrived) {
-      mk.bindPopup('📭 Письмо прочитано.<br><i>Нажми, чтобы перечитать</i>');
-      mk.on('click', () => readLetter(l.id));
-    } else if (l.mine) {
+    if (l.mine) {
       mk.bindPopup('✉️ Твоё письмо ещё в пути к тебе…' + boostBtn);
-    } else if (l.arrived && !l.read) {
-      mk.bindPopup('📬 Письмо доставлено адресату, ждёт прочтения');
-    } else if (l.arrived) {
-      mk.bindPopup('📭 Письмо доставлено и прочитано');
     } else {
       mk.bindPopup('📨 Письмо в пути… (адресат: ' + escapeHtml(l.to_name) + ')' + boostBtn);
     }
@@ -1010,6 +1007,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
         mk.openPopup();
       }
       status('📬 Письмо от ' + data.from + ': «' + data.text + '»' + (data.re_read ? ' (перечитано)' : ''));
+      if (!mk) load();  // читали через ссылку в попапе метки — сразу обновить ящик 📬→📭
     } else if (r.status === 409) {
       status('✉️ Письмо ещё в пути — придёт, прочитаешь 🙂');
     } else {
@@ -1552,6 +1550,15 @@ class AppHandler(BaseHTTPRequestHandler):
                         it["lat"] = round(base_lat + 0.003 * math.cos(ang), 6)
                         it["lon"] = round(base_lon + 0.003 * math.sin(ang) / lat_cos, 6)
                 markers = [dict(m) for m in geo_state.get(chat_id, {}).values()]
+                # непрочитанные письма по адресатам: для значка почтового ящика на метке
+                # (письма в пути на ящик не влияют — только доставленные и непрочитанные)
+                unread_by_to = {}
+                for letter in letters_state.values():
+                    if (letter["chat"] == chat_id and letter.get("arrived")
+                            and letter.get("read_ts") is None):
+                        unread_by_to[letter["to"]] = unread_by_to.get(letter["to"], 0) + 1
+                for m in markers:
+                    m["unread"] = unread_by_to.get(m["user"], 0)
                 # ---------- Ванильный Вулкан ----------
                 v, _spawned_now = volcano_get_active(chat_id)
                 volcano_out = None
