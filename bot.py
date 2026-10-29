@@ -882,10 +882,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-29-1449"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-29-1500"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-29-1449 -->
+<!-- build:2026-10-29-1500 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2135,7 +2135,7 @@ class AppHandler(BaseHTTPRequestHandler):
         if expired:
             geo_save_to_github()
             letters_save_to_github()
-            self._json_response(404, {"error": "письмо удалено по истечении часа"})
+            self._json_response(404, {"error": "письмо удалено: срок перечитывания (сутки) истёк"})
             return
         geo_save_to_github()
         letters_save_to_github()
