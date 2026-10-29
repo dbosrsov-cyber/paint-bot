@@ -960,10 +960,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-29-1715"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-29-1730"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-29-1715 -->
+<!-- build:2026-10-29-1730 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -988,6 +988,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
 <div class="bar" id="animals"></div>
 <div class="bar">
   <input id="name" placeholder="Твоё имя" maxlength="24">
+  <button id="delBtn" title="Удалить мою метку" style="display:none;background:#c0392b;">🗑</button>
   <button id="saveBtn">📍 Поставить метку</button>
   <button id="distBtn" style="background:#888;">📏 Расстояние</button>
   <button id="letterBtn" style="background:#888;">✉️ Письмо</button>
@@ -1071,7 +1072,6 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
       } else {
         html += '<br><a href="#" onclick="buyIsland(); return false;">🏝️ Купить остров (10 ЗП)</a>';
       }
-      html += '<br><a href="#" onclick="delMarker(); return false;">🗑 Удалить мою метку</a>';
     }
     mk.bindPopup(html);
     mk.on('click', () => {
@@ -1556,7 +1556,8 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     }
     if (isl.mine) {
       html += '<br><button onclick="startIslandInvite()">✈️ Пригласить гостя</button>'
-        + ' <button onclick="islandPoop()">💩 Удобрить (+1 опыт)</button>';
+        + ' <button onclick="islandPoop()">💩 Удобрить (+1 опыт)</button>'
+        + ' <button onclick="delIsland()" style="background:#c0392b;">🗑 Удалить остров</button>';
       html += '<br><b>строительство:</b>';
       Object.keys(ISLAND_BUILDINGS).forEach(bid => {
         const spec = ISLAND_BUILDINGS[bid];
@@ -1717,6 +1718,21 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
       if (r.status === 403 || r.status === 404) load();
     }
   };
+  window.delIsland = async () => {
+    if (!confirm('Вы точно хотите удалить остров?')) return;
+    const r = await fetch('/islanddel', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey()})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      status('🏝️ Остров удалён — растворился в океане. Новый можно купить за 10 ЗП в своей метке.');
+      load();
+    } else {
+      status('⚠️ ' + (data.error || 'не удалилось удалить остров'));
+      if (r.status === 404 || r.status === 409) load();
+    }
+  };
 
   // ---------- Расстояние и время в пути (по прямой) ----------
   const toRad = d => d * Math.PI / 180;
@@ -1808,8 +1824,9 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     const mine = !!markers[userKey()];
     document.getElementById('animals').style.display = mine ? 'none' : 'flex';
     document.getElementById('saveBtn').style.display = mine ? 'none' : '';
+    document.getElementById('delBtn').style.display = mine ? '' : 'none';
     nameInput.disabled = mine;
-    nameInput.title = mine ? 'Имя закреплено за твоей меткой. Удали метку, чтобы изменить.' : '';
+    nameInput.title = mine ? 'Имя закреплено за твоей меткой. Удали метку (🗑 справа), чтобы изменить.' : '';
   }
 
   async function load() {
@@ -1886,6 +1903,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   };
 
   async function delMarker() {
+    if (!confirm('Вы точно хотите удалить метку?')) return;
     await fetch('/geodel', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -1894,6 +1912,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     load();
   }
   window.delMarker = delMarker;
+  document.getElementById('delBtn').onclick = delMarker;
 
   nameInput.onchange = () => { localStorage.setItem('geo_name', nameInput.value.trim()); load(); };
   load();
@@ -2327,7 +2346,7 @@ class AppHandler(BaseHTTPRequestHandler):
             self._handle_subopen_post(url)
             return
         if url.path in ("/islandbuy", "/islandinvite", "/islandleave",
-                        "/islandbuild", "/islandpoop"):
+                        "/islandbuild", "/islandpoop", "/islanddel"):
             self._handle_island_post(url)
             return
         if url.path != "/save":
@@ -2755,8 +2774,47 @@ class AppHandler(BaseHTTPRequestHandler):
             self._island_build(url)
         elif url.path == "/islandpoop":
             self._island_poop(url)
+        elif url.path == "/islanddel":
+            self._island_del(url)
         else:
             self._json_response(404, {"error": "not found"})
+
+    def _island_del(self, url):
+        """Удалить свой остров. Нельзя, пока на острове гость (или его самолёт в пути)."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        if not user:
+            self._json_response(400, {"error": "bad request"})
+            return
+        with geo_lock:
+            key = f"{chat_id}|{user}"
+            isl = islands_state.get(key)
+            if isl is None:
+                self._json_response(404, {"error": "у тебя нет острова"})
+                return
+            if isl.get("guest"):
+                self._json_response(409, {"error": "пока гость не улетит, остров нельзя удалить"})
+                return
+            isl_name = isl["name"]
+            del islands_state[key]
+            islands_save_to_github()
+        logline(f"200 /islanddel chat={chat_id} user={user!r} island={isl_name!r}")
+        try:
+            tg_send_with_cleanup(
+                chat_id,
+                f"🏝️ Остров «{isl_name}» растворился в океане. "
+                "Была хорошая легенда 🙂 Владелец может основать новый — за 10 ЗП.",
+                300,
+            )
+        except Exception as e:
+            print(f"[paint_bot] уведомление об удалении острова не ушло: {e!r}", flush=True)
+        self._json_response(200, {"ok": True})
 
     def _island_buy(self, url):
         """Купить остров за ЗП: случайная точка в океане, шутливое имя с ником."""
