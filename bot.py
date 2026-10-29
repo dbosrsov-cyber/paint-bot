@@ -519,11 +519,49 @@ def is_water(lat: float, lon: float) -> bool:
     return not ((_LAND_MASK[i >> 3] >> (i & 7)) & 1)
 
 
+# Моря, где может появиться кит: (центр_lat, центр_lon, радиус_км)
+SEA_REGIONS = [
+    (35.0, 20.0, 1200),     # Средиземное
+    (43.5, 34.0, 450),      # Чёрное
+    (46.0, 36.0, 150),      # Азовское
+    (58.5, 20.0, 550),      # Балтийское
+    (73.0, 35.0, 600),      # Баренцево
+    (68.0, 8.0, 500),       # Норвежское
+    (76.0, 5.0, 700),       # Северное
+    (75.0, 75.0, 600),      # Карское
+    (55.0, 150.0, 700),     # Охотское
+    (38.0, 137.0, 600),     # Японское
+    (35.0, 123.0, 500),     # Жёлтое
+    (62.0, -175.0, 600),    # Берингово
+    (15.0, 65.0, 1000),     # Аравийское
+    (22.0, 38.0, 600),      # Красное
+    (-18.0, 152.0, 700),    # Коралловое
+]
+
+
+def random_point_in_circle(lat0: float, lon0: float, radius_km: float):
+    """Случайная точка в круге radius_km вокруг (lat0, lon0), равномерно по площади."""
+    r = radius_km * math.sqrt(random.random())
+    bearing = random.uniform(0, 2 * math.pi)
+    lat1, lon1 = math.radians(lat0), math.radians(lon0)
+    angular = r / 6371.0
+    lat2 = math.asin(math.sin(lat1) * math.cos(angular)
+                     + math.cos(lat1) * math.sin(angular) * math.cos(bearing))
+    lon2 = lon1 + math.atan2(math.sin(bearing) * math.sin(angular) * math.cos(lat1),
+                             math.cos(angular) - math.sin(lat1) * math.sin(lat2))
+    return math.degrees(lat2), (math.degrees(lon2) + 540) % 360 - 180
+
+
 def random_ocean_point():
-    """Случайная точка ТОЛЬКО в океане (суша отбраковывается по маске)."""
+    """Случайная точка в воде: в половине случаев — в одном из морей, иначе в любом океане.
+    Суша отбраковывается по маске, поэтому точка всегда окажется в реальной воде."""
     for _ in range(300):
-        lat = random.uniform(-75, 75)
-        lon = random.uniform(-180, 180)
+        if random.random() < 0.5:
+            clat, clon, r = random.choice(SEA_REGIONS)
+            lat, lon = random_point_in_circle(clat, clon, r)
+        else:
+            lat = random.uniform(-75, 75)
+            lon = random.uniform(-180, 180)
         if is_water(lat, lon):
             return lat, lon
     return -30.0, -140.0  # запасной вариант — Тихий океан
@@ -844,10 +882,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-29-1320"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-29-1330"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-29-1320 -->
+<!-- build:2026-10-29-1330 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1653,9 +1691,8 @@ class AppHandler(BaseHTTPRequestHandler):
                         try:
                             tg_send_message(
                                 chat_id,
-                                f"🎁 {dest_name}! Тебе прислал(а) подарок от Похотливого Кита "
-                                f"{gift.get('from_name', '?')} — беги открывай! "
-                                f"Он уже ждёт у твоей метки 😏🐳",
+                                f"🎁 {dest_name}! Похотливый Кит прислал тебе подарок — "
+                                f"беги открывай! Он уже ждёт у твоей метки 😏🐳",
                             )
                         except Exception as e:
                             print(f"[paint_bot] уведомление о подарке не ушло: {e!r}", flush=True)
