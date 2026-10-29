@@ -882,10 +882,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-29-1434"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-29-1449"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-29-1434 -->
+<!-- build:2026-10-29-1449 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1145,7 +1145,65 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
       + '<hr style="border:none;border-top:1px solid #cbb98d;margin:12px 0">'
       + '<div style="text-align:right;font-style:italic;font-size:13px;color:#8a764e">'
       + (data.re_read ? 'перечитано 📭' : '🆕 новое письмо') + '</div>';
+    // кнопка «Ответить» — в том же окне, ответ летит отправителю автоматически
+    if (data.from_id && data.from_id !== userKey()) {
+      const replyBtn = document.createElement('button');
+      replyBtn.textContent = '✍️ Ответить';
+      replyBtn.style.cssText = 'margin-top:14px;margin-right:10px;background:#6d8b47;'
+        + 'color:#fff7e6;border:none;border-radius:6px;padding:8px 20px;font-size:14px;'
+        + 'cursor:pointer;font-family:inherit;';
+      replyBtn.onclick = () => showReplyForm(data);
+      body.appendChild(replyBtn);
+    }
     letterModal.style.display = 'flex';
+  }
+
+  // форма ответа внутри окна письма
+  function showReplyForm(orig) {
+    const body = document.getElementById('letterModalBody');
+    body.innerHTML = '<div style="font-size:14px;color:#8a764e">✍️ Ответ для <b>'
+      + escapeHtml(orig.from) + '</b></div>'
+      + '<textarea id="replyText" maxlength="500" placeholder="Текст ответа (до 500 символов)"'
+      + ' style="width:100%;min-height:110px;margin-top:10px;padding:8px;box-sizing:border-box;'
+      + 'font-family:inherit;font-size:15px;background:#fffdf6;border:1px solid #cbb98d;'
+      + 'border-radius:4px;color:#4a3a20;resize:vertical;"></textarea>'
+      + '<div id="replyErr" style="color:#a33;font-size:13px;min-height:16px;margin-top:4px;"></div>';
+    const sendBtn = document.createElement('button');
+    sendBtn.textContent = '✉️ Отправить';
+    sendBtn.style.cssText = 'margin-top:8px;margin-right:10px;background:#6d8b47;color:#fff7e6;'
+      + 'border:none;border-radius:6px;padding:8px 20px;font-size:14px;cursor:pointer;font-family:inherit;';
+    sendBtn.onclick = () => sendReply(orig);
+    const backBtn = document.createElement('button');
+    backBtn.textContent = 'Назад';
+    backBtn.style.cssText = 'margin-top:8px;background:#b8a888;color:#fff7e6;border:none;'
+      + 'border-radius:6px;padding:8px 20px;font-size:14px;cursor:pointer;font-family:inherit;';
+    backBtn.onclick = () => openLetterModal(orig);
+    body.appendChild(sendBtn);
+    body.appendChild(backBtn);
+    setTimeout(() => { const ta = document.getElementById('replyText'); if (ta) ta.focus(); }, 60);
+  }
+
+  async function sendReply(orig) {
+    const ta = document.getElementById('replyText');
+    const err = document.getElementById('replyErr');
+    const text = (ta ? ta.value : '').trim();
+    if (!text) { if (err) err.textContent = 'пустое письмо — напиши хоть пару слов 🙂'; return; }
+    const r = await fetch('/geosend', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName(),
+                            to_user: orig.from_id, text: text})
+    });
+    const data = await r.json().catch(() => ({}));
+    const body = document.getElementById('letterModalBody');
+    if (r.ok) {
+      body.innerHTML = '<div style="text-align:center;padding:22px 0;font-size:17px">✅ Ответ отправлен!<br>'
+        + '<small style="color:#8a764e">полетит ' + data.eta_min + ' мин — загляни в ящик позже</small></div>';
+      status('✉️ Ответ ушёл к ' + orig.from + ' — прибудет через ~' + data.eta_min + ' мин');
+      load();
+      setTimeout(() => { if (letterModal) letterModal.style.display = 'none'; }, 1800);
+    } else if (err) {
+      err.textContent = '⚠️ ' + (data.error || 'не отправилось, попробуй ещё раз');
+    }
   }
 
   // ---------- Ванильный Вулкан Какашек ----------
@@ -1666,6 +1724,7 @@ class AppHandler(BaseHTTPRequestHandler):
                         "mine": letter["to"] == viewer,
                         "to": letter["to"],
                         "from_name": letter.get("from_name", "?"),
+                        "from": letter["from"],  # user key отправителя — для кнопки «Ответить»
                         "to_name": (dest or {}).get("name", "удалённой метке"),
                         # дата доставки (МСК) — для «старого письма» при чтении
                         "date": time.strftime("%d.%m.%Y %H:%M",
@@ -2066,6 +2125,7 @@ class AppHandler(BaseHTTPRequestHandler):
                         dest["read"] = dest.get("read", 0) + 1
                 result = {
                     "from": letter["from_name"],
+                    "from_id": letter["from"],  # user key отправителя — для кнопки «Ответить»
                     "text": letter["text"],
                     "re_read": read_ts is not None,
                     "date": time.strftime("%d.%m.%Y %H:%M",
