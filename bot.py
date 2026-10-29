@@ -385,6 +385,17 @@ def island_guest_at(chat_id: int, user: str):
     return None
 
 
+def island_of(chat_id: int, user: str):
+    """Остров чата, где user — владелец (основной или совладелец), или None."""
+    for isl in islands_state.values():
+        if isl["chat"] != chat_id:
+            continue
+        owners = isl.get("owners") or [isl["owner"]]
+        if user in owners:
+            return isl
+    return None
+
+
 def stardust_get(chat_id: int, user: str) -> int:
     return stardust_state.get(f"{chat_id}|{user}", 0)
 
@@ -980,10 +991,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-29-1745"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-29-1830"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-29-1745 -->
+<!-- build:2026-10-29-1830 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1084,8 +1095,9 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     if (m.user === userKey()) {
       const got = m.got || 0, read = m.read || 0;
       html += '<br>📬 получено ' + got + ' • прочитано ' + read + ' • непрочитано ' + (got - read)
+        + '<br>☄️ моя ЗвезднаяПыль: <b>' + (m.zp || 0) + '</b>'
         + '<br><i>письма — в 📮 Почтовом Ящике рядом с меткой</i>';
-      const myIsl = (lastIslands || []).find(i => i.owner === userKey());
+      const myIsl = (lastIslands || []).find(i => (i.owners || [i.owner]).indexOf(userKey()) >= 0);
       if (myIsl) {
         html += '<br>🏝️ мой остров: <b>' + escapeHtml(myIsl.name) + '</b> (уровень '
           + myIsl.level + ') — ищи 🏝️ на карте';
@@ -1108,6 +1120,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   const letterMarkers = {};  // letter_id -> L.marker
   let lastLetters = [];      // последние полученные с сервера письма (для списка в карточке метки)
   let lastIslands = [];      // последние полученные с сервера острова (для открытки и инфо в метке)
+  let lastMarkers = [];      // последние метки (для выбора гостя списком в попапе острова)
   function letterIcon(l) {
     // ✉️ в пути • 📬 доставлено, не прочитано • 📭 доставлено и прочитано
     const e = !l.arrived ? '✉️' : (l.read ? '📭' : '📬');
@@ -1575,7 +1588,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
       html += '<br>' + (legTxt[isl.guest.leg] || '');
     }
     if (isl.mine) {
-      html += '<br><button onclick="startIslandInvite()">✈️ Пригласить гостя</button>'
+      html += '<br><button onclick="startIslandInvite(&quot;' + isl.owner + '&quot;)">✈️ Пригласить гостя</button>'
         + ' <button onclick="islandPoop()">💩 Удобрить (+1 опыт)</button>'
         + ' <button onclick="delIsland()" style="background:#c0392b;">🗑 Удалить остров</button>';
       html += '<br><b>строительство:</b>';
@@ -1672,9 +1685,29 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
       status('⚠️ ' + (data.error || 'не получилось купить остров'));
     }
   };
-  window.startIslandInvite = () => {
-    islandInvMode = true;
-    status('✈️ Кликни метку гостя, которого зовёшь на остров');
+  window.startIslandInvite = (owner) => {
+    islandInvMode = true;  // клик по метке на карте тоже сработает
+    const isl = (lastIslands || []).find(i => i.owner === owner);
+    const mk = isl && islandMarkers[owner];
+    if (!isl || !mk) { status('✈️ Кликни метку гостя, которого зовёшь на остров'); return; }
+    // выбор гостя списком прямо в попапе — не нужно тыкать по карте
+    const others = (lastMarkers || []).filter(xm => xm.user !== userKey());
+    let html = '<b>✈️ Кого зовём на «' + escapeHtml(isl.name) + '»?</b>';
+    if (!others.length) {
+      html += '<br><i>кроме тебя в чате меток нет</i>';
+    }
+    others.forEach(xm => {
+      html += '<br><button onclick="invitePick(&quot;' + encodeURIComponent(xm.user)
+        + '&quot;,&quot;' + encodeURIComponent(xm.name) + '&quot;)">'
+        + escapeHtml(xm.icon || '📍') + ' ' + escapeHtml(xm.name) + '</button>';
+    });
+    html += '<br><i>…или кликни метку гостя прямо на карте</i>';
+    mk.bindPopup(html);
+    mk.openPopup();
+    status('✈️ Выбери гостя из списка на острове (или кликни его метку на карте)');
+  };
+  window.invitePick = (encUser, encName) => {
+    pickIslandGuest({user: decodeURIComponent(encUser), name: decodeURIComponent(encName)});
   };
   async function pickIslandGuest(m) {
     islandInvMode = false;
@@ -1866,6 +1899,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     Object.keys(planeMarkers).forEach(k => delete planeMarkers[k]);
     lastLetters = data.letters || [];
     lastIslands = data.islands || [];
+    lastMarkers = data.markers || [];
     meteorMarkers.forEach(m => map.removeLayer(m));
     meteorMarkers.length = 0;
     (data.markers || []).forEach(renderMarker);
@@ -2290,8 +2324,15 @@ class AppHandler(BaseHTTPRequestHandler):
                                 "leg": g["leg"], "lat": round(plat, 6), "lon": round(plon, 6),
                             })
                     cur_guest = isl.get("guest")
+                    owners = isl.get("owners") or [isl["owner"]]
+                    onames = []
+                    for ow in owners:
+                        om = geo_state.get(chat_id, {}).get(ow)
+                        onames.append((om or {}).get("name", ow))
                     islands_out.append({
-                        "owner": isl["owner"], "owner_name": isl.get("owner_name", "?"),
+                        "owner": isl["owner"],
+                        "owner_name": " и ".join(onames) or isl.get("owner_name", "?"),
+                        "owners": owners,
                         "name": isl["name"], "lat": isl["lat"], "lon": isl["lon"],
                         "level": island_level(isl), "xp": isl.get("xp", 0),
                         "visits": isl.get("visits", 0),
@@ -2299,13 +2340,14 @@ class AppHandler(BaseHTTPRequestHandler):
                         "guest": (None if cur_guest is None
                                   else {"name": cur_guest["name"], "leg": cur_guest["leg"],
                                         "user": cur_guest["user"]}),
-                        "mine": isl["owner"] == viewer,
+                        "mine": viewer in owners,
                     })
-                # сувениры гостей — в карточки их меток (видят все)
+                # сувениры гостей — в карточки их меток (видят все) + баланс ЗП каждой метки
                 for m in markers:
                     src = geo_state.get(chat_id, {}).get(m["user"])
                     if src and src.get("souvenirs"):
                         m["souvenirs"] = src["souvenirs"]
+                    m["zp"] = stardust_get(chat_id, m["user"])
             if changed:
                 geo_save_to_github()
                 letters_save_to_github()
@@ -2813,8 +2855,7 @@ class AppHandler(BaseHTTPRequestHandler):
             self._json_response(400, {"error": "bad request"})
             return
         with geo_lock:
-            key = f"{chat_id}|{user}"
-            isl = islands_state.get(key)
+            isl = island_of(chat_id, user)
             if isl is None:
                 self._json_response(404, {"error": "у тебя нет острова"})
                 return
@@ -2822,7 +2863,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._json_response(409, {"error": "пока гость не улетит, остров нельзя удалить"})
                 return
             isl_name = isl["name"]
-            del islands_state[key]
+            del islands_state[f"{chat_id}|{isl['owner']}"]
             islands_save_to_github()
         logline(f"200 /islanddel chat={chat_id} user={user!r} island={isl_name!r}")
         try:
@@ -2852,8 +2893,8 @@ class AppHandler(BaseHTTPRequestHandler):
             return
         key = f"{chat_id}|{user}"
         with geo_lock:
-            if key in islands_state:
-                self._json_response(409, {"error": "у тебя уже есть остров"})
+            if island_of(chat_id, user) is not None:
+                self._json_response(409, {"error": "у тебя уже есть остров (можешь быть совладельцем)"})
                 return
             if stardust_state.get(key, 0) < ISLAND_COST_ZP:
                 self._json_response(403, {"error": f"нужно {ISLAND_COST_ZP} ЗП — собирай с метеоритов ☄️"})
@@ -2866,6 +2907,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 "xp": 0, "visits": 0, "buildings": [],
                 "poop_day": "", "poop_today": 0,
                 "created_ts": time.time(), "guest": None,
+                "owners": [user],
             }
             stardust_state[key] -= ISLAND_COST_ZP
             balance = stardust_state[key]
@@ -2899,7 +2941,7 @@ class AppHandler(BaseHTTPRequestHandler):
             self._json_response(400, {"error": "bad request"})
             return
         with geo_lock:
-            isl = islands_state.get(f"{chat_id}|{user}")
+            isl = island_of(chat_id, user)
             if isl is None:
                 self._json_response(404, {"error": "сначала купи остров (10 ЗП) — кнопка в твоей метке"})
                 return
@@ -2984,7 +3026,7 @@ class AppHandler(BaseHTTPRequestHandler):
         emoji, bname, need_level, cost_zp, cost_poop = spec
         key = f"{chat_id}|{user}"
         with geo_lock:
-            isl = islands_state.get(key)
+            isl = island_of(chat_id, user)
             if isl is None:
                 self._json_response(404, {"error": "сначала купи остров (10 ЗП)"})
                 return
@@ -3032,7 +3074,7 @@ class AppHandler(BaseHTTPRequestHandler):
             return
         key = f"{chat_id}|{user}"
         with geo_lock:
-            isl = islands_state.get(key)
+            isl = island_of(chat_id, user)
             if isl is None:
                 self._json_response(404, {"error": "сначала купи остров (10 ЗП)"})
                 return
