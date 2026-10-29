@@ -882,10 +882,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-29-1420"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-29-1434"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-29-1420 -->
+<!-- build:2026-10-29-1434 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1043,6 +1043,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
         mk.openPopup();
       }
       status('📬 Письмо от ' + data.from + ': «' + data.text + '»' + (data.re_read ? ' (перечитано)' : ''));
+      openLetterModal(data);  // красивое окно «старого письма»
       if (!mk) load();  // читали через ссылку в попапе метки — сразу обновить ящик 📬→📭
     } else if (r.status === 409) {
       status('✉️ Письмо ещё в пути — придёт, прочитаешь 🙂');
@@ -1074,23 +1075,77 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     const mk = L.marker([me.lat + 0.004, me.lon + 0.004 / latCos],
                         {icon: mailboxIcon(myMail.some(l => !l.read))}).addTo(map);
     let html = '<b>📮 Почтовый Ящик</b>';
-    // группировка по отправителям (алфавит, рус.); внутри отправителя непрочитанные сверху
+    // группировка по отправителям (алфавит, рус.): строка «Письма от …» раскрывается по клику
     const bySender = {};
     myMail.forEach(l => { (bySender[l.from_name] = bySender[l.from_name] || []).push(l); });
     const senders = Object.keys(bySender).sort((a, b) => a.localeCompare(b, 'ru'));
     if (!senders.length) {
       html += '<br><i>пусто — писем нет</i>';
     }
-    senders.forEach(name => {
-      html += '<br><b>' + escapeHtml(name) + '</b>';
-      bySender[name].sort((a, b) => ((a.read ? 1 : 0) - (b.read ? 1 : 0))).forEach(l => {
-        html += '<br><a href="#" onclick="readLetter(&quot;' + l.id
+    senders.forEach((name, i) => {
+      const list = bySender[name].slice().sort((a, b) => ((a.read ? 1 : 0) - (b.read ? 1 : 0)));
+      const fresh = list.filter(l => !l.read).length;
+      html += '<br><a href="#" onclick="toggleMail(' + i + '); return false;"><b>✉️ Письма от '
+        + escapeHtml(name) + '</b> (' + list.length + (fresh ? ', 🆕 ' + fresh + ' нов.' : '') + ')</a>';
+      html += '<div id="mailgrp-' + i + '" style="display:none">';
+      list.forEach(l => {
+        html += '<br>&nbsp;&nbsp;<a href="#" onclick="readLetter(&quot;' + l.id
           + '&quot;); return false;"' + (l.read ? ' style="color:#999"' : '') + '>'
-          + (l.read ? '📭 перечитать' : '📬 прочитать') + '</a>';
+          + (l.read ? '📭 ' : '📬 🆕 <b>Новое</b> · ') + (l.date || '') + '</a>';
       });
+      html += '</div>';
     });
     mk.bindPopup(html);
     mailboxMarker = mk;
+  }
+  window.toggleMail = i => {
+    const el = document.getElementById('mailgrp-' + i);
+    if (el) el.style.display = (el.style.display === 'none') ? 'block' : 'none';
+  };
+
+  // ---------- Окно «старого письма» (эстетика чтения) ----------
+  let letterModal = null;
+  function openLetterModal(data) {
+    if (!letterModal) {
+      letterModal = document.createElement('div');
+      letterModal.style.cssText = 'position:fixed;inset:0;background:rgba(30,20,10,.55);'
+        + 'display:none;align-items:center;justify-content:center;z-index:100000;padding:18px;';
+      const paper = document.createElement('div');
+      paper.style.cssText = 'background:#f8eeda;max-width:430px;width:100%;max-height:82vh;'
+        + 'overflow:auto;padding:24px 28px;border-radius:3px;position:relative;'
+        + 'box-shadow:0 12px 44px rgba(0,0,0,.55), inset 0 0 60px rgba(160,130,80,.18);'
+        + 'border:1px solid #d9c79c;';
+      const stamp = document.createElement('div');
+      stamp.textContent = '📮';
+      stamp.style.cssText = 'position:absolute;top:10px;right:14px;font-size:26px;opacity:.55;'
+        + 'transform:rotate(8deg);';
+      const body = document.createElement('div');
+      body.id = 'letterModalBody';
+      body.style.cssText = 'font-family:Georgia,"Times New Roman",serif;color:#4a3a20;'
+        + 'font-size:16px;line-height:1.6;white-space:pre-wrap;';
+      const closeBtn = document.createElement('button');
+      closeBtn.textContent = 'Закрыть';
+      closeBtn.style.cssText = 'margin-top:18px;background:#8b6f47;color:#fff7e6;border:none;'
+        + 'border-radius:6px;padding:8px 20px;font-size:14px;cursor:pointer;font-family:inherit;';
+      closeBtn.onclick = () => { letterModal.style.display = 'none'; };
+      paper.appendChild(stamp);
+      paper.appendChild(body);
+      paper.appendChild(closeBtn);
+      letterModal.appendChild(paper);
+      letterModal.addEventListener('click', e => { if (e.target === letterModal) letterModal.style.display = 'none'; });
+      document.body.appendChild(letterModal);
+    }
+    const body = document.getElementById('letterModalBody');
+    body.innerHTML = '<div style="text-align:right;font-size:13px;color:#8a764e;font-style:italic">'
+      + escapeHtml(data.date || '') + '</div>'
+      + '<div style="margin:8px 0 2px;font-size:14px;color:#8a764e">✉️ От: <b>'
+      + escapeHtml(data.from) + '</b></div>'
+      + '<hr style="border:none;border-top:1px solid #cbb98d;margin:10px 0">'
+      + '<div style="font-size:17px">' + escapeHtml(data.text) + '</div>'
+      + '<hr style="border:none;border-top:1px solid #cbb98d;margin:12px 0">'
+      + '<div style="text-align:right;font-style:italic;font-size:13px;color:#8a764e">'
+      + (data.re_read ? 'перечитано 📭' : '🆕 новое письмо') + '</div>';
+    letterModal.style.display = 'flex';
   }
 
   // ---------- Ванильный Вулкан Какашек ----------
@@ -1612,6 +1667,10 @@ class AppHandler(BaseHTTPRequestHandler):
                         "to": letter["to"],
                         "from_name": letter.get("from_name", "?"),
                         "to_name": (dest or {}).get("name", "удалённой метке"),
+                        # дата доставки (МСК) — для «старого письма» при чтении
+                        "date": time.strftime("%d.%m.%Y %H:%M",
+                                              time.gmtime((letter.get("arrived_ts")
+                                                           or letter["start_ts"]) + 3 * 3600)),
                     })
                 # прибывшие письма одного адресата лежат в точке его метки друг
                 # на друге — клик достаётся только верхнему; разносим по кругу
@@ -2009,6 +2068,9 @@ class AppHandler(BaseHTTPRequestHandler):
                     "from": letter["from_name"],
                     "text": letter["text"],
                     "re_read": read_ts is not None,
+                    "date": time.strftime("%d.%m.%Y %H:%M",
+                                          time.gmtime((letter.get("arrived_ts")
+                                                       or letter["start_ts"]) + 3 * 3600)),
                 }
         if expired:
             geo_save_to_github()
