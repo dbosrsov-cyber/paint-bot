@@ -844,10 +844,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-29-1308"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-29-1320"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-29-1308 -->
+<!-- build:2026-10-29-1320 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -924,10 +924,12 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   function animalIcon(emoji, unread) {
     // рядом с меткой ВСЕГДА ровно один почтовый ящик: 📬 — есть непрочитанные, 📭 — пустой.
     // Письма в пути на ящик не влияют (видны отдельными ✉️ над меткой).
+    // Ящик висит ВЫШЕ метки (не закрывает животное) и прозрачен для кликов,
+    // чтобы не мешать целеуказанию при отправке писем/подарков.
     const box = (unread > 0) ? '📬' : '📭';
     return L.divIcon({
       html: '<div style="position:relative;font-size:28px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))">'
-        + emoji + '<span style="position:absolute;bottom:-7px;right:-12px;font-size:17px">' + box + '</span></div>',
+        + emoji + '<span style="position:absolute;top:-15px;right:-14px;font-size:17px;pointer-events:none">' + box + '</span></div>',
       className: 'emoji-marker',
       iconSize: [44, 44], iconAnchor: [22, 22], popupAnchor: [0, -16],
     });
@@ -938,6 +940,13 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     const mk = L.marker([m.lat, m.lon], {icon: animalIcon(emoji, m.unread || 0)}).addTo(map);
     let html = '<span style="font-size:22px">' + emoji + '</span> <b>' + escapeHtml(m.name) + '</b><br>'
       + m.lat.toFixed(3) + ', ' + m.lon.toFixed(3);
+    // приблизительное локальное время у метки относительно Москвы (15° долготы = 1 час)
+    const tzShift = Math.round((m.lon - 37.6173) / 15);
+    const tLocal = new Date(Date.now() + (3 + tzShift) * 3600000);
+    const hh = String(tLocal.getUTCHours()).padStart(2, '0');
+    const mm = String(tLocal.getUTCMinutes()).padStart(2, '0');
+    const tzLabel = 'МСК' + (tzShift >= 0 ? '+' : '−') + Math.abs(tzShift);
+    html += '<br>🕒 ' + hh + ':' + mm + ' (' + tzLabel + ')';
     if (m.poops) html += '<br>💩 розовых какашек: ' + m.poops;
     if (m.gift_pics && m.gift_pics.length) html += '<br>🎁 подарки: ' + m.gift_pics.join(' ');
     if (m.user === userKey()) {
