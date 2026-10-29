@@ -882,10 +882,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-29-1411"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-29-1420"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-29-1411 -->
+<!-- build:2026-10-29-1420 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -959,23 +959,17 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     animalsBar.appendChild(b);
   });
 
-  function animalIcon(emoji, unread) {
-    // рядом с меткой ВСЕГДА ровно один почтовый ящик: 📬 — есть непрочитанные, 📭 — пустой.
-    // Письма в пути на ящик не влияют (видны отдельными ✉️ над меткой).
-    // Ящик висит ВЫШЕ метки (не закрывает животное) и прозрачен для кликов,
-    // чтобы не мешать целеуказанию при отправке писем/подарков.
-    const box = (unread > 0) ? '📬' : '📭';
+  function animalIcon(emoji) {
     return L.divIcon({
-      html: '<div style="position:relative;font-size:28px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))">'
-        + emoji + '<span style="position:absolute;top:-15px;right:-14px;font-size:17px;pointer-events:none">' + box + '</span></div>',
+      html: '<div style="font-size:28px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))">' + emoji + '</div>',
       className: 'emoji-marker',
-      iconSize: [44, 44], iconAnchor: [22, 22], popupAnchor: [0, -16],
+      iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -14],
     });
   }
 
   function renderMarker(m) {
     const emoji = m.icon || '📍';
-    const mk = L.marker([m.lat, m.lon], {icon: animalIcon(emoji, m.unread || 0)}).addTo(map);
+    const mk = L.marker([m.lat, m.lon], {icon: animalIcon(emoji)}).addTo(map);
     let html = '<span style="font-size:22px">' + emoji + '</span> <b>' + escapeHtml(m.name) + '</b><br>'
       + m.lat.toFixed(3) + ', ' + m.lon.toFixed(3);
     // приблизительное локальное время у метки относительно Москвы (15° долготы = 1 час)
@@ -989,19 +983,8 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     if (m.gift_pics && m.gift_pics.length) html += '<br>🎁 подарки: ' + m.gift_pics.join(' ');
     if (m.user === userKey()) {
       const got = m.got || 0, read = m.read || 0;
-      html += '<br>📬 получено ' + got + ' • прочитано ' + read + ' • непрочитано ' + (got - read);
-      // ящик: ВСЕ мои прибывшие письма, внутри — сортировка по отправителям (по алфавиту, рус.)
-      // непрочитанные — «прочитать», прочитанные — «перечитать» (доступно час после первого чтения)
-      const myMail = lastLetters.filter(l => l.mine && l.arrived)
-        .sort((a, b) => a.from_name.localeCompare(b.from_name, 'ru'));
-      myMail.filter(l => !l.read).forEach(l => {
-        html += '<br><a href="#" onclick="readLetter(&quot;' + l.id
-          + '&quot;); return false;">📬 письмо от ' + escapeHtml(l.from_name) + ' — прочитать</a>';
-      });
-      myMail.filter(l => l.read).forEach(l => {
-        html += '<br><a href="#" onclick="readLetter(&quot;' + l.id
-          + '&quot;); return false;" style="color:#999">📭 письмо от ' + escapeHtml(l.from_name) + ' — перечитать</a>';
-      });
+      html += '<br>📬 получено ' + got + ' • прочитано ' + read + ' • непрочитано ' + (got - read)
+        + '<br><i>письма — в 📮 Почтовом Ящике рядом с меткой</i>';
       html += '<br><a href="#" onclick="delMarker(); return false;">🗑 Удалить мою метку</a>';
     }
     mk.bindPopup(html);
@@ -1069,6 +1052,46 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     }
   }
   window.readLetter = readLetter;
+
+  // ---------- Почтовый Ящик: отдельный объект рядом с моей меткой ----------
+  let mailboxMarker = null;
+  function mailboxIcon(full) {
+    // 📬 — есть непрочитанные, 📭 — пустой; письма в пути на ящик не влияют
+    return L.divIcon({
+      html: '<div style="font-size:26px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))">'
+        + (full ? '📬' : '📭') + '</div>',
+      className: 'emoji-marker',
+      iconSize: [34, 34], iconAnchor: [17, 17], popupAnchor: [0, -14],
+    });
+  }
+  function renderMailbox(markersData) {
+    if (mailboxMarker) { map.removeLayer(mailboxMarker); mailboxMarker = null; }
+    const me = (markersData || []).find(m => m.user === userKey());
+    if (!me) return;  // без своей метки ящика нет
+    // только письма, доступные для чтения/перечитывания (удалённые сервером не приходят)
+    const myMail = lastLetters.filter(l => l.mine && l.arrived);
+    const latCos = Math.max(Math.cos(me.lat * Math.PI / 180), 0.3);
+    const mk = L.marker([me.lat + 0.004, me.lon + 0.004 / latCos],
+                        {icon: mailboxIcon(myMail.some(l => !l.read))}).addTo(map);
+    let html = '<b>📮 Почтовый Ящик</b>';
+    // группировка по отправителям (алфавит, рус.); внутри отправителя непрочитанные сверху
+    const bySender = {};
+    myMail.forEach(l => { (bySender[l.from_name] = bySender[l.from_name] || []).push(l); });
+    const senders = Object.keys(bySender).sort((a, b) => a.localeCompare(b, 'ru'));
+    if (!senders.length) {
+      html += '<br><i>пусто — писем нет</i>';
+    }
+    senders.forEach(name => {
+      html += '<br><b>' + escapeHtml(name) + '</b>';
+      bySender[name].sort((a, b) => ((a.read ? 1 : 0) - (b.read ? 1 : 0))).forEach(l => {
+        html += '<br><a href="#" onclick="readLetter(&quot;' + l.id
+          + '&quot;); return false;"' + (l.read ? ' style="color:#999"' : '') + '>'
+          + (l.read ? '📭 перечитать' : '📬 прочитать') + '</a>';
+      });
+    });
+    mk.bindPopup(html);
+    mailboxMarker = mk;
+  }
 
   // ---------- Ванильный Вулкан Какашек ----------
   let volcanoMarker = null;      // L.marker вулкана
@@ -1404,6 +1427,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     (data.gifts || []).forEach(renderGift);
     if (data.submarine) renderSubmarine(data.submarine);
     else if (submarineMarker) { map.removeLayer(submarineMarker); submarineMarker = null; }
+    renderMailbox(data.markers);
     updateMineUI();
     // прибывших писем на карте нет (их показывает ящик на метке) — считаем только в пути
     const flyingLetters = (data.letters || []).filter(l => !l.arrived).length;
