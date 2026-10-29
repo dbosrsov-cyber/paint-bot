@@ -731,6 +731,26 @@ def schedule_event_cleanup(context, chat_id: int, msg_id: int, lifetime_sec: int
     context.job_queue.run_once(delete_event_message, when=lifetime_sec, data=(chat_id, msg_id))
 
 
+BC_CLEANUP_DELAY_SEC = 300  # ответы бота в «Быках и коровах» удаляются через 5 минут после конца игры
+
+
+def schedule_bc_cleanup(context, chat_id: int, msg_ids) -> None:
+    """Автоудаление ответов бота по игре «Быки и коровы» через 5 минут после её конца."""
+    for mid in msg_ids:
+        context.job_queue.run_once(delete_event_message, BC_CLEANUP_DELAY_SEC, data=(chat_id, mid))
+
+
+def collect_bc_msg_ids(chat_id: int, user_id: int, kind: str):
+    """Id сообщений бота с ответами игры — до завершения активности (solo/duel)."""
+    if kind == "solo":
+        game = solo_games.get((chat_id, user_id))
+        return list(game.get("msg_ids", [])) if game else []
+    if kind == "duel":
+        duel = duels.get(chat_id)
+        return list(duel.get("msg_ids", [])) if duel else []
+    return []
+
+
 async def volcano_spawn_job(context) -> None:
     """Фоновая проверка раз в минуту: спавн вулканов и уведомление в чат."""
     for chat_id in ALLOWED_GROUPS:
@@ -960,10 +980,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-29-1730"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-29-1745"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-29-1730 -->
+<!-- build:2026-10-29-1745 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -3470,7 +3490,10 @@ async def cmd_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text("📜 Завершаю сагу — публикую эпос…")
             await saga_publish(context.bot, chat_id)
         else:
+            mids = collect_bc_msg_ids(chat_id, user.id, kind)
             await update.message.reply_text(close_activity(chat_id, user.id, kind))
+            if mids:
+                schedule_bc_cleanup(context, chat_id, mids)
         return
     kb = InlineKeyboardMarkup(
         [[InlineKeyboardButton(label, callback_data=cb)] for label, cb in options]
@@ -3490,9 +3513,12 @@ async def on_stop_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await query.edit_message_text("📜 Завершаю сагу — публикую эпос…")
         await saga_publish(context.bot, update.effective_chat.id)
         return
+    mids = collect_bc_msg_ids(update.effective_chat.id, query.from_user.id, kind)
     text = close_activity(update.effective_chat.id, query.from_user.id, kind)
     await query.answer()
     await query.edit_message_text(text)
+    if mids:
+        schedule_bc_cleanup(context, update.effective_chat.id, mids)
 
 
 HELP_TEXT = (
@@ -3561,16 +3587,21 @@ async def on_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, guess: st
         st["wins"] += 1
         if st["best"] is None or game["attempts"] < st["best"]:
             st["best"] = game["attempts"]
+        mids = game.get("msg_ids", [])
         del solo_games[key]
-        await update.message.reply_text(
+        msg = await update.message.reply_text(
             f"🎉 Победа! Число {game['secret']} угадано за {game['attempts']} попыток.\nСыграть ещё — /startsum"
         )
+        # все ответы бота по игре (и само сообщение о победе) — в чистку через 5 минут
+        mids.append(msg.message_id)
+        schedule_bc_cleanup(context, update.message.chat_id, mids)
     else:
         kb = InlineKeyboardMarkup([[
             InlineKeyboardButton("📜 Мои ходы", callback_data=f"bc_hist:solo:{update.message.chat_id}:{update.effective_user.id}"),
         ]])
-        await update.message.reply_text(
+        msg = await update.message.reply_text(
             f"{guess} → 🐂 {bulls} · 🐄 {cows} (попытка {game['attempts']})", reply_markup=kb)
+        game.setdefault("msg_ids", []).append(msg.message_id)
 
 
 # ---------- Дуэли Пользователь–Пользователь ----------
@@ -3775,12 +3806,16 @@ async def on_duel_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, gues
         if winner_stats["best"] is None or duel["attempts"][user.id] < winner_stats["best"]:
             winner_stats["best"] = duel["attempts"][user.id]
         loser_id = opponent_id
+        mids = duel.get("msg_ids", [])
         del duels[chat_id]
-        await update.message.reply_text(
+        msg = await update.message.reply_text(
             f"🏆 {players[user.id]['name']} угадал число {opponent_secret} за {duel['attempts'][user.id]} попыток!\n"
             f"Победа! {players[user.id]['name']} : {duel['attempts'][user.id]} — {duel['attempts'][loser_id]} : {players[loser_id]['name']}\n"
             f"Реванш — /playsum @игрок"
         )
+        # все ответы бота по дуэли (и само сообщение о победе) — в чистку через 5 минут
+        mids.append(msg.message_id)
+        schedule_bc_cleanup(context, chat_id, mids)
         return
 
     duel["turn"] = 1 - duel["turn"]
@@ -3788,11 +3823,12 @@ async def on_duel_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, gues
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton("📜 Мои ходы", callback_data=f"bc_hist:duel:{chat_id}:{user.id}"),
     ]])
-    await update.message.reply_text(
+    msg = await update.message.reply_text(
         f"{players[user.id]['name']}: {guess} → 🐂 {bulls} · 🐄 {cows} (попытка {duel['attempts'][user.id]})\n"
         f"Ход: {next_name}",
         reply_markup=kb,
     )
+    duel.setdefault("msg_ids", []).append(msg.message_id)
 
 
 async def on_bc_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
