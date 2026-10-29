@@ -111,6 +111,43 @@ GIFT_SPEED_KM_PER_MIN = 50.0   # подарок летит 500 км за 10 ми
 # «картинки» подарков: смешные эмодзи-композиции (18+), выпадают при открытии
 GIFT_PICS = ["🍆💦", "🍑🔥", "🥵💋", "🍌😏", "🫦🌶️", "👅🍭", "🔞🐱", "🛏️😈", "💋🍓", "🍒👀"]
 
+# ---------- Остров: покупка за ЗП, гости на самолёте, постройки ----------
+# islands: {"chat_id|user": {"chat","owner","owner_name","lat","lon","name",
+#          "xp","visits","buildings":[id...], "poop_day","poop_today","created_ts",
+#          "guest": None | {"user","name","leg","from_lat","from_lon","to_lat","to_lon",
+#                           "start_ts","souvenir"}}}
+# leg: "to_guest" (самолёт летит ЗА гостем) -> "to_island" (гостя везут на остров) ->
+#      "staying" (гость на острове, самолёта на карте нет) -> "home" (улетает домой) -> None
+islands_state = {}
+ISLAND_FILE = "islands.json"
+ISLAND_COST_ZP = 10             # стоимость острова, единиц ЗвезднойПыли
+ISLAND_MAX_LEVEL = 10
+ISLAND_XP_PER_LEVEL = 3         # уровень = 1 + xp // 3 (замок — с 21 опыта)
+ISLAND_POOP_PER_DAY = 5         # какашек-удобрений в сутки на остров (1 какашка = +1 опыт)
+PLANE_SPEED_KM_PER_MIN = 100.0  # самолёт: 1000 км за 10 минут
+# сувениры за визит на остров — нейтральные эмодзи, добавляются в инфо метки гостя (видят все)
+SOUVENIR_PICS = ["🍹", "🐚", "🏖️", "🥥", "🕶️", "🦀", "🌺", "🍍"]
+# постройки: id -> (эмодзи, название, нужный уровень острова, цена ЗП, цена какашек)
+ISLAND_BUILDINGS = {
+    "hut":    ("🛖", "Хижина",           2, 5,  0),
+    "bar":    ("🏖️", "Пляжный бар",       3, 10, 0),
+    "statue": ("🗿", "Статуя Какашки",    5, 15, 10),
+    "castle": ("🏰", "Островной замок",   8, 30, 0),
+}
+# имя острова генерируется автоматически, шутливо, обязательно с ником владельца {name}
+ISLAND_NAME_TEMPLATES = [
+    "Остров Обетованных Какашек {name}",
+    "Необитаемый остров {name} (пока что)",
+    "{name}ляндия",
+    "Остров Отчаяния и {name}",
+    "Республика Островов {name}",
+    "{name} и Пальмы: вечная история",
+    "Остров Грёз имени {name}",
+    "Какашечные Гавайи {name}",
+    "Заповедник «{name} и обезьяны»",
+    "Остров {name}: здесь можно всё",
+]
+
 # Статистика: {user_id: {"games", "wins", "best"}}
 stats = {}
 
@@ -308,6 +345,35 @@ def submarine_load_from_github() -> None:
     print(f"[paint_bot] submarine: лодок {len(submarine_state)}, подарков {len(gifts_state)}", flush=True)
 
 
+# ---------- Остров: сохранение и помощники ----------
+
+def islands_save_to_github() -> None:
+    _save_json_to_github(ISLAND_FILE, islands_state, geo_lock, "islands")
+
+
+def islands_load_from_github() -> None:
+    loaded = _load_json_from_github(ISLAND_FILE, "islands")
+    if loaded:
+        islands_state.update(loaded)
+        print(f"[paint_bot] islands: загружено {len(loaded)} островов из Git", flush=True)
+
+
+def island_level(isl: dict) -> int:
+    return min(ISLAND_MAX_LEVEL, 1 + isl.get("xp", 0) // ISLAND_XP_PER_LEVEL)
+
+
+def island_plane_progress(guest: dict):
+    """Текущая позиция самолёта (по прямой) и флаг прибытия."""
+    total = haversine_km(guest["from_lat"], guest["from_lon"],
+                         guest["to_lat"], guest["to_lon"])
+    elapsed_min = (time.time() - guest["start_ts"]) / 60.0
+    done_km = min(elapsed_min * PLANE_SPEED_KM_PER_MIN, total)
+    frac = done_km / total if total > 0 else 1.0
+    lat = guest["from_lat"] + (guest["to_lat"] - guest["from_lat"]) * frac
+    lon = guest["from_lon"] + (guest["to_lon"] - guest["from_lon"]) * frac
+    return lat, lon, total <= 0 or done_km >= total
+
+
 def stardust_get(chat_id: int, user: str) -> int:
     return stardust_state.get(f"{chat_id}|{user}", 0)
 
@@ -436,13 +502,14 @@ def backup_geo_data() -> None:
         ok_meteor = _save_json_to_github(f"backups/meteor_{today}.json", _met_payload, geo_lock, "backup meteor")
         _sub_payload = {"submarines": {str(k): v for k, v in submarine_state.items()}, "gifts": gifts_state}
         ok_submarine = _save_json_to_github(f"backups/submarine_{today}.json", _sub_payload, geo_lock, "backup submarine")
-        if ok_geo and ok_letters and ok_volcano and ok_saga and ok_meteor and ok_submarine:
+        ok_islands = _save_json_to_github(f"backups/islands_{today}.json", islands_state, geo_lock, "backup islands")
+        if ok_geo and ok_letters and ok_volcano and ok_saga and ok_meteor and ok_submarine and ok_islands:
             break
-        print(f"[paint_bot] backup attempt {attempt + 1} incomplete (geo={ok_geo}, letters={ok_letters}, volcano={ok_volcano}, saga={ok_saga}, meteor={ok_meteor}, submarine={ok_submarine}), retrying", flush=True)
+        print(f"[paint_bot] backup attempt {attempt + 1} incomplete (geo={ok_geo}, letters={ok_letters}, volcano={ok_volcano}, saga={ok_saga}, meteor={ok_meteor}, submarine={ok_submarine}, islands={ok_islands}), retrying", flush=True)
         time.sleep(5)
     old = (datetime.datetime.now(MSK_TZ) - datetime.timedelta(days=BACKUP_KEEP_DAYS + 1)).strftime("%Y-%m-%d")
     for name in (f"geo_{old}.json", f"letters_{old}.json", f"volcano_{old}.json", f"saga_{old}.json",
-                 f"meteor_{old}.json", f"submarine_{old}.json"):
+                 f"meteor_{old}.json", f"submarine_{old}.json", f"islands_{old}.json"):
         _delete_github_file(f"backups/{name}")
     print(f"[paint_bot] backup {today} done", flush=True)
 
@@ -882,10 +949,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-29-1510"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-29-1620"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-29-1510 -->
+<!-- build:2026-10-29-1620 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -981,10 +1048,18 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     html += '<br>🕒 ' + hh + ':' + mm + ' (' + tzLabel + ')';
     if (m.poops) html += '<br>💩 розовых какашек: ' + m.poops;
     if (m.gift_pics && m.gift_pics.length) html += '<br>🎁 подарки: ' + m.gift_pics.join(' ');
+    if (m.souvenirs && m.souvenirs.length) html += '<br>🏝️ сувениры: ' + m.souvenirs.join(' ');
     if (m.user === userKey()) {
       const got = m.got || 0, read = m.read || 0;
       html += '<br>📬 получено ' + got + ' • прочитано ' + read + ' • непрочитано ' + (got - read)
         + '<br><i>письма — в 📮 Почтовом Ящике рядом с меткой</i>';
+      const myIsl = (lastIslands || []).find(i => i.owner === userKey());
+      if (myIsl) {
+        html += '<br>🏝️ мой остров: <b>' + escapeHtml(myIsl.name) + '</b> (уровень '
+          + myIsl.level + ') — ищи 🏝️ на карте';
+      } else {
+        html += '<br><a href="#" onclick="buyIsland(); return false;">🏝️ Купить остров (10 ЗП)</a>';
+      }
       html += '<br><a href="#" onclick="delMarker(); return false;">🗑 Удалить мою метку</a>';
     }
     mk.bindPopup(html);
@@ -993,6 +1068,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
       else if (letterMode) tryLetterTarget(m);
       else if (volcanoMode) pickVolcanoTarget(m);
       else if (subMode) pickSubTarget(m);
+      else if (islandInvMode) pickIslandGuest(m);
     });
     markers[m.user] = mk;
   }
@@ -1000,6 +1076,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   // ---------- Письма ----------
   const letterMarkers = {};  // letter_id -> L.marker
   let lastLetters = [];      // последние полученные с сервера письма (для списка в карточке метки)
+  let lastIslands = [];      // последние полученные с сервера острова (для открытки и инфо в метке)
   function letterIcon(l) {
     // ✉️ в пути • 📬 доставлено, не прочитано • 📭 доставлено и прочитано
     const e = !l.arrived ? '✉️' : (l.read ? '📭' : '📬');
@@ -1423,6 +1500,213 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     }
   };
 
+  // ---------- Острова: покупка, гости на самолёте, постройки, открытка ----------
+  const islandMarkers = {};    // owner -> L.marker острова
+  const planeMarkers = {};     // owner острова -> L.marker самолёта с гостем
+  let islandInvMode = false;   // ожидание выбора метки-гостя
+  const ISLAND_BUILDINGS = {
+    hut:    ['🛖', 'Хижина',         2, 5,  0],
+    bar:    ['🏖️', 'Пляжный бар',     3, 10, 0],
+    statue: ['🗿', 'Статуя Какашки',  5, 15, 10],
+    castle: ['🏰', 'Островной замок', 8, 30, 0],
+  };
+
+  function islandIcon() {
+    // размер — как у вулкана: остров должен быть заметен на карте
+    return L.divIcon({
+      html: '<div style="font-size:56px;line-height:1;filter:drop-shadow(0 2px 3px rgba(0,0,0,.5))">🏝️</div>',
+      className: 'emoji-marker',
+      iconSize: [72, 72], iconAnchor: [36, 36], popupAnchor: [0, -40],
+    });
+  }
+  function planeIcon() {
+    return L.divIcon({
+      html: '<div style="font-size:30px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))">✈️</div>',
+      className: 'emoji-marker',
+      iconSize: [40, 40], iconAnchor: [20, 20], popupAnchor: [0, -22],
+    });
+  }
+  function renderIsland(isl) {
+    const mk = L.marker([isl.lat, isl.lon], {icon: islandIcon()}).addTo(map);
+    const built = isl.buildings || [];
+    let html = '<span style="font-size:22px">🏝️</span> <b>' + escapeHtml(isl.name) + '</b>'
+      + '<br>владелец: ' + escapeHtml(isl.owner_name)
+      + '<br>уровень: <b>' + isl.level + '</b> (' + isl.xp + ' опыта) • гостей побывало: '
+      + isl.visits + '<br>постройки: 🌴' + (built.length ? ' ' : ' (пока одна пальма)')
+      + built.map(b => ISLAND_BUILDINGS[b] ? ISLAND_BUILDINGS[b][0] : '').join(' ');
+    if (isl.guest) {
+      const legTxt = {
+        to_guest: '✈️ самолёт летит за гостем…',
+        to_island: '✈️ гостя везут на остров…',
+        staying: '😎 гость на острове: <b>' + escapeHtml(isl.guest.name) + '</b>',
+        home: '✈️ гость улетает домой…',
+      };
+      html += '<br>' + (legTxt[isl.guest.leg] || '');
+    }
+    if (isl.mine) {
+      html += '<br><button onclick="startIslandInvite()">✈️ Пригласить гостя</button>'
+        + ' <button onclick="islandPoop()">💩 Удобрить (+1 опыт)</button>';
+      html += '<br><b>строительство:</b>';
+      Object.keys(ISLAND_BUILDINGS).forEach(bid => {
+        const spec = ISLAND_BUILDINGS[bid];
+        const price = spec[3] + ' ЗП' + (spec[4] ? ' + ' + spec[4] + ' 💩' : '');
+        if (built.indexOf(bid) >= 0) {
+          html += '<br>' + spec[0] + ' ' + spec[1] + ' — ✅ построено';
+        } else if (isl.level < spec[2]) {
+          html += '<br>' + spec[0] + ' ' + spec[1] + ' — 🔒 с ' + spec[2] + ' ур. (' + price + ')';
+        } else {
+          html += '<br>' + spec[0] + ' ' + spec[1] + ' (' + price + ') '
+            + '<button onclick="islandBuild(&quot;' + bid + '&quot;)">Построить</button>';
+        }
+      });
+      html += '<br><i>гость на острове: +1 опыт тебе, гостю — ЗП и сувенир 🎁</i>';
+    } else if (isl.guest && isl.guest.user === userKey() && isl.guest.leg === 'staying') {
+      html += '<br><button onclick="leaveIsland()">✈️ Улететь (домой)</button>';
+    }
+    html += '<br><button onclick="openIslandCard(&quot;' + isl.owner + '&quot;)">🖼 Открытка острова</button>';
+    mk.bindPopup(html);
+    islandMarkers[isl.owner] = mk;
+  }
+  function renderPlane(p) {
+    const mk = L.marker([p.lat, p.lon], {icon: planeIcon()}).addTo(map);
+    const legTxt = {
+      to_guest: 'летит за гостем…',
+      to_island: 'везёт гостя на остров…',
+      home: 'везёт гостя домой…',
+    };
+    mk.bindPopup('✈️ Самолёт острова ' + (legTxt[p.leg] || '') + '<br>гость: '
+      + escapeHtml(p.guest_name));
+    planeMarkers[p.island] = mk;
+  }
+
+  // открытка острова: красивая картинка со сценой заката и постройками
+  let islandCard = null;
+  function openIslandCard(owner) {
+    const isl = (lastIslands || []).find(i => i.owner === owner);
+    if (!isl) return;
+    if (islandCard) { map.closePopup(); islandCard.remove(); islandCard = null; }
+    const built = isl.buildings || [];
+    const spots = {
+      hut: 'left:14%;bottom:38%;', bar: 'right:12%;bottom:34%;',
+      statue: 'left:42%;bottom:56%;', castle: 'right:26%;bottom:50%;',
+    };
+    let bHtml = '';
+    built.forEach(bid => {
+      if (ISLAND_BUILDINGS[bid] && spots[bid]) {
+        bHtml += '<div style="position:absolute;' + spots[bid]
+          + 'font-size:34px;filter:drop-shadow(0 2px 2px rgba(0,0,0,.45))">'
+          + ISLAND_BUILDINGS[bid][0] + '</div>';
+      }
+    });
+    islandCard = document.createElement('div');
+    islandCard.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;'
+      + 'justify-content:center;z-index:100000;padding:18px;background:rgba(10,20,35,.6);';
+    islandCard.innerHTML = '<div style="position:relative;width:100%;max-width:520px;height:340px;'
+      + 'border-radius:14px;overflow:hidden;'
+      + 'background:linear-gradient(180deg,#ff9a56 0%,#ffcf8f 32%,#7ec8e3 33%,#2f6fb2 100%);'
+      + 'box-shadow:0 16px 50px rgba(0,0,0,.6);font-family:Georgia,serif">'
+      + '<div style="position:absolute;top:24px;left:50%;transform:translateX(-50%);'
+      + 'width:60px;height:60px;border-radius:50%;'
+      + 'background:radial-gradient(circle,#fff3c4 0%,#ffd257 55%,rgba(255,180,60,0) 100%)"></div>'
+      + '<div style="position:absolute;left:50%;bottom:38px;transform:translateX(-50%);'
+      + 'font-size:120px;line-height:1;filter:drop-shadow(0 6px 6px rgba(0,0,0,.35))">🏝️</div>'
+      + '<div style="position:absolute;left:20%;bottom:30px;font-size:36px;line-height:1">🌴</div>'
+      + bHtml
+      + '<div style="position:absolute;top:12px;left:0;right:0;text-align:center;color:#4a2c12;'
+      + 'font-weight:bold;font-size:19px;text-shadow:0 1px 0 rgba(255,255,255,.6)">'
+      + escapeHtml(isl.name) + '</div>'
+      + '<div style="position:absolute;bottom:8px;left:0;right:0;text-align:center;color:#fff;'
+      + 'font-size:13px;text-shadow:0 1px 3px rgba(0,0,0,.7)">уровень ' + isl.level
+      + ' • опыт ' + isl.xp + ' • гостей побывало: ' + isl.visits
+      + ' • владелец ' + escapeHtml(isl.owner_name) + '</div>'
+      + '<button onclick="this.parentNode.parentNode.remove()" '
+      + 'style="position:absolute;top:10px;right:12px;background:rgba(255,255,255,.85);'
+      + 'border:none;border-radius:50%;width:30px;height:30px;font-size:15px;cursor:pointer">✕</button>'
+      + '</div>';
+    document.body.appendChild(islandCard);
+  }
+  window.openIslandCard = openIslandCard;
+
+  window.buyIsland = async () => {
+    const r = await fetch('/islandbuy', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName()})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      status('🏝️ Твой остров: «' + data.name + '»! Баланс ЗП: ' + data.balance);
+      load();
+    } else {
+      status('⚠️ ' + (data.error || 'не получилось купить остров'));
+    }
+  };
+  window.startIslandInvite = () => {
+    islandInvMode = true;
+    status('✈️ Кликни метку гостя, которого зовёшь на остров');
+  };
+  async function pickIslandGuest(m) {
+    islandInvMode = false;
+    if (m.user === userKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
+    const r = await fetch('/islandinvite', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey(), to_user: m.user})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      status('✈️ Самолёт полетел за ' + data.guest_name + '! Прибудет примерно через '
+        + data.eta_min + ' мин');
+      load();
+    } else {
+      status('⚠️ ' + (data.error || 'не получилось позвать'));
+      if (r.status === 404 || r.status === 409) load();
+    }
+  }
+  window.leaveIsland = async () => {
+    const r = await fetch('/islandleave', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey()})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      status('✈️ Улетаешь домой' + (data.gone ? '' : ' — прибудешь через ~' + data.eta_min + ' мин')
+        + '. Спасибо за визит! 🙂');
+    } else {
+      status('⚠️ ' + (data.error || 'не улетелось'));
+    }
+    load();
+  };
+  window.islandBuild = async (bid) => {
+    const r = await fetch('/islandbuild', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey(), building: bid})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      status('🏗 ' + data.emoji + ' «' + data.name + '» построено! Уровень острова: '
+        + data.level + ' • баланс ЗП: ' + data.balance);
+      load();
+    } else {
+      status('⚠️ ' + (data.error || 'не построилось'));
+      if (r.status === 403 || r.status === 409) load();
+    }
+  };
+  window.islandPoop = async () => {
+    const r = await fetch('/islandpoop', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey()})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      status('💩 Удобрено! Опыт: ' + data.xp + ' (уровень ' + data.level
+        + '), какашек осталось: ' + data.poops_left
+        + ' — сегодня удобрено ' + data.poop_today + '/' + data.poop_limit);
+      load();
+    } else {
+      status('⚠️ ' + (data.error || 'не удобрилось'));
+      if (r.status === 403 || r.status === 404) load();
+    }
+  };
+
   // ---------- Расстояние и время в пути (по прямой) ----------
   const toRad = d => d * Math.PI / 180;
   function haversineKm(a, b) {
@@ -1528,13 +1812,20 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     Object.keys(poopMarkers).forEach(k => delete poopMarkers[k]);
     Object.values(giftMarkers).forEach(m => map.removeLayer(m));
     Object.keys(giftMarkers).forEach(k => delete giftMarkers[k]);
+    Object.values(islandMarkers).forEach(m => map.removeLayer(m));
+    Object.keys(islandMarkers).forEach(k => delete islandMarkers[k]);
+    Object.values(planeMarkers).forEach(m => map.removeLayer(m));
+    Object.keys(planeMarkers).forEach(k => delete planeMarkers[k]);
     lastLetters = data.letters || [];
+    lastIslands = data.islands || [];
     meteorMarkers.forEach(m => map.removeLayer(m));
     meteorMarkers.length = 0;
     (data.markers || []).forEach(renderMarker);
     (data.letters || []).forEach(renderLetter);
     (data.poops || []).forEach(renderPoop);
     (data.meteors || []).forEach(renderMeteor);
+    (data.islands || []).forEach(renderIsland);
+    (data.planes || []).forEach(renderPlane);
     if (data.volcano) renderVolcano(data.volcano);
     else if (volcanoMarker) { map.removeLayer(volcanoMarker); volcanoMarker = null; }
     (data.gifts || []).forEach(renderGift);
@@ -1546,6 +1837,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     const flyingLetters = (data.letters || []).filter(l => !l.arrived).length;
     status('🌍 Меток: ' + (data.markers || []).length + ' • ✉️ Писем в пути: '
       + flyingLetters + ' • ☄️ ЗП: ' + (data.stardust || 0)
+      + ' • 🏝️ Островов: ' + (data.islands || []).length
       + (data.volcano ? ' • 🌋 ВУЛКАН НА КАРТЕ!' : '')
       + (data.meteors && data.meteors.some(m => m.fresh && m.zp) ? ' • 💥 МЕТЕОРИТ!' : '')
       + (data.submarine && !data.submarine.used ? ' • 🐳 ПОХОТЛИВЫЙ КИТ В ОКЕАНЕ!' : ''));
@@ -1560,6 +1852,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     if (letterMode) { status('✉️ Кликни по МЕТКЕ участника (животное на карте), а не просто по карте'); return; }
     if (volcanoMode) { status('🌋 Кликни по МЕТКЕ участника (животное на карте), а не просто по карте'); return; }
     if (subMode) { status('🐳 Кликни по МЕТКЕ участника (животное на карте), а не просто по карте'); return; }
+    if (islandInvMode) { status('✈️ Кликни по МЕТКЕ участника (животное на карте), а не просто по карте'); return; }
     if (markers[userKey()]) {
       status('У тебя уже есть метка. Чтобы поставить новую — кликни по своему животному и выбери «Удалить мою метку»');
       return;
@@ -1880,17 +2173,103 @@ class AppHandler(BaseHTTPRequestHandler):
                     pics = pics_by_to.get(m["user"])
                     if pics:
                         m["gift_pics"] = pics
+                # ---------- Острова: перелёты гостей, награды, позиции ----------
+                islands_out = []
+                planes_out = []
+                for ikey, isl in list(islands_state.items()):
+                    if isl["chat"] != chat_id:
+                        continue
+                    g = isl.get("guest")
+                    if g and g["leg"] in ("to_guest", "to_island", "home"):
+                        plat, plon, parrived = island_plane_progress(g)
+                        if parrived:
+                            changed = True
+                            if g["leg"] == "to_guest":
+                                # самолёт долетел ЗА гостем — теперь везёт его на остров
+                                g["leg"] = "to_island"
+                                g["from_lat"], g["from_lon"] = g["to_lat"], g["to_lon"]
+                                g["to_lat"], g["to_lon"] = isl["lat"], isl["lon"]
+                                g["start_ts"] = now
+                                try:
+                                    tg_send_with_cleanup(
+                                        chat_id,
+                                        f"✈️ {g['name']}! За тобой прилетел самолёт с острова "
+                                        f"«{isl['name']}» — тебя зовут в гости! 🏝️😎 "
+                                        "Готовь плавки, скоро приземлишься!",
+                                        ARRIVAL_NOTIFY_TTL_SEC,
+                                    )
+                                except Exception as e:
+                                    print(f"[paint_bot] уведомление гостю не ушло: {e!r}", flush=True)
+                            elif g["leg"] == "to_island":
+                                # гость на острове: награды гостю + опыт острову
+                                g["leg"] = "staying"
+                                isl["visits"] = isl.get("visits", 0) + 1
+                                isl["xp"] = isl.get("xp", 0) + 1
+                                zp_reward = 2 if "bar" in isl.get("buildings", []) else 1
+                                skey = f"{chat_id}|{g['user']}"
+                                stardust_state[skey] = stardust_state.get(skey, 0) + zp_reward
+                                g["souvenir"] = random.choice(SOUVENIR_PICS)
+                                gmarker = geo_state.get(chat_id, {}).get(g["user"])
+                                if gmarker is not None:
+                                    gmarker.setdefault("souvenirs", []).append(g["souvenir"])
+                                try:
+                                    tg_send_with_cleanup(
+                                        chat_id,
+                                        f"🏝️ {g['name']} приземлился на «{isl['name']}»! "
+                                        f"+{zp_reward} ЗП и сувенир {g['souvenir']} 😄🎉 "
+                                        "Хозяину: гость ждёт — жми «Улететь», когда надоест 🙂",
+                                        ARRIVAL_NOTIFY_TTL_SEC,
+                                    )
+                                except Exception as e:
+                                    print(f"[paint_bot] уведомление о госте не ушло: {e!r}", flush=True)
+                            else:  # home — гость улетел домой, сессия закрыта
+                                gname = g["name"]
+                                isl["guest"] = None
+                                try:
+                                    tg_send_with_cleanup(
+                                        chat_id,
+                                        f"✈️ {gname} улетел с острова «{isl['name']}» домой. "
+                                        "Возвращайся, здесь тепло 🙂",
+                                        ARRIVAL_NOTIFY_TTL_SEC,
+                                    )
+                                except Exception as e:
+                                    print(f"[paint_bot] уведомление об отлёте не ушло: {e!r}", flush=True)
+                        else:
+                            planes_out.append({
+                                "island": isl["owner"], "guest_name": g["name"],
+                                "leg": g["leg"], "lat": round(plat, 6), "lon": round(plon, 6),
+                            })
+                    cur_guest = isl.get("guest")
+                    islands_out.append({
+                        "owner": isl["owner"], "owner_name": isl.get("owner_name", "?"),
+                        "name": isl["name"], "lat": isl["lat"], "lon": isl["lon"],
+                        "level": island_level(isl), "xp": isl.get("xp", 0),
+                        "visits": isl.get("visits", 0),
+                        "buildings": isl.get("buildings", []),
+                        "guest": (None if cur_guest is None
+                                  else {"name": cur_guest["name"], "leg": cur_guest["leg"],
+                                        "user": cur_guest["user"]}),
+                        "mine": isl["owner"] == viewer,
+                    })
+                # сувениры гостей — в карточки их меток (видят все)
+                for m in markers:
+                    src = geo_state.get(chat_id, {}).get(m["user"])
+                    if src and src.get("souvenirs"):
+                        m["souvenirs"] = src["souvenirs"]
             if changed:
                 geo_save_to_github()
                 letters_save_to_github()
                 volcano_save_to_github()
                 submarine_save_to_github()
+                islands_save_to_github()
+                meteor_save_to_github()
             self._respond(
                 200,
                 json.dumps({"markers": markers, "letters": letters_out,
                             "volcano": volcano_out, "poops": poops_out,
                             "meteors": meteors_out, "stardust": stardust_get(chat_id, viewer),
-                            "submarine": submarine_out, "gifts": gifts_out},
+                            "submarine": submarine_out, "gifts": gifts_out,
+                            "islands": islands_out, "planes": planes_out},
                            ensure_ascii=False).encode("utf-8"),
                 "application/json; charset=utf-8",
             )
@@ -1935,6 +2314,10 @@ class AppHandler(BaseHTTPRequestHandler):
             return
         if url.path == "/subopen":
             self._handle_subopen_post(url)
+            return
+        if url.path in ("/islandbuy", "/islandinvite", "/islandleave",
+                        "/islandbuild", "/islandpoop"):
+            self._handle_island_post(url)
             return
         if url.path != "/save":
             self._respond(404, b"not found")
@@ -2331,6 +2714,244 @@ class AppHandler(BaseHTTPRequestHandler):
         logline(f"200 /subopen chat={chat_id} user={user!r} gift={gid}")
         self._json_response(200, {"picture": gift["picture"], "from": gift.get("from_name", "?")})
         return
+
+    # ---------- Остров: покупка, гости на самолёте, постройки, удобрения ----------
+
+    def _handle_island_post(self, url):
+        if url.path == "/islandbuy":
+            self._island_buy(url)
+        elif url.path == "/islandinvite":
+            self._island_invite(url)
+        elif url.path == "/islandleave":
+            self._island_leave(url)
+        elif url.path == "/islandbuild":
+            self._island_build(url)
+        elif url.path == "/islandpoop":
+            self._island_poop(url)
+        else:
+            self._json_response(404, {"error": "not found"})
+
+    def _island_buy(self, url):
+        """Купить остров за ЗП: случайная точка в океане, шутливое имя с ником."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+            name = (str(payload.get("name"))[:32]).strip() or "Аноним"
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        if not user:
+            self._json_response(400, {"error": "bad request"})
+            return
+        key = f"{chat_id}|{user}"
+        with geo_lock:
+            if key in islands_state:
+                self._json_response(409, {"error": "у тебя уже есть остров"})
+                return
+            if stardust_state.get(key, 0) < ISLAND_COST_ZP:
+                self._json_response(403, {"error": f"нужно {ISLAND_COST_ZP} ЗП — собирай с метеоритов ☄️"})
+                return
+            lat, lon = random_ocean_point()
+            isl_name = random.choice(ISLAND_NAME_TEMPLATES).format(name=name)
+            islands_state[key] = {
+                "chat": chat_id, "owner": user, "owner_name": name,
+                "lat": lat, "lon": lon, "name": isl_name,
+                "xp": 0, "visits": 0, "buildings": [],
+                "poop_day": "", "poop_today": 0,
+                "created_ts": time.time(), "guest": None,
+            }
+            stardust_state[key] -= ISLAND_COST_ZP
+            balance = stardust_state[key]
+            islands_save_to_github()
+            meteor_save_to_github()
+        logline(f"200 /islandbuy chat={chat_id} user={user!r} island={isl_name!r} balance={balance}")
+        try:
+            tg_send_with_cleanup(
+                chat_id,
+                f"🏝️ НОВЫЙ ОСТРОВ! На карте чата вырос «{isl_name}». "
+                f"Владелец {name} вложил {ISLAND_COST_ZP} ЗП и теперь может звать гостей "
+                "самолётом ✈️😎",
+                300,  # новость короткоживущая — через 5 минут удаляем, остров остаётся
+            )
+        except Exception as e:
+            print(f"[paint_bot] уведомление об острове не ушло: {e!r}", flush=True)
+        self._json_response(200, {"name": isl_name, "balance": balance})
+
+    def _island_invite(self, url):
+        """Владелец зовёт гостя: самолёт летит ЗА ним, потом везёт на остров."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+            to_user = str(payload.get("to_user", ""))[:64]
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        if not user or not to_user or user == to_user:
+            self._json_response(400, {"error": "bad request"})
+            return
+        with geo_lock:
+            isl = islands_state.get(f"{chat_id}|{user}")
+            if isl is None:
+                self._json_response(404, {"error": "сначала купи остров (10 ЗП) — кнопка в твоей метке"})
+                return
+            if isl.get("guest"):
+                self._json_response(409, {"error": "пока гость не улетит, другого позвать нельзя"})
+                return
+            dest = geo_state.get(chat_id, {}).get(to_user)
+            if dest is None:
+                self._json_response(404, {"error": "нет такой метки"})
+                return
+            guest_name = dest.get("name", to_user)
+            isl["guest"] = {
+                "user": to_user, "name": guest_name, "leg": "to_guest",
+                "from_lat": isl["lat"], "from_lon": isl["lon"],
+                "to_lat": dest["lat"], "to_lon": dest["lon"],
+                "start_ts": time.time(),
+            }
+            islands_save_to_github()
+            total = haversine_km(isl["lat"], isl["lon"], dest["lat"], dest["lon"])
+        logline(f"200 /islandinvite chat={chat_id} owner={user!r} guest={to_user!r}")
+        eta = int(total / PLANE_SPEED_KM_PER_MIN) + 1
+        self._json_response(200, {"eta_min": eta, "guest_name": guest_name})
+
+    def _island_leave(self, url):
+        """Гость на острове жмёт «Улететь»: самолёт везёт его домой."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        if not user:
+            self._json_response(400, {"error": "bad request"})
+            return
+        with geo_lock:
+            found = None
+            for isl in islands_state.values():
+                if isl["chat"] != chat_id:
+                    continue
+                g = isl.get("guest")
+                if g and g["user"] == user and g["leg"] == "staying":
+                    found = (isl, g)
+                    break
+            if found is None:
+                self._json_response(404, {"error": "ты не гость на острове (или самолёт ещё в пути)"})
+                return
+            isl, g = found
+            dest = geo_state.get(chat_id, {}).get(user)
+            if dest is None:
+                isl["guest"] = None  # своей метки нет — гость просто исчезает
+                islands_save_to_github()
+                logline(f"200 /islandleave chat={chat_id} user={user!r} (без метки — исчез)")
+                self._json_response(200, {"gone": True})
+                return
+            g["leg"] = "home"
+            g["from_lat"], g["from_lon"] = isl["lat"], isl["lon"]
+            g["to_lat"], g["to_lon"] = dest["lat"], dest["lon"]
+            g["start_ts"] = time.time()
+            islands_save_to_github()
+            total = haversine_km(isl["lat"], isl["lon"], dest["lat"], dest["lon"])
+        logline(f"200 /islandleave chat={chat_id} user={user!r}")
+        eta = int(total / PLANE_SPEED_KM_PER_MIN) + 1
+        self._json_response(200, {"eta_min": eta})
+
+    def _island_build(self, url):
+        """Построить здание: уровень острова + цена ЗП (+ какашки для статуи)."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+            bid = str(payload.get("building", ""))[:16]
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        spec = ISLAND_BUILDINGS.get(bid)
+        if spec is None:
+            self._json_response(400, {"error": "неизвестная постройка"})
+            return
+        emoji, bname, need_level, cost_zp, cost_poop = spec
+        key = f"{chat_id}|{user}"
+        with geo_lock:
+            isl = islands_state.get(key)
+            if isl is None:
+                self._json_response(404, {"error": "сначала купи остров (10 ЗП)"})
+                return
+            if bid in isl.get("buildings", []):
+                self._json_response(409, {"error": "это уже построено"})
+                return
+            lvl = island_level(isl)
+            if lvl < need_level:
+                self._json_response(403, {"error": f"нужен {need_level} уровень острова (сейчас {lvl})"})
+                return
+            if stardust_state.get(key, 0) < cost_zp:
+                self._json_response(403, {"error": f"нужно {cost_zp} ЗП (баланс {stardust_state.get(key, 0)})"})
+                return
+            marker = geo_state.get(chat_id, {}).get(user)
+            if cost_poop:
+                have = (marker or {}).get("poops", 0)
+                if have < cost_poop:
+                    self._json_response(403, {"error": f"нужно {cost_poop} розовых какашек (есть {have})"})
+                    return
+            stardust_state[key] -= cost_zp
+            if cost_poop and marker is not None:
+                marker["poops"] = marker.get("poops", 0) - cost_poop
+            isl.setdefault("buildings", []).append(bid)
+            islands_save_to_github()
+            meteor_save_to_github()
+            geo_save_to_github()
+            balance = stardust_state[key]
+            level = island_level(isl)
+        logline(f"200 /islandbuild chat={chat_id} user={user!r} building={bid} balance={balance}")
+        self._json_response(200, {"balance": balance, "buildings": isl["buildings"],
+                                  "level": level, "emoji": emoji, "name": bname})
+
+    def _island_poop(self, url):
+        """Удобрить остров розовой какашкой: −1 какашка со счётчика, +1 опыт (лимит 5/сутки)."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        if not user:
+            self._json_response(400, {"error": "bad request"})
+            return
+        key = f"{chat_id}|{user}"
+        with geo_lock:
+            isl = islands_state.get(key)
+            if isl is None:
+                self._json_response(404, {"error": "сначала купи остров (10 ЗП)"})
+                return
+            marker = geo_state.get(chat_id, {}).get(user)
+            have = (marker or {}).get("poops", 0)
+            if have < 1:
+                self._json_response(403, {"error": "нет розовых какашек — лови из вулкана 🌋"})
+                return
+            today = datetime.datetime.now(MSK_TZ).strftime("%Y-%m-%d")
+            if isl.get("poop_day") != today:
+                isl["poop_day"] = today
+                isl["poop_today"] = 0
+            if isl.get("poop_today", 0) >= ISLAND_POOP_PER_DAY:
+                self._json_response(403, {"error": f"лимит: {ISLAND_POOP_PER_DAY} какашек в сутки на остров"})
+                return
+            marker["poops"] = have - 1
+            isl["poop_today"] = isl.get("poop_today", 0) + 1
+            isl["xp"] = isl.get("xp", 0) + 1
+            islands_save_to_github()
+            geo_save_to_github()
+            xp, level, poops_left = isl["xp"], island_level(isl), marker["poops"]
+        logline(f"200 /islandpoop chat={chat_id} user={user!r} xp={xp}")
+        self._json_response(200, {"xp": xp, "level": level, "poops_left": poops_left,
+                                  "poop_today": isl["poop_today"], "poop_limit": ISLAND_POOP_PER_DAY})
 
     def log_message(self, format, *args):
         pass  # не спамить в логи
@@ -3216,6 +3837,7 @@ def main() -> None:
     saga_load_from_github()
     meteor_load_from_github()
     submarine_load_from_github()
+    islands_load_from_github()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
