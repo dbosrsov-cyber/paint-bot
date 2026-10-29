@@ -374,6 +374,17 @@ def island_plane_progress(guest: dict):
     return lat, lon, total <= 0 or done_km >= total
 
 
+def island_guest_at(chat_id: int, user: str):
+    """Остров, на котором user сейчас гостит (leg='staying'), или None."""
+    for isl in islands_state.values():
+        if isl["chat"] != chat_id:
+            continue
+        g = isl.get("guest")
+        if g and g["user"] == user and g["leg"] == "staying":
+            return isl
+    return None
+
+
 def stardust_get(chat_id: int, user: str) -> int:
     return stardust_state.get(f"{chat_id}|{user}", 0)
 
@@ -949,10 +960,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-29-1620"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-29-1715"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-29-1620 -->
+<!-- build:2026-10-29-1715 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2424,6 +2435,10 @@ class AppHandler(BaseHTTPRequestHandler):
                 if frm is None or to is None:
                     self._json_response(404, {"error": "нет метки у отправителя или адресата"})
                     return
+                # гость на острове не принимает почту
+                if island_guest_at(chat_id, to_user) is not None:
+                    self._json_response(409, {"error": "Адресат в отъезде."})
+                    return
                 # блокирует отправку только письмо, реально летящее к этому адресату;
                 # доставленные/прочитанные не мешают (а удаление писем отключено — иначе
                 # первая же доставка вечно блокировала бы пару)
@@ -2548,6 +2563,10 @@ class AppHandler(BaseHTTPRequestHandler):
             if v["used"]:
                 self._json_response(409, {"error": "вулкан уже извергся — извержений 0"})
                 return
+            # гость на острове не может извергать какашки
+            if island_guest_at(chat_id, user) is not None:
+                self._json_response(403, {"error": "ты в отъезде на острове — извержение подождёт 🏝️"})
+                return
             dest = geo_state.get(chat_id, {}).get(to_user)
             if dest is None:
                 self._json_response(404, {"error": "нет такой метки"})
@@ -2590,6 +2609,10 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             if cur["taken"]:
                 self._json_response(409, {"error": "пыль уже забрали — остаток ЗП = 0"})
+                return
+            # гость на острове не может собирать пыль
+            if island_guest_at(chat_id, user) is not None:
+                self._json_response(403, {"error": "ты в отъезде на острове — метеорит подождёт 🏝️"})
                 return
             cur["taken"] = True
             key = f"{chat_id}|{user}"
@@ -2660,6 +2683,10 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             if s["used"]:
                 self._json_response(409, {"error": "подарок уже отправлен — на этом ките мест больше нет"})
+                return
+            # гость на острове не может отправлять подарки
+            if island_guest_at(chat_id, user) is not None:
+                self._json_response(403, {"error": "ты в отъезде на острове — кит подождёт 🏝️🐳"})
                 return
             dest = geo_state.get(chat_id, {}).get(to_user)
             if dest is None:
