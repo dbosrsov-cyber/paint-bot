@@ -882,10 +882,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-29-1330"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-29-1341"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-29-1330 -->
+<!-- build:2026-10-29-1341 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1399,8 +1399,10 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     if (data.submarine) renderSubmarine(data.submarine);
     else if (submarineMarker) { map.removeLayer(submarineMarker); submarineMarker = null; }
     updateMineUI();
-    status('🌍 Меток: ' + (data.markers || []).length + ' • ✉️ Писем на карте: '
-      + (data.letters || []).length + ' • ☄️ ЗП: ' + (data.stardust || 0)
+    // прибывших писем на карте нет (их показывает ящик на метке) — считаем только в пути
+    const flyingLetters = (data.letters || []).filter(l => !l.arrived).length;
+    status('🌍 Меток: ' + (data.markers || []).length + ' • ✉️ Писем в пути: '
+      + flyingLetters + ' • ☄️ ЗП: ' + (data.stardust || 0)
       + (data.volcano ? ' • 🌋 ВУЛКАН НА КАРТЕ!' : '')
       + (data.meteors && data.meteors.some(m => m.fresh && m.zp) ? ' • 💥 МЕТЕОРИТ!' : '')
       + (data.submarine && !data.submarine.used ? ' • 🐳 ПОХОТЛИВЫЙ КИТ В ОКЕАНЕ!' : ''));
