@@ -991,10 +991,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-30-1056"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-30-1102"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-30-1056 -->
+<!-- build:2026-10-30-1102 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1090,14 +1090,15 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     const mm = String(tLocal.getUTCMinutes()).padStart(2, '0');
     const tzLabel = 'МСК' + (tzShift >= 0 ? '+' : '−') + Math.abs(tzShift);
     html += '<br>🕒 ' + hh + ':' + mm + ' (' + tzLabel + ')';
-    if (m.poops) html += '<br>💩 розовых какашек: ' + m.poops;
+    if (m.poops && m.user !== userKey()) html += '<br>💩 розовых какашек: ' + m.poops;
     if (m.gift_pics && m.gift_pics.length) html += '<br>🎁 подарки: ' + m.gift_pics.join(' ');
     if (m.souvenirs && m.souvenirs.length) html += '<br>🏝️ сувениры: ' + m.souvenirs.join(' ');
     if (m.user === userKey()) {
       const got = m.got || 0, read = m.read || 0;
-      html += '<br>📬 получено ' + got + ' • прочитано ' + read + ' • непрочитано ' + (got - read)
-        + '<br>☄️ моя ЗвезднаяПыль: <b>' + (m.zp || 0) + '</b>'
-        + '<br><i>письма — в 📮 Почтовом Ящике рядом с меткой</i>';
+      html += '<br><i>📮 письма — в Почтовом Ящике рядом с меткой</i>'
+        + '<br>📬 получено ' + got + ' • прочитано ' + read + ' • непрочитано ' + (got - read)
+        + '<br><br>☄️ моя ЗвезднаяПыль: <b>' + (m.zp || 0) + '</b>'
+        + '<br>💩 мои Какашки: <b>' + (m.poops || 0) + '</b>';
       const myIsl = (lastIslands || []).find(i => (i.owners || [i.owner]).indexOf(userKey()) >= 0);
       if (myIsl) {
         html += '<br>🏝️ мой остров: <b>' + escapeHtml(myIsl.name) + '</b> (уровень '
