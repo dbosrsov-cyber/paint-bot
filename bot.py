@@ -991,10 +991,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-30-0005"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-30-1035"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-30-0005 -->
+<!-- build:2026-10-30-1035 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1605,7 +1605,10 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
         }
       });
       html += '<br><i>гость на острове: +1 опыт тебе, гостю — ЗП и сувенир 🎁</i>';
-    } else if (isl.guest && isl.guest.user === userKey() && isl.guest.leg === 'staying') {
+    }
+    // «Улететь» — для того, кто сейчас гостит на острове, независимо от владения
+    // (совладелец тоже может быть гостем — кнопка не должна теряться из-за isl.mine)
+    if (isl.guest && isl.guest.user === userKey() && isl.guest.leg === 'staying') {
       html += '<br><button onclick="leaveIsland()">✈️ Улететь (домой)</button>';
     }
     html += '<br><button onclick="openIslandCard(&quot;' + isl.owner + '&quot;)">🖼 Открытка острова</button>';
