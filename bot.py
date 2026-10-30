@@ -11,6 +11,7 @@ import time
 import uuid
 import asyncio
 import datetime
+import html
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 import urllib.error
@@ -1006,7 +1007,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-30-1440 -->
+<!-- build:2026-10-30-1510 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2092,10 +2093,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-30-1440"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-30-1510"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-30-1440 -->
+<!-- build:2026-10-30-1510 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -5207,7 +5208,9 @@ ANON_GROUP_ID = -1002304715333
 ANON_INTERVAL_SEC = 30          # минимальный интервал между анонимными отправками
 ANON_ADMINS = {769828689, 1217843099, 8584582199, 8668538137}  # кто может /anonstop и /anonstart
 ANON_MEMBER_CACHE_SEC = 600
-ANON_PREFIX = "\U0001F576️ Пользователь чата отправил анонимное сообщение:"
+ANON_PREFIX_HTML = ('<blockquote>🕶️ Пользователь чата отправил '
+                    'анонимное сообщение:</blockquote>')
+# Telegram не даёт менять размер/цвет шрифта: blockquote — самый «блеклый» вариант оформления
 anon_mode = set()        # uid, у кого включён режим
 anon_blocked = False     # глобальная блокировка (/anonstop)
 anon_last = {}           # uid -> ts последней успешной отправки
@@ -5316,11 +5319,15 @@ async def on_anon_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         return
     try:
         if msg.text:
-            await context.bot.send_message(ANON_GROUP_ID, ANON_PREFIX + "\n" + msg.text)
+            await context.bot.send_message(
+                ANON_GROUP_ID,
+                ANON_PREFIX_HTML + "\n\n" + f"<i>{html.escape(msg.text)}</i>",
+                parse_mode="HTML")
         elif msg.caption is not None:
             await context.bot.copy_message(chat_id=ANON_GROUP_ID, from_chat_id=msg.chat_id,
                                            message_id=msg.message_id,
-                                           caption=ANON_PREFIX + "\n" + msg.caption)
+                                           caption=ANON_PREFIX_HTML + "\n\n" + f"<i>{html.escape(msg.caption)}</i>",
+                                           parse_mode="HTML")
         else:
             await context.bot.copy_message(chat_id=ANON_GROUP_ID, from_chat_id=msg.chat_id,
                                            message_id=msg.message_id)
