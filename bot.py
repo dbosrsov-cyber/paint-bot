@@ -991,10 +991,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-30-1035"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-30-1056"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-30-1035 -->
+<!-- build:2026-10-30-1056 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1023,6 +1023,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   <button id="saveBtn">📍 Поставить метку</button>
   <button id="distBtn" style="background:#888;">📏 Расстояние</button>
   <button id="letterBtn" style="background:#888;">✉️ Письмо</button>
+  <button id="islandBuyBtn" style="background:#888;">🏝️ Купить остров</button>
 </div>
 <div class="bar" id="letterBar" style="display:none;">
   <input id="letterText" placeholder="Текст письма (до 500 символов)" maxlength="500" style="flex:2;">
@@ -1101,8 +1102,6 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
       if (myIsl) {
         html += '<br>🏝️ мой остров: <b>' + escapeHtml(myIsl.name) + '</b> (уровень '
           + myIsl.level + ') — ищи 🏝️ на карте';
-      } else {
-        html += '<br><a href="#" onclick="buyIsland(); return false;">🏝️ Купить остров (10 ЗП)</a>';
       }
     }
     mk.bindPopup(html);
@@ -1826,6 +1825,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   }
   distBtn.onclick = () => setMode(distMode ? null : 'dist');
   letterBtn.onclick = () => setMode(letterMode ? null : 'letter');
+  document.getElementById('islandBuyBtn').onclick = () => buyIsland();
 
   function tryLetterTarget(m) {
     if (m.user === userKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
