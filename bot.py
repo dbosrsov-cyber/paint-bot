@@ -1006,7 +1006,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-30-1422 -->
+<!-- build:2026-10-30-1440 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2092,10 +2092,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-30-1422"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-30-1440"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-30-1422 -->
+<!-- build:2026-10-30-1440 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -5202,6 +5202,139 @@ def seed_sandbox_test_markers() -> None:
         print("[paint_bot] geo: засеяны тестовые метки Тест2/Тест3 для Песочницы", flush=True)
 
 
+# ---------- Анонимные сообщения: релей из ЛС в чат «Другое измерение» ----------
+ANON_GROUP_ID = -1002304715333
+ANON_INTERVAL_SEC = 30          # минимальный интервал между анонимными отправками
+ANON_ADMINS = {769828689, 1217843099, 8584582199, 8668538137}  # кто может /anonstop и /anonstart
+ANON_MEMBER_CACHE_SEC = 600
+ANON_PREFIX = "\U0001F576️ Пользователь чата отправил анонимное сообщение:"
+anon_mode = set()        # uid, у кого включён режим
+anon_blocked = False     # глобальная блокировка (/anonstop)
+anon_last = {}           # uid -> ts последней успешной отправки
+anon_member_cache = {}   # uid -> (ts, is_member)
+
+
+def anon_is_member(user_id: int) -> bool:
+    """Участник (или админ) группы «Другое измерение»? Кэш на 10 минут."""
+    now = time.time()
+    hit = anon_member_cache.get(user_id)
+    if hit and now - hit[0] < ANON_MEMBER_CACHE_SEC:
+        return hit[1]
+    ok = False
+    try:
+        url = (f"https://api.telegram.org/bot{BOT_TOKEN}/getChatMember"
+               f"?chat_id={ANON_GROUP_ID}&user_id={user_id}")
+        data = json.load(urllib.request.urlopen(url, timeout=15))
+        st = (data.get("result") or {}).get("status", "")
+        ok = st in ("member", "administrator", "creator")
+    except Exception as e:
+        print(f"[anon] getChatMember uid={user_id} ошибка: {e!r}", flush=True)
+    anon_member_cache[user_id] = (now, ok)
+    return ok
+
+
+async def anon_report_admin(bot, foreign_user, extra=""):
+    """ЛС админу: кто-то чужой ломится в бота."""
+    try:
+        await bot.send_message(
+            ADMIN_ID,
+            "\U0001F6AB Чужой пользователь пытался использовать бота\n"
+            f"ID: {foreign_user.id}\n"
+            f"Юзернейм: @{foreign_user.username or '—'}\n"
+            f"Имя: {foreign_user.full_name}\n" + extra)
+    except Exception as e:
+        print(f"[anon] не смог уведомить админа: {e!r}", flush=True)
+
+
+async def cmd_anon_on(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/anonON (только ЛС): включить режим анонимных сообщений."""
+    if update.effective_chat.type != "private":
+        await update.message.reply_text("Анонимный режим включается только в личке с ботом 🙂")
+        return
+    user = update.effective_user
+    if anon_blocked:
+        await update.message.reply_text("Режим заблокирован Администратором Чата")
+        return
+    if not anon_is_member(user.id):
+        await update.message.reply_text(
+            "У вас нет доступа к командам Бота. Прекратите его использование")
+        await anon_report_admin(context.bot, user, extra="Команда: /anonON\n")
+        return
+    anon_mode.add(user.id)
+    await update.message.reply_text(
+        "\U0001F576️ Режим анонимных сообщений ВКЛЮЧЁН.\n"
+        "Всё, что ты напишешь мне в ЛС (текст, фото, видео, голосовые, кружки, стикеры), "
+        "будет отправлено в чат «Другое измерение» от моего имени.\n"
+        "Интервал между отправками — 30 секунд. Выключить: /anonOFF")
+
+
+async def cmd_anon_off(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/anonOFF (только ЛС): выключить режим."""
+    if update.effective_chat.type != "private":
+        return
+    anon_mode.discard(update.effective_user.id)
+    anon_last.pop(update.effective_user.id, None)
+    await update.message.reply_text("\U0001F576️ Режим анонимных сообщений выключен.")
+
+
+async def cmd_anon_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/anonstop (в группе, только для ANON_ADMINS): полная блокировка режима."""
+    global anon_blocked
+    if update.effective_chat.id != ANON_GROUP_ID or update.effective_user.id not in ANON_ADMINS:
+        return
+    anon_blocked = True
+    anon_mode.clear()
+    await update.message.reply_text(
+        "\U0001F576️ Анонимный режим ЗАБЛОКИРОВАН администратором. Активные сессии сброшены.")
+
+
+async def cmd_anon_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/anonstart (в группе, только для ANON_ADMINS): разблокировка режима."""
+    global anon_blocked
+    if update.effective_chat.id != ANON_GROUP_ID or update.effective_user.id not in ANON_ADMINS:
+        return
+    anon_blocked = False
+    await update.message.reply_text("\U0001F576️ Анонимный режим разблокирован.")
+
+
+async def on_anon_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """ЛС с ботом: релей анонимных сообщений в «Другое измерение» (block=False — не мешает другим играм)."""
+    msg = update.effective_message
+    user = update.effective_user
+    if user is None or msg is None:
+        return
+    if user.id not in anon_mode:
+        return
+    if anon_blocked:
+        await msg.reply_text("Режим заблокирован Администратором Чата")
+        return
+    now = time.time()
+    left = ANON_INTERVAL_SEC - (now - anon_last.get(user.id, 0.0))
+    if left > 0:
+        await msg.reply_text(
+            f"⏳ До следующей отправки анонимного сообщения осталось {int(left) + 1} сек.")
+        return
+    try:
+        if msg.text:
+            await context.bot.send_message(ANON_GROUP_ID, ANON_PREFIX + "\n" + msg.text)
+        elif msg.caption is not None:
+            await context.bot.copy_message(chat_id=ANON_GROUP_ID, from_chat_id=msg.chat_id,
+                                           message_id=msg.message_id,
+                                           caption=ANON_PREFIX + "\n" + msg.caption)
+        else:
+            await context.bot.copy_message(chat_id=ANON_GROUP_ID, from_chat_id=msg.chat_id,
+                                           message_id=msg.message_id)
+        anon_last[user.id] = time.time()
+        kind = "text" if msg.text else "media"
+        preview = (msg.text or msg.caption or "")[:100]
+        print(f"[anon] uid={user.id} @{user.username or '-'} name={user.full_name!r} "
+              f"kind={kind} {preview!r}", flush=True)
+        await msg.reply_text("✅ Анонимно отправлено в «Другое измерение».")
+    except Exception as e:
+        print(f"[anon] ошибка отправки uid={user.id}: {e!r}", flush=True)
+        await msg.reply_text("⚠️ Не получилось отправить — попробуй ещё раз.")
+
+
 def main() -> None:
     # Поднимаем сохранённые метки географии, письма и вулканы из GitHub (после перезапусков)
     geo_load_from_github()
@@ -5231,6 +5364,12 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(on_stop_choice, pattern="^stop:"))
     app.add_handler(CallbackQueryHandler(on_bc_history, pattern="^bc_hist:"))
     app.add_handler(ChatMemberHandler(on_my_chat_member, chat_member_types=ChatMemberHandler.MY_CHAT_MEMBER))
+    app.add_handler(CommandHandler(["anonON", "anonon"], cmd_anon_on))
+    app.add_handler(CommandHandler(["anonOFF", "anonoff"], cmd_anon_off))
+    app.add_handler(CommandHandler(["anonstop", "anonStop"], cmd_anon_stop))
+    app.add_handler(CommandHandler(["anonstart", "anonStart"], cmd_anon_start))
+    # анонимный режим: ЛС с ботом -> «Другое измерение» (block=False — не перебивает другие игры)
+    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & ~filters.COMMAND, on_anon_dm, block=False))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.job_queue.run_repeating(process_paint_updates, interval=1.0)
     app.job_queue.run_repeating(paint_periodic_sweep, interval=15.0)
