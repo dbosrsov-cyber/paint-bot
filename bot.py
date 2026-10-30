@@ -991,10 +991,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-30-1111"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-30-1129"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-30-1111 -->
+<!-- build:2026-10-30-1129 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1777,14 +1777,14 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     }
   };
   window.delIsland = async () => {
-    if (!confirm('Вы точно хотите удалить остров? Это навсегда — создать новый будет нельзя!')) return;
+    if (!confirm('Вы точно хотите удалить остров? Это навсегда!')) return;
     const r = await fetch('/islanddel', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({chat: chat, user: userKey()})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
-      status('🏝️ Остров удалён — растворился в океане навсегда. Второго шанса не будет 🙂');
+      status('🏝️ Остров удалён — растворился в океане. Новый можно основать за 10 ЗП 🙂');
       load();
     } else {
       status('⚠️ ' + (data.error || 'не удалилось удалить остров'));
@@ -2875,11 +2875,8 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._json_response(409, {"error": "пока гость не улетит, остров нельзя удалить"})
                 return
             isl_name = isl["name"]
-            # не стираем запись, а ставим «надгробие»: остров одноразовый — создать новый нельзя
-            islands_state[f"{chat_id}|{isl['owner']}"] = {
-                "chat": chat_id, "owner": isl["owner"], "banned": True,
-                "name": isl_name, "deleted_ts": time.time(),
-            }
+            # стираем запись полностью: остров можно основать заново за 10 ЗП
+            del islands_state[f"{chat_id}|{isl['owner']}"]
             islands_save_to_github()
         logline(f"200 /islanddel chat={chat_id} user={user!r} island={isl_name!r}")
         try:
@@ -2909,10 +2906,6 @@ class AppHandler(BaseHTTPRequestHandler):
             return
         key = f"{chat_id}|{user}"
         with geo_lock:
-            existing = islands_state.get(key)
-            if existing is not None and existing.get("banned"):
-                self._json_response(403, {"error": "остров можно создать только один раз — твой уже растворился в океане"})
-                return
             if island_of(chat_id, user) is not None:
                 self._json_response(409, {"error": "у тебя уже есть остров (можешь быть совладельцем)"})
                 return
