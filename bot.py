@@ -125,6 +125,8 @@ ISLAND_MAX_LEVEL = 10
 ISLAND_XP_PER_LEVEL = 3         # уровень = 1 + xp // 3 (замок — с 21 опыта)
 ISLAND_POOP_PER_DAY = 5         # какашек-удобрений в сутки на остров (1 какашка = +1 опыт)
 PLANE_SPEED_KM_PER_MIN = 300.0  # самолёт: 3000 км за 10 минут
+# Бета Песочницы (ГеографияЧата 2.0): там все объекты летят 1000 км за 10 секунд
+SANDBOX_FAST_KM_PER_MIN = 6000.0  # 1000 км / 10 сек
 # сувениры за визит на остров — нейтральные эмодзи, добавляются в инфо метки гостя (видят все)
 SOUVENIR_PICS = ["🍹", "🐚", "🏖️", "🥥", "🕶️", "🦀", "🌺", "🍍"]
 # постройки: id -> (эмодзи, название, нужный уровень острова, цена ЗП, цена какашек)
@@ -363,12 +365,17 @@ def island_level(isl: dict) -> int:
     return min(ISLAND_MAX_LEVEL, 1 + isl.get("xp", 0) // ISLAND_XP_PER_LEVEL)
 
 
+def plane_speed_km_per_min(chat_id) -> float:
+    """Скорость самолёта: в Песочнице — тестовая (1000 км за 10 секунд)."""
+    return SANDBOX_FAST_KM_PER_MIN if chat_id == GEO2_CHAT_ID else PLANE_SPEED_KM_PER_MIN
+
+
 def island_plane_progress(guest: dict):
     """Текущая позиция самолёта (по прямой) и флаг прибытия."""
     total = haversine_km(guest["from_lat"], guest["from_lon"],
                          guest["to_lat"], guest["to_lon"])
     elapsed_min = (time.time() - guest["start_ts"]) / 60.0
-    done_km = min(elapsed_min * PLANE_SPEED_KM_PER_MIN, total)
+    done_km = min(elapsed_min * plane_speed_km_per_min(guest.get("chat") or 0), total)
     frac = done_km / total if total > 0 else 1.0
     lat = guest["from_lat"] + (guest["to_lat"] - guest["from_lat"]) * frac
     lon = guest["from_lon"] + (guest["to_lon"] - guest["from_lon"]) * frac
@@ -550,6 +557,8 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 def letter_speed_km_per_min(letter: dict) -> float:
     """Скорость доставки письма, км/мин: базовая 10; если отправитель ИЛИ адресат —
     «быстрый» (сейчас Андрюха) — базовая × множитель; для тестовых пар — 500."""
+    if letter.get("chat") == GEO2_CHAT_ID:
+        return SANDBOX_FAST_KM_PER_MIN
     mult = LETTER_FAST_SENDERS.get(letter.get("from")) or LETTER_FAST_SENDERS.get(letter["to"])
     if mult:
         return LETTER_SPEED_KM_PER_MIN * mult
@@ -688,6 +697,8 @@ async def submarine_spawn_job(context) -> None:
 
 def gift_speed_km_per_min(gift: dict) -> float:
     """Скорость подарка: 500 км за 10 минут; адресат из LETTER_FAST_SENDERS — ещё быстрее."""
+    if gift.get("chat") == GEO2_CHAT_ID:
+        return SANDBOX_FAST_KM_PER_MIN
     mult = LETTER_FAST_SENDERS.get(gift["to"])
     return GIFT_SPEED_KM_PER_MIN * mult if mult else GIFT_SPEED_KM_PER_MIN
 
@@ -781,6 +792,8 @@ async def volcano_spawn_job(context) -> None:
 
 def poop_speed_km_per_min(poop: dict) -> float:
     """Скорость какашки: как у писем; адресат из LETTER_FAST_SENDERS — ускоренно."""
+    if poop.get("chat") == GEO2_CHAT_ID:
+        return SANDBOX_FAST_KM_PER_MIN
     mult = LETTER_FAST_SENDERS.get(poop["to"])
     return POOP_SPEED_KM_PER_MIN * mult if mult else POOP_SPEED_KM_PER_MIN
 
@@ -993,7 +1006,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-30-1407 -->
+<!-- build:2026-10-30-1422 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1069,6 +1082,9 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   <button id="distBtn" style="background:#888;">📏 Расстояние</button>
   <button id="letterBtn" style="background:#888;">✉️ Письмо</button>
   <button id="islandBuyBtn" style="background:#888;">🏝️ Купить остров</button>
+  <button id="personaBtn" style="display:none;background:#8e44ad;">🎭 Тест2</button>
+  <button id="volcanoBtn" style="display:none;background:#e05a3a;" title="Вызвать вулкан">🌋</button>
+  <button id="meteorBtn" style="display:none;background:#5b7cfa;" title="Вызвать метеорит">☄️</button>
 </div>
 <div class="bar" id="letterBar" style="display:none;">
   <input id="letterText" placeholder="Текст письма (до 500 символов)" maxlength="500" style="flex:2;">
@@ -1098,9 +1114,44 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   const nameInput = document.getElementById('name');
   nameInput.value = localStorage.getItem('geo_name')
     || (tgUser && (tgUser.username ? '@' + tgUser.username : tgUser.first_name)) || '';
-  const userKey = () => String((tgUser && tgUser.id) || nameInput.value.trim() || 'anon');
-  const userName = () => (tgUser && (tgUser.username ? '@' + tgUser.username : tgUser.first_name))
+  const realUserKey = () => String((tgUser && tgUser.id) || nameInput.value.trim() || 'anon');
+  const realUserName = () => (tgUser && (tgUser.username ? '@' + tgUser.username : tgUser.first_name))
     || nameInput.value.trim() || 'Аноним';
+  let persona = null;  // бета: Sumai действует на карте как Тест2
+  const userKey = () => persona ? persona.user : realUserKey();
+  const userName = () => persona ? persona.name : realUserName();
+  // ===== бета Песочницы: персона Тест2 и ручной спавн событий (только Sumai) =====
+  const isSumaiBeta = realUserKey() === 'Sumai'
+    || (tgUser && tgUser.username === 'Sumai')
+    || nameInput.value.trim() === 'Sumai';
+  if (isSumaiBeta) {
+    document.getElementById('personaBtn').style.display = '';
+    document.getElementById('volcanoBtn').style.display = '';
+    document.getElementById('meteorBtn').style.display = '';
+  }
+  document.getElementById('personaBtn').onclick = () => {
+    persona = persona ? null : {user: 'test2', name: 'Тест2'};
+    const b = document.getElementById('personaBtn');
+    b.textContent = persona ? '🎭 Снова Sumai' : '🎭 Тест2';
+    b.style.background = persona ? '#27ae60' : '#8e44ad';
+    status(persona ? '🎭 Действуешь как Тест2 (метка у Тюмени)' : '🎭 Снова ты — Sumai');
+    load();
+  };
+  async function spawnEvent(kind) {
+    const r = await fetch('/spawnevent', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey(), kind: kind})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      status(kind === 'volcano' ? '🌋 Вулкан извергается — ищи на карте!' : '☄️ Метеорит упал — спеши собрать ЗП!');
+      load();
+    } else {
+      status('⚠️ ' + (data.error || 'не вышло вызвать событие'));
+    }
+  }
+  document.getElementById('volcanoBtn').onclick = () => spawnEvent('volcano');
+  document.getElementById('meteorBtn').onclick = () => spawnEvent('meteor');
 
   let pending = null;
   const markers = {};  // user_key -> L.marker
@@ -2041,10 +2092,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-30-1407"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-30-1422"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-30-1407 -->
+<!-- build:2026-10-30-1422 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -3470,6 +3521,9 @@ class AppHandler(BaseHTTPRequestHandler):
         if url.path == "/letterboost":
             self._handle_letter_boost_post(url)
             return
+        if url.path == "/spawnevent":
+            self._handle_spawnevent_post(url)
+            return
         if url.path == "/subgift":
             self._handle_subgift_post(url)
             return
@@ -3810,6 +3864,54 @@ class AppHandler(BaseHTTPRequestHandler):
         logline(f"200 /letterboost chat={chat_id} user={user!r} letter={lid} balance={balance}")
         self._json_response(200, {"balance": balance, "boost_km": LETTER_BOOST_KM})
 
+    def _handle_spawnevent_post(self, url):
+        """Бета Песочницы: Sumai (или админ) вручную активирует вулкан/метеорит."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+            kind = str(payload.get("kind", ""))[:16]
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        if chat_id != GEO2_CHAT_ID or user not in ("Sumai", str(ADMIN_ID)):
+            self._json_response(403, {"error": "спавн событий — только Sumai и только в Песочнице"})
+            return
+        now = time.time()
+        if kind == "volcano":
+            with geo_lock:
+                lat, lon = random_point_near_moscow(VOLCANO_RADIUS_KM)
+                volcano_state[chat_id] = {
+                    "lat": lat, "lon": lon, "spawn_ts": now, "used": False,
+                    "next_spawn": now + VOLCANO_PERIOD_SEC + random.uniform(0, 3000)}
+                volcano_save_to_github()
+            try:
+                tg_send_with_cleanup(chat_id, VOLCANO_NOTIFY_TEXT, VOLCANO_LIFETIME_SEC)
+            except Exception as e:
+                print(f"[paint_bot] спавн вулкана: уведомление не ушло: {e!r}", flush=True)
+            logline(f"200 /spawnevent volcano chat={chat_id} user={user!r} ({lat:.2f},{lon:.2f})")
+            self._json_response(200, {"ok": True, "lat": lat, "lon": lon})
+            return
+        if kind == "meteor":
+            with geo_lock:
+                m = meteor_state.get(chat_id)
+                if m is None:
+                    m = {"current": None, "craters": [], "next_fall": 0.0}
+                lat, lon = random_point_anywhere()
+                m["current"] = {"lat": lat, "lon": lon, "fall_ts": now, "taken": False}
+                m["next_fall"] = now + METEOR_PERIOD_SEC + random.uniform(0, 3000)
+                meteor_state[chat_id] = m
+                meteor_save_to_github()
+            try:
+                tg_send_with_cleanup(chat_id, METEOR_NOTIFY_TEXT, METEOR_LIFETIME_SEC)
+            except Exception as e:
+                print(f"[paint_bot] спавн метеорита: уведомление не ушло: {e!r}", flush=True)
+            logline(f"200 /spawnevent meteor chat={chat_id} user={user!r} ({lat:.2f},{lon:.2f})")
+            self._json_response(200, {"ok": True, "lat": lat, "lon": lon})
+            return
+        self._json_response(400, {"error": "kind: volcano|meteor"})
+
     def _handle_subgift_post(self, url):
         """Отправка подарка: пользователь целится меткой адресата — от кита поплывёт подарок."""
         try:
@@ -4024,6 +4126,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             guest_name = dest.get("name", to_user)
             isl["guest"] = {
+                "chat": chat_id,
                 "user": to_user, "name": guest_name, "leg": "to_guest",
                 "from_lat": isl["lat"], "from_lon": isl["lon"],
                 "to_lat": dest["lat"], "to_lon": dest["lon"],
@@ -4032,7 +4135,7 @@ class AppHandler(BaseHTTPRequestHandler):
             islands_save_to_github()
             total = haversine_km(isl["lat"], isl["lon"], dest["lat"], dest["lon"])
         logline(f"200 /islandinvite chat={chat_id} owner={user!r} guest={to_user!r}")
-        eta = int(total / PLANE_SPEED_KM_PER_MIN) + 1
+        eta = int(total / plane_speed_km_per_min(chat_id)) + 1
         self._json_response(200, {"eta_min": eta, "guest_name": guest_name})
 
     def _island_leave(self, url):
@@ -4075,7 +4178,7 @@ class AppHandler(BaseHTTPRequestHandler):
             islands_save_to_github()
             total = haversine_km(isl["lat"], isl["lon"], dest["lat"], dest["lon"])
         logline(f"200 /islandleave chat={chat_id} user={user!r}")
-        eta = int(total / PLANE_SPEED_KM_PER_MIN) + 1
+        eta = int(total / plane_speed_km_per_min(chat_id)) + 1
         self._json_response(200, {"eta_min": eta})
 
     def _island_build(self, url):
@@ -5082,9 +5185,27 @@ async def on_my_chat_member(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         print(f"[paint_bot] не смог уведомить админа {ADMIN_ID}: {e!r}", flush=True)
 
 
+def seed_sandbox_test_markers() -> None:
+    """Бета Песочницы: метки Тест2 (Тюмень, управляет Sumai через персону) и Тест3 (Казахстан, без доступа)."""
+    markers = geo_state.setdefault(GEO2_CHAT_ID, {})
+    added = False
+    for user, name, icon, lat, lon in (
+        ("test2", "Тест2", "🦖", 57.152, 65.528),
+        ("test3", "Тест3", "🦄", 48.0, 66.9),
+    ):
+        if user not in markers:
+            markers[user] = {"user": user, "name": name, "icon": icon,
+                             "lat": lat, "lon": lon, "got": 0, "read": 0}
+            added = True
+    if added:
+        geo_save_to_github()
+        print("[paint_bot] geo: засеяны тестовые метки Тест2/Тест3 для Песочницы", flush=True)
+
+
 def main() -> None:
     # Поднимаем сохранённые метки географии, письма и вулканы из GitHub (после перезапусков)
     geo_load_from_github()
+    seed_sandbox_test_markers()
     letters_load_from_github()
     volcano_load_from_github()
     saga_load_from_github()
