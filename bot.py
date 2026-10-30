@@ -991,10 +991,10 @@ HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-30-1102"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-30-1111"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-30-1102 -->
+<!-- build:2026-10-30-1111 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1573,7 +1573,10 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   function renderIsland(isl) {
     const mk = L.marker([isl.lat, isl.lon], {icon: islandIcon()}).addTo(map);
     const built = isl.buildings || [];
-    let html = '<span style="font-size:22px">🏝️</span> <b>' + escapeHtml(isl.name) + '</b>'
+    let html = (isl.mine
+        ? '<button onclick="delIsland()" title="Удалить остров" style="background:#c0392b;padding:0 7px;font-size:14px;">🗑</button> '
+        : '')
+      + '<span style="font-size:22px">🏝️</span> <b>' + escapeHtml(isl.name) + '</b>'
       + '<br>владелец: ' + escapeHtml(isl.owner_name)
       + '<br>уровень: <b>' + isl.level + '</b> (' + isl.xp + ' опыта) • гостей побывало: '
       + isl.visits + '<br>постройки: 🌴' + (built.length ? ' ' : ' (пока одна пальма)')
@@ -1589,8 +1592,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     }
     if (isl.mine) {
       html += '<br><button onclick="startIslandInvite(&quot;' + isl.owner + '&quot;)">✈️ Пригласить гостя</button>'
-        + ' <button onclick="islandPoop()">💩 Удобрить (+1 опыт)</button>'
-        + ' <button onclick="delIsland()" style="background:#c0392b;">🗑 Удалить остров</button>';
+        + ' <button onclick="islandPoop()">💩 Удобрить (+1 опыт)</button>';
       html += '<br><b>строительство:</b>';
       Object.keys(ISLAND_BUILDINGS).forEach(bid => {
         const spec = ISLAND_BUILDINGS[bid];
@@ -1904,6 +1906,12 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     lastLetters = data.letters || [];
     lastIslands = data.islands || [];
     lastMarkers = data.markers || [];
+    // кнопку покупки прячем, если остров уже есть (повторная покупка запрещена)
+    const buyIslBtn = document.getElementById('islandBuyBtn');
+    if (buyIslBtn) {
+      const haveIsl = lastIslands.some(i => (i.owners || [i.owner]).indexOf(userKey()) >= 0);
+      buyIslBtn.style.display = haveIsl ? 'none' : '';
+    }
     meteorMarkers.forEach(m => map.removeLayer(m));
     meteorMarkers.length = 0;
     (data.markers || []).forEach(renderMarker);
