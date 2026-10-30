@@ -156,6 +156,7 @@ users_by_name = {}
 
 # Доступ: бот работает только в этих группах (личка всегда разрешена)
 ALLOWED_GROUPS = {-1004400745434, -1002304715333}
+GEO2_CHAT_ID = -1004400745434  # «ГеографияЧата 2.0» — пока только Песочница
 ADMIN_ID = 8668538137  # кому сообщать о добавлении в чужие группы
 
 
@@ -989,12 +990,1061 @@ HTML_PAGE = """<!DOCTYPE html>
 </html>"""
 
 
+# === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
+
+GEO2_HTML_PAGE = """<!DOCTYPE html>
+<!-- build:2026-10-30-1407 -->
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #0f1720);
+    --card: var(--tg-theme-secondary-bg-color, #1a2634);
+    --text: var(--tg-theme-text-color, #eef3f8);
+    --hint: var(--tg-theme-hint-color, #8a99ab);
+    --accent: var(--tg-theme-button-color, #2ea6ff);
+    --accent-text: var(--tg-theme-button-text-color, #ffffff);
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    background:var(--bg); color:var(--text); }
+  #map { width:100%; height:64vh; border-radius:0 0 18px 18px; }
+  .bar { padding:8px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; background:var(--card); }
+  input { flex:1; min-width:140px; padding:10px; border-radius:12px;
+    border:1px solid rgba(140,160,180,.25); font-size:15px; background:var(--bg); color:var(--text); }
+  input:focus { outline:none; border-color:var(--accent); }
+  button { padding:10px 14px; border-radius:12px; border:none; font-size:15px;
+    background:var(--accent); color:var(--accent-text); cursor:pointer;
+    transition:transform .12s ease, opacity .12s ease, background .12s ease; }
+  button:active { transform:scale(.95); opacity:.85; }
+  #status { position:fixed; left:50%; bottom:18px; transform:translateX(-50%) translateY(10px);
+    max-width:92vw; padding:10px 16px; border-radius:14px; background:rgba(15,23,32,.94);
+    color:#eef3f8; font-size:14px; opacity:0; transition:opacity .25s ease, transform .25s ease;
+    pointer-events:none; z-index:2000; box-shadow:0 6px 24px rgba(0,0,0,.4); }
+  #status.show { opacity:1; transform:translateX(-50%) translateY(0); }
+  .an { font-size:24px; background:var(--bg); border:2px solid rgba(140,160,180,.25);
+    border-radius:12px; padding:4px 8px; cursor:pointer;
+    transition:transform .12s ease, border-color .12s ease, background .12s ease; }
+  .an.on { border-color:var(--accent); background:rgba(46,166,255,.18); transform:scale(1.12); }
+  .emoji-marker { background:none; border:none; }
+  /* появление маркеров */
+  .mk { animation:mkpop .35s cubic-bezier(.34,1.56,.64,1); }
+  @keyframes mkpop { from { transform:scale(0); } to { transform:scale(1); } }
+  /* пульс событий (вулкан, кит) */
+  .mk-pulse { position:relative; }
+  .mk-pulse::after { content:''; position:absolute; inset:-6px; border-radius:50%;
+    border:3px solid rgba(255,105,58,.85); animation:mkrings 1.7s ease-out infinite; }
+  @keyframes mkrings { from { transform:scale(.55); opacity:1; } to { transform:scale(1.6); opacity:0; } }
+  /* бренд-чип на карте */
+  .brand { position:absolute; top:10px; left:10px; z-index:1000; display:flex;
+    align-items:baseline; gap:6px; padding:6px 12px; border-radius:999px;
+    background:rgba(15,23,32,.85); color:#eef3f8; font-size:14px;
+    backdrop-filter:blur(6px); box-shadow:0 2px 10px rgba(0,0,0,.3); pointer-events:none; }
+  .brand b { color:#7ec8ff; }
+  .brand span { font-size:11px; color:#8a99ab; }
+  /* карточки попапов Leaflet */
+  .leaflet-popup-content-wrapper { border-radius:16px; background:var(--card);
+    color:var(--text); box-shadow:0 10px 32px rgba(0,0,0,.45); }
+  .leaflet-popup-content { margin:12px 16px; font-size:14px; line-height:1.5; }
+  .leaflet-popup-content button { margin:2px 2px 0 0; padding:7px 10px; font-size:13px; }
+  .leaflet-popup-tip { background:var(--card); }
+  .leaflet-popup-close-button { color:var(--hint) !important; font-size:18px !important;
+    padding:7px 9px 0 0 !important; }
+  .leaflet-container { font:inherit; }
+  .leaflet-bar a { background:var(--card); color:var(--text); border-bottom:1px solid rgba(140,160,180,.2); }
+</style>
+</head>
+<body>
+<div id="map"><div class="brand">🌍 ГеографияЧата <b>2.0</b> <span>бета · Песочница</span></div></div>
+<div class="bar" id="animals"></div>
+<div class="bar">
+  <input id="name" placeholder="Твоё имя" maxlength="24">
+  <button id="delBtn" title="Удалить мою метку" style="display:none;background:#c0392b;">🗑</button>
+  <button id="saveBtn">📍 Поставить метку</button>
+  <button id="distBtn" style="background:#888;">📏 Расстояние</button>
+  <button id="letterBtn" style="background:#888;">✉️ Письмо</button>
+  <button id="islandBuyBtn" style="background:#888;">🏝️ Купить остров</button>
+</div>
+<div class="bar" id="letterBar" style="display:none;">
+  <input id="letterText" placeholder="Текст письма (до 500 символов)" maxlength="500" style="flex:2;">
+  <button id="letterSend">Отправить</button>
+  <button id="letterCancel" style="background:#ddd;color:#333;">Отмена</button>
+</div>
+<div id="status"></div>
+<script>
+  const tg = window.Telegram.WebApp;
+  tg.ready(); tg.expand();
+  const chat = new URLSearchParams(location.search).get('chat') || '0';
+
+  const map = L.map('map').setView([55, 45], 3);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    {maxZoom: 18, attribution: '© OpenStreetMap'}).addTo(map);
+  const statusEl = document.getElementById('status');
+  let statusTimer = null;
+  const status = t => {
+    statusEl.textContent = t;
+    statusEl.classList.add('show');
+    clearTimeout(statusTimer);
+    statusTimer = setTimeout(() => statusEl.classList.remove('show'), 2600);
+  };
+  const escapeHtml = s => { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; };
+
+  const tgUser = (tg.initDataUnsafe && tg.initDataUnsafe.user) || null;
+  const nameInput = document.getElementById('name');
+  nameInput.value = localStorage.getItem('geo_name')
+    || (tgUser && (tgUser.username ? '@' + tgUser.username : tgUser.first_name)) || '';
+  const userKey = () => String((tgUser && tgUser.id) || nameInput.value.trim() || 'anon');
+  const userName = () => (tgUser && (tgUser.username ? '@' + tgUser.username : tgUser.first_name))
+    || nameInput.value.trim() || 'Аноним';
+
+  let pending = null;
+  const markers = {};  // user_key -> L.marker
+
+  // выбор животного для метки (🐼 и 🐉 — персональные, в общий список не входят)
+  const ANIMALS = ['🦊', '🦁', '🐸', '🐙', '🦉', '🐢', '🦖', '🐧', '🦄', '🐝', '🦔',
+    '🐯', '🐨', '🐰', '🐻', '🐺', '🦩', '🐬', '🦒', '🐘', '🦅'];
+  let curIcon = ANIMALS[0];
+  const animalsBar = document.getElementById('animals');
+  ANIMALS.forEach((a, i) => {
+    const b = document.createElement('button');
+    b.className = 'an' + (i === 0 ? ' on' : '');
+    b.textContent = a;
+    b.onclick = () => {
+      curIcon = a;
+      document.querySelectorAll('.an').forEach(x => x.classList.remove('on'));
+      b.classList.add('on');
+    };
+    animalsBar.appendChild(b);
+  });
+
+  function animalIcon(emoji) {
+    return L.divIcon({
+      html: '<div class="mk" style="font-size:28px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))">' + emoji + '</div>',
+      className: 'emoji-marker',
+      iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -14],
+    });
+  }
+
+  function renderMarker(m) {
+    const emoji = m.icon || '📍';
+    const mk = L.marker([m.lat, m.lon], {icon: animalIcon(emoji)}).addTo(map);
+    let html = '<span style="font-size:22px">' + emoji + '</span> <b>' + escapeHtml(m.name) + '</b><br>'
+      + m.lat.toFixed(3) + ', ' + m.lon.toFixed(3);
+    // приблизительное локальное время у метки относительно Москвы (15° долготы = 1 час)
+    const tzShift = Math.round((m.lon - 37.6173) / 15);
+    const tLocal = new Date(Date.now() + (3 + tzShift) * 3600000);
+    const hh = String(tLocal.getUTCHours()).padStart(2, '0');
+    const mm = String(tLocal.getUTCMinutes()).padStart(2, '0');
+    const tzLabel = 'МСК' + (tzShift >= 0 ? '+' : '−') + Math.abs(tzShift);
+    html += '<br>🕒 ' + hh + ':' + mm + ' (' + tzLabel + ')';
+    if (m.poops && m.user !== userKey()) html += '<br>💩 розовых какашек: ' + m.poops;
+    if (m.gift_pics && m.gift_pics.length) html += '<br>🎁 подарки: ' + m.gift_pics.join(' ');
+    if (m.souvenirs && m.souvenirs.length) html += '<br>🏝️ сувениры: ' + m.souvenirs.join(' ');
+    if (m.user === userKey()) {
+      const got = m.got || 0, read = m.read || 0;
+      html += '<br><i>📮 письма — в Почтовом Ящике рядом с меткой</i>'
+        + '<br>📬 получено ' + got + ' • прочитано ' + read + ' • непрочитано ' + (got - read)
+        + '<br><br>☄️ моя ЗвезднаяПыль: <b>' + (m.zp || 0) + '</b>'
+        + '<br>💩 мои Какашки: <b>' + (m.poops || 0) + '</b>';
+      const myIsl = (lastIslands || []).find(i => (i.owners || [i.owner]).indexOf(userKey()) >= 0);
+      if (myIsl) {
+        html += '<br>🏝️ мой остров: <b>' + escapeHtml(myIsl.name) + '</b> (уровень '
+          + myIsl.level + ') — ищи 🏝️ на карте';
+      }
+    }
+    mk.bindPopup(html);
+    mk.on('click', () => {
+      if (distMode) pickPoint(m);
+      else if (letterMode) tryLetterTarget(m);
+      else if (volcanoMode) pickVolcanoTarget(m);
+      else if (subMode) pickSubTarget(m);
+      else if (islandInvMode) pickIslandGuest(m);
+    });
+    markers[m.user] = mk;
+  }
+
+  // ---------- Письма ----------
+  const letterMarkers = {};  // letter_id -> L.marker
+  let lastLetters = [];      // последние полученные с сервера письма (для списка в карточке метки)
+  let lastIslands = [];      // последние полученные с сервера острова (для открытки и инфо в метке)
+  let lastMarkers = [];      // последние метки (для выбора гостя списком в попапе острова)
+  function letterIcon(l) {
+    // ✉️ в пути • 📬 доставлено, не прочитано • 📭 доставлено и прочитано
+    const e = !l.arrived ? '✉️' : (l.read ? '📭' : '📬');
+    return L.divIcon({
+      html: '<div class="mk" style="font-size:26px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))">'
+        + e + '</div>',
+      className: 'emoji-marker',
+      // якорь НИЖЕ иконки: письмо висит над меткой (зазор ~8px) и не перекрывает животное
+      iconSize: [36, 36], iconAnchor: [18, 44], popupAnchor: [0, -44],
+    });
+  }
+  function renderLetter(l) {
+    // прибывшие письма маркеров не создают: их показывает почтовый ящик на метке адресата
+    // (📬/📭 прямо на иконке) + ссылки «прочитать» в попапе самой метки
+    if (l.arrived) return;
+    const mk = L.marker([l.lat, l.lon], {icon: letterIcon(l)}).addTo(map);
+    // кнопка ускорения — на любом письме в полёте (чужом и своём), любой пользователь
+    const boostBtn = '<br><button onclick="boostLetter(&quot;' + l.id
+      + '&quot;)">⏩ Ускорить (1 ЗП)</button>';
+    if (l.mine) {
+      mk.bindPopup('✉️ Твоё письмо ещё в пути к тебе…' + boostBtn);
+    } else {
+      mk.bindPopup('📨 Письмо в пути… (адресат: ' + escapeHtml(l.to_name) + ')' + boostBtn);
+    }
+    letterMarkers[l.id] = mk;
+  }
+
+  async function readLetter(id) {
+    const r = await fetch('/georead', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey(), id: id})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      const mk = letterMarkers[id];
+      if (mk) {
+        mk.setIcon(letterIcon({arrived: true, read: true}));  // прочитано — сразу 📭
+        mk.bindPopup('📬 Письмо от <b>' + escapeHtml(data.from) + '</b>:<br>'
+          + '<span style="font-size:17px">«' + escapeHtml(data.text) + '»</span><br>'
+          + '<i>Можно перечитывать</i>');
+        mk.openPopup();
+      }
+      status('📬 Письмо от ' + data.from + ': «' + data.text + '»' + (data.re_read ? ' (перечитано)' : ''));
+      openLetterModal(data);  // красивое окно «старого письма»
+      if (!mk) load();  // читали через ссылку в попапе метки — сразу обновить ящик 📬→📭
+    } else if (r.status === 409) {
+      status('✉️ Письмо ещё в пути — придёт, прочитаешь 🙂');
+    } else {
+      status('⚠️ ' + (data.error || 'не получилось прочитать'));
+      if (r.status === 404) load();
+    }
+  }
+  window.readLetter = readLetter;
+
+  // ---------- Почтовый Ящик: отдельный объект рядом с моей меткой ----------
+  let mailboxMarker = null;
+  function mailboxIcon(full) {
+    // 📬 — есть непрочитанные, 📭 — пустой; письма в пути на ящик не влияют
+    return L.divIcon({
+      html: '<div class="mk" style="font-size:26px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))">'
+        + (full ? '📬' : '📭') + '</div>',
+      className: 'emoji-marker',
+      iconSize: [34, 34], iconAnchor: [17, 17], popupAnchor: [0, -14],
+    });
+  }
+  function renderMailbox(markersData) {
+    if (mailboxMarker) { map.removeLayer(mailboxMarker); mailboxMarker = null; }
+    const me = (markersData || []).find(m => m.user === userKey());
+    if (!me) return;  // без своей метки ящика нет
+    // только письма, доступные для чтения/перечитывания (удалённые сервером не приходят)
+    const myMail = lastLetters.filter(l => l.mine && l.arrived);
+    const latCos = Math.max(Math.cos(me.lat * Math.PI / 180), 0.3);
+    const mk = L.marker([me.lat + 0.004, me.lon + 0.004 / latCos],
+                        {icon: mailboxIcon(myMail.some(l => !l.read))}).addTo(map);
+    let html = '<b>📮 Почтовый Ящик</b>';
+    // группировка по отправителям (алфавит, рус.): строка «Письма от …» раскрывается по клику
+    const bySender = {};
+    myMail.forEach(l => { (bySender[l.from_name] = bySender[l.from_name] || []).push(l); });
+    const senders = Object.keys(bySender).sort((a, b) => a.localeCompare(b, 'ru'));
+    if (!senders.length) {
+      html += '<br><i>пусто — писем нет</i>';
+    }
+    senders.forEach((name, i) => {
+      const list = bySender[name].slice().sort((a, b) => ((a.read ? 1 : 0) - (b.read ? 1 : 0)));
+      const fresh = list.filter(l => !l.read).length;
+      html += '<br><a href="#" onclick="toggleMail(' + i + '); return false;"><b>✉️ Письма от '
+        + escapeHtml(name) + '</b> (' + list.length + (fresh ? ', 🆕 ' + fresh + ' нов.' : '') + ')</a>';
+      html += '<div id="mailgrp-' + i + '" style="display:none">';
+      list.forEach(l => {
+        html += '<br>&nbsp;&nbsp;<a href="#" onclick="readLetter(&quot;' + l.id
+          + '&quot;); return false;"' + (l.read ? ' style="color:#999"' : '') + '>'
+          + (l.read ? '📭 ' : '📬 🆕 <b>Новое</b> · ') + (l.date || '') + '</a>';
+      });
+      html += '</div>';
+    });
+    mk.bindPopup(html);
+    mailboxMarker = mk;
+  }
+  window.toggleMail = i => {
+    const el = document.getElementById('mailgrp-' + i);
+    if (el) el.style.display = (el.style.display === 'none') ? 'block' : 'none';
+  };
+
+  // ---------- Окно «старого письма» (эстетика чтения) ----------
+  let letterModal = null;
+  function openLetterModal(data) {
+    if (!letterModal) {
+      letterModal = document.createElement('div');
+      letterModal.style.cssText = 'position:fixed;inset:0;background:rgba(30,20,10,.55);'
+        + 'display:none;align-items:center;justify-content:center;z-index:100000;padding:18px;';
+      const paper = document.createElement('div');
+      paper.style.cssText = 'background:#f8eeda;max-width:430px;width:100%;max-height:82vh;'
+        + 'overflow:auto;padding:24px 28px;border-radius:3px;position:relative;'
+        + 'box-shadow:0 12px 44px rgba(0,0,0,.55), inset 0 0 60px rgba(160,130,80,.18);'
+        + 'border:1px solid #d9c79c;';
+      const stamp = document.createElement('div');
+      stamp.textContent = '📮';
+      stamp.style.cssText = 'position:absolute;top:10px;right:14px;font-size:26px;opacity:.55;'
+        + 'transform:rotate(8deg);';
+      const body = document.createElement('div');
+      body.id = 'letterModalBody';
+      body.style.cssText = 'font-family:Georgia,"Times New Roman",serif;color:#4a3a20;'
+        + 'font-size:16px;line-height:1.6;white-space:pre-wrap;';
+      const closeBtn = document.createElement('button');
+      closeBtn.textContent = 'Закрыть';
+      closeBtn.style.cssText = 'margin-top:18px;background:#8b6f47;color:#fff7e6;border:none;'
+        + 'border-radius:6px;padding:8px 20px;font-size:14px;cursor:pointer;font-family:inherit;';
+      closeBtn.onclick = () => { letterModal.style.display = 'none'; };
+      paper.appendChild(stamp);
+      paper.appendChild(body);
+      paper.appendChild(closeBtn);
+      letterModal.appendChild(paper);
+      letterModal.addEventListener('click', e => { if (e.target === letterModal) letterModal.style.display = 'none'; });
+      document.body.appendChild(letterModal);
+    }
+    const body = document.getElementById('letterModalBody');
+    body.innerHTML = '<div style="text-align:right;font-size:13px;color:#8a764e;font-style:italic">'
+      + escapeHtml(data.date || '') + '</div>'
+      + '<div style="margin:8px 0 2px;font-size:14px;color:#8a764e">✉️ От: <b>'
+      + escapeHtml(data.from) + '</b></div>'
+      + '<hr style="border:none;border-top:1px solid #cbb98d;margin:10px 0">'
+      + '<div style="font-size:17px">' + escapeHtml(data.text) + '</div>'
+      + '<hr style="border:none;border-top:1px solid #cbb98d;margin:12px 0">'
+      + '<div style="text-align:right;font-style:italic;font-size:13px;color:#8a764e">'
+      + (data.re_read ? 'перечитано 📭' : '🆕 новое письмо') + '</div>';
+    // кнопка «Ответить» — в том же окне, ответ летит отправителю автоматически
+    if (data.from_id && data.from_id !== userKey()) {
+      const replyBtn = document.createElement('button');
+      replyBtn.textContent = '✍️ Ответить';
+      replyBtn.style.cssText = 'margin-top:14px;margin-right:10px;background:#6d8b47;'
+        + 'color:#fff7e6;border:none;border-radius:6px;padding:8px 20px;font-size:14px;'
+        + 'cursor:pointer;font-family:inherit;';
+      replyBtn.onclick = () => showReplyForm(data);
+      body.appendChild(replyBtn);
+    }
+    letterModal.style.display = 'flex';
+  }
+
+  // форма ответа внутри окна письма
+  function showReplyForm(orig) {
+    const body = document.getElementById('letterModalBody');
+    body.innerHTML = '<div style="font-size:14px;color:#8a764e">✍️ Ответ для <b>'
+      + escapeHtml(orig.from) + '</b></div>'
+      + '<textarea id="replyText" maxlength="500" placeholder="Текст ответа (до 500 символов)"'
+      + ' style="width:100%;min-height:110px;margin-top:10px;padding:8px;box-sizing:border-box;'
+      + 'font-family:inherit;font-size:15px;background:#fffdf6;border:1px solid #cbb98d;'
+      + 'border-radius:4px;color:#4a3a20;resize:vertical;"></textarea>'
+      + '<div id="replyErr" style="color:#a33;font-size:13px;min-height:16px;margin-top:4px;"></div>';
+    const sendBtn = document.createElement('button');
+    sendBtn.textContent = '✉️ Отправить';
+    sendBtn.style.cssText = 'margin-top:8px;margin-right:10px;background:#6d8b47;color:#fff7e6;'
+      + 'border:none;border-radius:6px;padding:8px 20px;font-size:14px;cursor:pointer;font-family:inherit;';
+    sendBtn.onclick = () => sendReply(orig);
+    const backBtn = document.createElement('button');
+    backBtn.textContent = 'Назад';
+    backBtn.style.cssText = 'margin-top:8px;background:#b8a888;color:#fff7e6;border:none;'
+      + 'border-radius:6px;padding:8px 20px;font-size:14px;cursor:pointer;font-family:inherit;';
+    backBtn.onclick = () => openLetterModal(orig);
+    body.appendChild(sendBtn);
+    body.appendChild(backBtn);
+    setTimeout(() => { const ta = document.getElementById('replyText'); if (ta) ta.focus(); }, 60);
+  }
+
+  async function sendReply(orig) {
+    const ta = document.getElementById('replyText');
+    const err = document.getElementById('replyErr');
+    const text = (ta ? ta.value : '').trim();
+    if (!text) { if (err) err.textContent = 'пустое письмо — напиши хоть пару слов 🙂'; return; }
+    const r = await fetch('/geosend', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName(),
+                            to_user: orig.from_id, text: text})
+    });
+    const data = await r.json().catch(() => ({}));
+    const body = document.getElementById('letterModalBody');
+    if (r.ok) {
+      body.innerHTML = '<div style="text-align:center;padding:22px 0;font-size:17px">✅ Ответ отправлен!<br>'
+        + '<small style="color:#8a764e">полетит ' + data.eta_min + ' мин — загляни в ящик позже</small></div>';
+      status('✉️ Ответ ушёл к ' + orig.from + ' — прибудет через ~' + data.eta_min + ' мин');
+      load();
+      setTimeout(() => { if (letterModal) letterModal.style.display = 'none'; }, 1800);
+    } else if (err) {
+      err.textContent = '⚠️ ' + (data.error || 'не отправилось, попробуй ещё раз');
+    }
+  }
+
+  // ---------- Ванильный Вулкан Какашек ----------
+  let volcanoMarker = null;      // L.marker вулкана
+  const poopMarkers = {};        // poop_id -> L.marker
+  let volcanoMode = false;       // ожидание выбора метки-адресата
+
+  function volcanoIcon() {
+    // в 3 раза крупнее обычной метки (обычная — шрифт 28px)
+    return L.divIcon({
+      html: '<div class="mk mk-pulse" style="font-size:84px;line-height:1;filter:drop-shadow(0 2px 4px rgba(0,0,0,.5))">🌋</div>',
+      className: 'emoji-marker',
+      iconSize: [108, 108], iconAnchor: [54, 54], popupAnchor: [0, -50],
+    });
+  }
+  function renderVolcano(v) {
+    if (volcanoMarker) { map.removeLayer(volcanoMarker); volcanoMarker = null; }
+    const mk = L.marker([v.lat, v.lon], {icon: volcanoIcon()}).addTo(map);
+    const left = Math.floor(v.remain_sec / 60) + ':' + String(v.remain_sec % 60).padStart(2, '0');
+    const btn = v.used ? '' : '<br><button onclick="startVolcano()">💥 Извержение</button>';
+    mk.bindPopup('<b>Ванильный Вулкан Какашек</b> 🌋<br>Извержений доступно: <b>'
+      + (v.used ? 0 : 1) + '</b><br>Осталось: ' + left + btn
+      + '<br><hr style="margin:6px 0;border:none;border-top:1px solid #ddd">'
+      + '<small><b>Как пользоваться:</b> жми «💥 Извержение» и кликни метку '
+      + 'другого участника — ему полетит Розовая Какашка 💩🩷 '
+      + 'со скоростью писем.<br>На весь вулкан — одно извержение: '
+      + 'кто успел первым, тот и изверг 🙂</small>');
+    volcanoMarker = mk;
+  }
+  window.startVolcano = () => {
+    if (volcanoMarker) volcanoMarker.closePopup();
+    volcanoMode = true;
+    status('🌋 Кликни метку ДРУГОГО участника — в него полетит Розовая Какашка');
+  };
+  async function pickVolcanoTarget(m) {
+    volcanoMode = false;
+    if (m.user === userKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
+    const r = await fetch('/volcano', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey(), to_user: m.user})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      status('💩 Розовая Какашка полетела к ' + m.name + '! Прибудет через ~' + data.eta_min + ' мин');
+      load();
+    } else {
+      status('⚠️ ' + (data.error || 'вулкан не извергся'));
+      if (r.status === 409 || r.status === 404) load();
+    }
+  }
+  function poopIcon(p) {
+    return L.divIcon({
+      html: '<div class="mk" style="font-size:26px;line-height:1;background:#ffb6d5;border:2px solid #ff69b4;'
+        + 'border-radius:50%;padding:3px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))">💩</div>',
+      className: 'emoji-marker',
+      // якорь НИЖЕ иконки: какашка висит над меткой, не перекрывая её (как письма)
+      iconSize: [40, 40], iconAnchor: [20, 52], popupAnchor: [0, -52],
+    });
+  }
+  function renderPoop(p) {
+    const mk = L.marker([p.lat, p.lon], {icon: poopIcon(p)}).addTo(map);
+    if (!p.arrived) {
+      // до доставки адресат неизвестен никому — даже самому адресату
+      mk.bindPopup('💩 Розовая Какашка в пути… (адресат: *****)');
+    } else if (p.mine) {
+      mk.bindPopup('💩 Тебе прилетела Розовая Какашка! Поздравляем 🩷😄');
+    } else {
+      mk.bindPopup('💩 Доставлено адресату');
+    }
+    poopMarkers[p.id] = mk;
+  }
+
+  // ---------- Похотливый Кит и подарки ----------
+  let submarineMarker = null;      // L.marker лодки
+  const giftMarkers = {};          // gift_id -> L.marker
+  let subMode = false;             // ожидание выбора метки-адресата
+
+  function submarineIcon() {
+    // Похотливый Кит: одиночный эмодзи; 60px — чтобы читался не хуже прошлой волны (42px)
+    return L.divIcon({
+      html: '<div class="mk mk-pulse" style="font-size:60px;line-height:1;filter:drop-shadow(0 2px 3px rgba(0,0,0,.5))">🐳</div>',
+      className: 'emoji-marker',
+      iconSize: [76, 76], iconAnchor: [38, 38], popupAnchor: [0, -42],
+    });
+  }
+  function renderSubmarine(s) {
+    if (submarineMarker) { map.removeLayer(submarineMarker); submarineMarker = null; }
+    const mk = L.marker([s.lat, s.lon], {icon: submarineIcon()}).addTo(map);
+    const left = Math.floor(s.remain_sec / 60) + ':' + String(s.remain_sec % 60).padStart(2, '0');
+    const btn = s.used ? '' : '<br><button onclick="startSub()">🎁 Отправить подарок</button>';
+    mk.bindPopup('<b>Похотливый Кит</b> 🐳<br>Подарков доступно: <b>'
+      + (s.used ? 0 : 1) + '</b><br>Осталось: ' + left + btn
+      + '<br><hr style="margin:6px 0;border:none;border-top:1px solid #ddd">'
+      + '<small><b>Как пользоваться:</b> жми «🎁 Отправить подарок» и кликни метку '
+      + 'другого участника — от Похотливого Кита к нему поплывёт подарок со скоростью '
+      + 'розовых какашек. Когда прибудет, адресат откроет его и увидит сюрприз 🔞, '
+      + 'а картинка добавится в инфо его метки (увидят все).<br>На всего кита — '
+      + 'один подарок: кто успел первым, тот и отправил 🙂</small>');
+    submarineMarker = mk;
+  }
+  window.startSub = () => {
+    if (submarineMarker) submarineMarker.closePopup();
+    subMode = true;
+    status('🐳 Кликни метку ДРУГОГО участника — к нему поплывёт подарок от Похотливого Кита');
+  };
+  async function pickSubTarget(m) {
+    subMode = false;
+    if (m.user === userKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
+    const r = await fetch('/subgift', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), to_user: m.user})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      status('🎁 Подарок поплыл к ' + m.name + '! Прибудет через ~' + data.eta_min + ' мин');
+      load();
+    } else {
+      status('⚠️ ' + (data.error || 'кит не отправил'));
+      if (r.status === 409 || r.status === 404) load();
+    }
+  }
+  function giftIcon() {
+    // размер и якорь — как у розовой какашки: висит над меткой, не перекрывая животное
+    return L.divIcon({
+      html: '<div class="mk" style="font-size:26px;line-height:1;background:#ffe0b3;border:2px solid #ff9d4d;'
+        + 'border-radius:50%;padding:3px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))">🎁</div>',
+      className: 'emoji-marker',
+      iconSize: [40, 40], iconAnchor: [20, 52], popupAnchor: [0, -52],
+    });
+  }
+  function renderGift(g) {
+    const mk = L.marker([g.lat, g.lon], {icon: giftIcon()}).addTo(map);
+    if (!g.arrived) {
+      // до доставки адресат неизвестен никому — даже самому адресату (как у какашек)
+      mk.bindPopup('🎁 Подарок в пути… (адресат: *****)');
+    } else if (g.mine) {
+      mk.bindPopup('🎁 Тебе доставил подарок Похотливый Кит!<br><b>Нажми на него, чтобы открыть</b>');
+      mk.on('click', () => openGift(g.id));
+    } else {
+      mk.bindPopup('🎁 Подарок доставлен адресату, ждёт открытия');
+    }
+    giftMarkers[g.id] = mk;
+  }
+  async function openGift(id) {
+    const r = await fetch('/subopen', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey(), id: id})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      const mk = giftMarkers[id];
+      if (mk) {
+        mk.bindPopup('🎁 Подарок от <b>' + escapeHtml(data.from) + '</b> открыт!<br>'
+          + '<span style="font-size:26px">' + escapeHtml(data.picture) + '</span><br>'
+          + '<i>Картинка добавлена в инфо твоей метки — её видят все 😏</i>');
+        mk.openPopup();
+      }
+      status('🎁 Подарок от ' + data.from + ': ' + data.picture);
+      // load() не дергаем сразу — иначе сотрёт маркер вместе с попапом;
+      // при следующем автообновлении маркер снимется, а картинка останется в инфо метки
+    } else {
+      status('⚠️ ' + (data.error || 'не получилось открыть'));
+    }
+  }
+  window.openGift = openGift;
+
+  // ---------- Метеорит и ЗвезднаяПыль ----------
+  const meteorMarkers = [];   // воронки (метеориты)
+  function meteorIcon() {
+    // размер аватара метки (шрифт 28px) — было в 2 раза крупнее, оказалось громоздко
+    return L.divIcon({
+      html: '<div class="mk" style="font-size:28px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))">💥</div>',
+      className: 'emoji-marker',
+      iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -18],
+    });
+  }
+  function renderMeteor(m) {
+    const mk = L.marker([m.lat, m.lon], {icon: meteorIcon()}).addTo(map);
+    let html;
+    if (m.fresh && m.zp) {
+      html = '<b>☄️ Метеоритная воронка</b><br>Остаток ЗП: <b>1</b><br>'
+        + '<button onclick="claimMeteor()">🌟 Забрать ЗП</button>';
+    } else if (m.fresh) {
+      html = '<b>☄️ Метеоритная воронка</b><br>Остаток ЗП: <b>0</b> (уже забрали)';
+    } else {
+      html = '💥 Древняя воронка от метеорита<br>Остаток ЗП: 0';
+    }
+    mk.bindPopup(html);
+    meteorMarkers.push(mk);
+  }
+  window.claimMeteor = async () => {
+    const r = await fetch('/meteor', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey()})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      status('🌟 +1 ЗвезднаяПыль! Баланс: ' + data.balance);
+      load();
+    } else {
+      status('⚠️ ' + (data.error || 'пыль не забралась'));
+      if (r.status === 404 || r.status === 409) load();
+    }
+  };
+  window.boostLetter = async (id) => {
+    const r = await fetch('/letterboost', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey(), id: id})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      status('⏩ Письмо продвинулось на ' + data.boost_km + ' км! Баланс ЗП: ' + data.balance);
+      load();
+    } else {
+      status('⚠️ ' + (data.error || 'не ускорилось'));
+      if (r.status === 409) load();
+    }
+  };
+
+  // ---------- Острова: покупка, гости на самолёте, постройки, открытка ----------
+  const islandMarkers = {};    // owner -> L.marker острова
+  const planeMarkers = {};     // owner острова -> L.marker самолёта с гостем
+  let islandInvMode = false;   // ожидание выбора метки-гостя
+  const ISLAND_BUILDINGS = {
+    hut:    ['🛖', 'Хижина',         2, 5,  0],
+    bar:    ['🏖️', 'Пляжный бар',     3, 10, 0],
+    statue: ['🗿', 'Статуя Какашки',  5, 15, 10],
+    castle: ['🏰', 'Островной замок', 8, 30, 0],
+  };
+
+  function islandIcon() {
+    // размер — как у вулкана: остров должен быть заметен на карте
+    return L.divIcon({
+      html: '<div class="mk" style="font-size:56px;line-height:1;filter:drop-shadow(0 2px 3px rgba(0,0,0,.5))">🏝️</div>',
+      className: 'emoji-marker',
+      iconSize: [72, 72], iconAnchor: [36, 36], popupAnchor: [0, -40],
+    });
+  }
+  function planeIcon() {
+    return L.divIcon({
+      html: '<div class="mk" style="font-size:30px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))">✈️</div>',
+      className: 'emoji-marker',
+      iconSize: [40, 40], iconAnchor: [20, 20], popupAnchor: [0, -22],
+    });
+  }
+  function renderIsland(isl) {
+    const mk = L.marker([isl.lat, isl.lon], {icon: islandIcon()}).addTo(map);
+    const built = isl.buildings || [];
+    let html = (isl.mine
+        ? '<button onclick="delIsland()" title="Удалить остров" style="background:#c0392b;padding:0 7px;font-size:14px;">🗑</button> '
+        : '')
+      + '<span style="font-size:22px">🏝️</span> <b>' + escapeHtml(isl.name) + '</b>'
+      + '<br>владелец: ' + escapeHtml(isl.owner_name)
+      + '<br>уровень: <b>' + isl.level + '</b> (' + isl.xp + ' опыта) • гостей побывало: '
+      + isl.visits + '<br>постройки: 🌴' + (built.length ? ' ' : ' (пока одна пальма)')
+      + built.map(b => ISLAND_BUILDINGS[b] ? ISLAND_BUILDINGS[b][0] : '').join(' ');
+    if (isl.guest) {
+      const legTxt = {
+        to_guest: '✈️ самолёт летит за гостем…',
+        to_island: '✈️ гостя везут на остров…',
+        staying: '😎 гость на острове: <b>' + escapeHtml(isl.guest.name) + '</b>',
+        home: '✈️ гость улетает домой…',
+      };
+      html += '<br>' + (legTxt[isl.guest.leg] || '');
+    }
+    if (isl.mine) {
+      html += '<br><button onclick="startIslandInvite(&quot;' + isl.owner + '&quot;)">✈️ Пригласить гостя</button>'
+        + ' <button onclick="islandPoop()">💩 Удобрить (+1 опыт)</button>';
+      html += '<br><b>строительство:</b>';
+      Object.keys(ISLAND_BUILDINGS).forEach(bid => {
+        const spec = ISLAND_BUILDINGS[bid];
+        const price = spec[3] + ' ЗП' + (spec[4] ? ' + ' + spec[4] + ' 💩' : '');
+        if (built.indexOf(bid) >= 0) {
+          html += '<br>' + spec[0] + ' ' + spec[1] + ' — ✅ построено';
+        } else if (isl.level < spec[2]) {
+          html += '<br>' + spec[0] + ' ' + spec[1] + ' — 🔒 с ' + spec[2] + ' ур. (' + price + ')';
+        } else {
+          html += '<br>' + spec[0] + ' ' + spec[1] + ' (' + price + ') '
+            + '<button onclick="islandBuild(&quot;' + bid + '&quot;)">Построить</button>';
+        }
+      });
+      html += '<br><i>гость на острове: +1 опыт тебе, гостю — ЗП и сувенир 🎁</i>';
+    }
+    // «Улететь» — для того, кто сейчас гостит на острове, независимо от владения
+    // (совладелец тоже может быть гостем — кнопка не должна теряться из-за isl.mine)
+    if (isl.guest && isl.guest.user === userKey() && isl.guest.leg === 'staying') {
+      html += '<br><button onclick="leaveIsland()">✈️ Улететь (домой)</button>';
+    }
+    html += '<br><button onclick="openIslandCard(&quot;' + isl.owner + '&quot;)">🖼 Открытка острова</button>';
+    mk.bindPopup(html);
+    islandMarkers[isl.owner] = mk;
+  }
+  function renderPlane(p) {
+    const mk = L.marker([p.lat, p.lon], {icon: planeIcon()}).addTo(map);
+    const legTxt = {
+      to_guest: 'летит за гостем…',
+      to_island: 'везёт гостя на остров…',
+      home: 'везёт гостя домой…',
+    };
+    mk.bindPopup('✈️ Самолёт острова ' + (legTxt[p.leg] || '') + '<br>гость: '
+      + escapeHtml(p.guest_name));
+    planeMarkers[p.island] = mk;
+  }
+
+  // открытка острова: красивая картинка со сценой заката и постройками
+  let islandCard = null;
+  function openIslandCard(owner) {
+    const isl = (lastIslands || []).find(i => i.owner === owner);
+    if (!isl) return;
+    if (islandCard) { map.closePopup(); islandCard.remove(); islandCard = null; }
+    const built = isl.buildings || [];
+    const spots = {
+      hut: 'left:14%;bottom:38%;', bar: 'right:12%;bottom:34%;',
+      statue: 'left:42%;bottom:56%;', castle: 'right:26%;bottom:50%;',
+    };
+    let bHtml = '';
+    built.forEach(bid => {
+      if (ISLAND_BUILDINGS[bid] && spots[bid]) {
+        bHtml += '<div style="position:absolute;' + spots[bid]
+          + 'font-size:34px;filter:drop-shadow(0 2px 2px rgba(0,0,0,.45))">'
+          + ISLAND_BUILDINGS[bid][0] + '</div>';
+      }
+    });
+    islandCard = document.createElement('div');
+    islandCard.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;'
+      + 'justify-content:center;z-index:100000;padding:18px;background:rgba(10,20,35,.6);';
+    islandCard.innerHTML = '<div style="position:relative;width:100%;max-width:520px;height:340px;'
+      + 'border-radius:14px;overflow:hidden;'
+      + 'background:linear-gradient(180deg,#ff9a56 0%,#ffcf8f 32%,#7ec8e3 33%,#2f6fb2 100%);'
+      + 'box-shadow:0 16px 50px rgba(0,0,0,.6);font-family:Georgia,serif">'
+      + '<div style="position:absolute;top:24px;left:50%;transform:translateX(-50%);'
+      + 'width:60px;height:60px;border-radius:50%;'
+      + 'background:radial-gradient(circle,#fff3c4 0%,#ffd257 55%,rgba(255,180,60,0) 100%)"></div>'
+      + '<div style="position:absolute;left:50%;bottom:38px;transform:translateX(-50%);'
+      + 'font-size:120px;line-height:1;filter:drop-shadow(0 6px 6px rgba(0,0,0,.35))">🏝️</div>'
+      + '<div style="position:absolute;left:20%;bottom:30px;font-size:36px;line-height:1">🌴</div>'
+      + bHtml
+      + '<div style="position:absolute;top:12px;left:0;right:0;text-align:center;color:#4a2c12;'
+      + 'font-weight:bold;font-size:19px;text-shadow:0 1px 0 rgba(255,255,255,.6)">'
+      + escapeHtml(isl.name) + '</div>'
+      + '<div style="position:absolute;bottom:8px;left:0;right:0;text-align:center;color:#fff;'
+      + 'font-size:13px;text-shadow:0 1px 3px rgba(0,0,0,.7)">уровень ' + isl.level
+      + ' • опыт ' + isl.xp + ' • гостей побывало: ' + isl.visits
+      + ' • владелец ' + escapeHtml(isl.owner_name) + '</div>'
+      + '<button onclick="this.parentNode.parentNode.remove()" '
+      + 'style="position:absolute;top:10px;right:12px;background:rgba(255,255,255,.85);'
+      + 'border:none;border-radius:50%;width:30px;height:30px;font-size:15px;cursor:pointer">✕</button>'
+      + '</div>';
+    document.body.appendChild(islandCard);
+  }
+  window.openIslandCard = openIslandCard;
+
+  window.buyIsland = async () => {
+    const r = await fetch('/islandbuy', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName()})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      status('🏝️ Твой остров: «' + data.name + '»! Баланс ЗП: ' + data.balance);
+      load();
+    } else {
+      status('⚠️ ' + (data.error || 'не получилось купить остров'));
+    }
+  };
+  window.startIslandInvite = (owner) => {
+    islandInvMode = true;  // клик по метке на карте тоже сработает
+    const isl = (lastIslands || []).find(i => i.owner === owner);
+    const mk = isl && islandMarkers[owner];
+    if (!isl || !mk) { status('✈️ Кликни метку гостя, которого зовёшь на остров'); return; }
+    // выбор гостя списком прямо в попапе — не нужно тыкать по карте
+    const others = (lastMarkers || []).filter(xm => xm.user !== userKey());
+    let html = '<b>✈️ Кого зовём на «' + escapeHtml(isl.name) + '»?</b>';
+    if (!others.length) {
+      html += '<br><i>кроме тебя в чате меток нет</i>';
+    }
+    others.forEach(xm => {
+      html += '<br><button onclick="invitePick(&quot;' + encodeURIComponent(xm.user)
+        + '&quot;,&quot;' + encodeURIComponent(xm.name) + '&quot;)">'
+        + escapeHtml(xm.icon || '📍') + ' ' + escapeHtml(xm.name) + '</button>';
+    });
+    html += '<br><i>…или кликни метку гостя прямо на карте</i>';
+    mk.bindPopup(html);
+    mk.openPopup();
+    status('✈️ Выбери гостя из списка на острове (или кликни его метку на карте)');
+  };
+  window.invitePick = (encUser, encName) => {
+    pickIslandGuest({user: decodeURIComponent(encUser), name: decodeURIComponent(encName)});
+  };
+  async function pickIslandGuest(m) {
+    islandInvMode = false;
+    if (m.user === userKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
+    const r = await fetch('/islandinvite', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey(), to_user: m.user})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      status('✈️ Самолёт полетел за ' + data.guest_name + '! Прибудет примерно через '
+        + data.eta_min + ' мин');
+      load();
+    } else {
+      status('⚠️ ' + (data.error || 'не получилось позвать'));
+      if (r.status === 404 || r.status === 409) load();
+    }
+  }
+  window.leaveIsland = async () => {
+    const r = await fetch('/islandleave', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey()})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      status('✈️ Улетаешь домой' + (data.gone ? '' : ' — прибудешь через ~' + data.eta_min + ' мин')
+        + '. Спасибо за визит! 🙂');
+    } else {
+      status('⚠️ ' + (data.error || 'не улетелось'));
+    }
+    load();
+  };
+  window.islandBuild = async (bid) => {
+    const r = await fetch('/islandbuild', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey(), building: bid})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      status('🏗 ' + data.emoji + ' «' + data.name + '» построено! Уровень острова: '
+        + data.level + ' • баланс ЗП: ' + data.balance);
+      load();
+    } else {
+      status('⚠️ ' + (data.error || 'не построилось'));
+      if (r.status === 403 || r.status === 409) load();
+    }
+  };
+  window.islandPoop = async () => {
+    const r = await fetch('/islandpoop', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey()})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      status('💩 Удобрено! Опыт: ' + data.xp + ' (уровень ' + data.level
+        + '), какашек осталось: ' + data.poops_left
+        + ' — сегодня удобрено ' + data.poop_today + '/' + data.poop_limit);
+      load();
+    } else {
+      status('⚠️ ' + (data.error || 'не удобрилось'));
+      if (r.status === 403 || r.status === 404) load();
+    }
+  };
+  window.delIsland = async () => {
+    if (!confirm('Вы точно хотите удалить остров? Это навсегда!')) return;
+    const r = await fetch('/islanddel', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey()})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      status('🏝️ Остров удалён — растворился в океане. Новый можно основать за 10 ЗП 🙂');
+      load();
+    } else {
+      status('⚠️ ' + (data.error || 'не удалилось удалить остров'));
+      if (r.status === 404 || r.status === 409) load();
+    }
+  };
+
+  // ---------- Расстояние и время в пути (по прямой) ----------
+  const toRad = d => d * Math.PI / 180;
+  function haversineKm(a, b) {
+    const R = 6371;
+    const dLat = toRad(b.lat - a.lat), dLon = toRad(b.lon - a.lon);
+    const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2;
+    return 2 * R * Math.asin(Math.sqrt(s));
+  }
+  function fmtKm(km) { return km < 10 ? km.toFixed(1) + ' км' : Math.round(km).toLocaleString('ru-RU') + ' км'; }
+  function fmtTime(km, speed) {
+    const mins = Math.round(km / speed * 60);
+    if (mins < 60) return mins + ' мин';
+    const h = Math.floor(mins / 60), m = mins % 60;
+    if (h < 24) return m ? h + ' ч ' + m + ' мин' : h + ' ч';
+    return Math.floor(h / 24) + ' дн ' + (h % 24) + ' ч';
+  }
+
+  let distMode = false, letterMode = false, pointA = null, distLine = null;
+  const distBtn = document.getElementById('distBtn');
+  const letterBtn = document.getElementById('letterBtn');
+  const letterBar = document.getElementById('letterBar');
+  let letterTarget = null;
+  function setMode(mode) {
+    distMode = mode === 'dist';
+    letterMode = mode === 'letter';
+    pointA = null;
+    if (distLine) { map.removeLayer(distLine); distLine = null; }
+    distBtn.style.background = distMode ? '#e05a3a' : '#888';
+    letterBtn.style.background = letterMode ? '#e05a3a' : '#888';
+    if (!letterMode) { letterBar.style.display = 'none'; letterTarget = null; }
+    status(distMode ? '📏 Кликни первую метку (или точку на карте), потом вторую'
+      : letterMode ? '✉️ Кликни метку ДРУГОГО участника, чтобы отправить письмо'
+      : 'Режим выключен');
+  }
+  distBtn.onclick = () => setMode(distMode ? null : 'dist');
+  letterBtn.onclick = () => setMode(letterMode ? null : 'letter');
+  document.getElementById('islandBuyBtn').onclick = () => buyIsland();
+
+  function tryLetterTarget(m) {
+    if (m.user === userKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
+    letterTarget = m;
+    letterBar.style.display = 'flex';
+    status('✉️ Письмо для ' + m.name + ' — напиши текст (до 500 символов)');
+  }
+  document.getElementById('letterCancel').onclick = () => setMode(null);
+  document.getElementById('letterSend').onclick = async () => {
+    const textEl = document.getElementById('letterText');
+    const text = textEl.value.trim();
+    if (!text) { status('Письмо пустое — напиши что-нибудь 🙂'); return; }
+    if (!letterTarget) { setMode(null); return; }
+    const target = letterTarget;
+    const r = await fetch('/geosend', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName(),
+                          to_user: target.user, text: text})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      textEl.value = '';
+      setMode(null);
+      status('✉️ Отправлено! Прибудет примерно через ' + data.eta_min + ' мин');
+      load();
+    } else if (r.status === 409) {
+      status('⚠️ ' + (data.error || ('Уже есть письмо в пути к ' + target.name + ' — дождись доставки')));
+    } else {
+      status('⚠️ ' + (data.error || 'не отправилось'));
+    }
+  };
+
+  function pickPoint(p) {
+    if (!pointA) { pointA = p; status('📍 Точка А: ' + p.name + ' — теперь выбери вторую'); return; }
+    if (haversineKm(pointA, p) < 0.05) { status('Это то же место — выбери другую точку'); return; }
+    const km = haversineKm(pointA, p);
+    if (distLine) map.removeLayer(distLine);
+    distLine = L.polyline(
+      [[pointA.lat, pointA.lon], [p.lat, p.lon]],
+      {color: '#e05a3a', dashArray: '8 6', weight: 3}
+    ).addTo(map);
+    status('📏 ' + pointA.name + ' → ' + p.name + ': ' + fmtKm(km)
+      + ' • 🚶 ' + fmtTime(km, 5)
+      + ' • 🚗 ' + fmtTime(km, 80)
+      + ' • ✈️ ' + fmtTime(km, 800) + ' (по прямой)');
+    pointA = null;
+  }
+
+  // если метка уже поставлена — убираем инструменты постановки (эмодзи, кнопку, имя),
+  // остаются только 📏 и ✉️; удаление метки вернёт всё обратно
+  function updateMineUI() {
+    const mine = !!markers[userKey()];
+    document.getElementById('animals').style.display = mine ? 'none' : 'flex';
+    document.getElementById('saveBtn').style.display = mine ? 'none' : '';
+    document.getElementById('delBtn').style.display = mine ? '' : 'none';
+    nameInput.disabled = mine;
+    nameInput.title = mine ? 'Имя закреплено за твоей меткой. Удали метку (🗑 справа), чтобы изменить.' : '';
+  }
+
+  async function load() {
+    const r = await fetch('/geodata?chat=' + chat + '&user=' + encodeURIComponent(userKey()) + '&t=' + Date.now());
+    const data = await r.json();
+    Object.values(markers).forEach(m => map.removeLayer(m));
+    Object.keys(markers).forEach(k => delete markers[k]);
+    Object.values(letterMarkers).forEach(m => map.removeLayer(m));
+    Object.keys(letterMarkers).forEach(k => delete letterMarkers[k]);
+    Object.values(poopMarkers).forEach(m => map.removeLayer(m));
+    Object.keys(poopMarkers).forEach(k => delete poopMarkers[k]);
+    Object.values(giftMarkers).forEach(m => map.removeLayer(m));
+    Object.keys(giftMarkers).forEach(k => delete giftMarkers[k]);
+    Object.values(islandMarkers).forEach(m => map.removeLayer(m));
+    Object.keys(islandMarkers).forEach(k => delete islandMarkers[k]);
+    Object.values(planeMarkers).forEach(m => map.removeLayer(m));
+    Object.keys(planeMarkers).forEach(k => delete planeMarkers[k]);
+    lastLetters = data.letters || [];
+    lastIslands = data.islands || [];
+    lastMarkers = data.markers || [];
+    // кнопку покупки прячем, если остров уже есть (повторная покупка запрещена)
+    const buyIslBtn = document.getElementById('islandBuyBtn');
+    if (buyIslBtn) {
+      const haveIsl = lastIslands.some(i => (i.owners || [i.owner]).indexOf(userKey()) >= 0);
+      buyIslBtn.style.display = haveIsl ? 'none' : '';
+    }
+    meteorMarkers.forEach(m => map.removeLayer(m));
+    meteorMarkers.length = 0;
+    (data.markers || []).forEach(renderMarker);
+    (data.letters || []).forEach(renderLetter);
+    (data.poops || []).forEach(renderPoop);
+    (data.meteors || []).forEach(renderMeteor);
+    (data.islands || []).forEach(renderIsland);
+    (data.planes || []).forEach(renderPlane);
+    if (data.volcano) renderVolcano(data.volcano);
+    else if (volcanoMarker) { map.removeLayer(volcanoMarker); volcanoMarker = null; }
+    (data.gifts || []).forEach(renderGift);
+    if (data.submarine) renderSubmarine(data.submarine);
+    else if (submarineMarker) { map.removeLayer(submarineMarker); submarineMarker = null; }
+    renderMailbox(data.markers);
+    updateMineUI();
+    // прибывших писем на карте нет (их показывает ящик на метке) — считаем только в пути
+    const flyingLetters = (data.letters || []).filter(l => !l.arrived).length;
+    status('🌍 Меток: ' + (data.markers || []).length + ' • ✉️ Писем в пути: '
+      + flyingLetters + ' • ☄️ ЗП: ' + (data.stardust || 0)
+      + ' • 🏝️ Островов: ' + (data.islands || []).length
+      + (data.volcano ? ' • 🌋 ВУЛКАН НА КАРТЕ!' : '')
+      + (data.meteors && data.meteors.some(m => m.fresh && m.zp) ? ' • 💥 МЕТЕОРИТ!' : '')
+      + (data.submarine && !data.submarine.used ? ' • 🐳 ПОХОТЛИВЫЙ КИТ В ОКЕАНЕ!' : ''));
+  }
+  setInterval(load, 60000);  // автообновление; позиции писем считает сервер по времени
+
+  map.on('click', e => {
+    if (distMode) {
+      pickPoint({lat: e.latlng.lat, lon: e.latlng.lng, name: 'точка на карте'});
+      return;
+    }
+    if (letterMode) { status('✉️ Кликни по МЕТКЕ участника (животное на карте), а не просто по карте'); return; }
+    if (volcanoMode) { status('🌋 Кликни по МЕТКЕ участника (животное на карте), а не просто по карте'); return; }
+    if (subMode) { status('🐳 Кликни по МЕТКЕ участника (животное на карте), а не просто по карте'); return; }
+    if (islandInvMode) { status('✈️ Кликни по МЕТКЕ участника (животное на карте), а не просто по карте'); return; }
+    if (markers[userKey()]) {
+      status('У тебя уже есть метка. Чтобы поставить новую — кликни по своему животному и выбери «Удалить мою метку»');
+      return;
+    }
+    pending = e.latlng;
+    status('Точка: ' + e.latlng.lat.toFixed(4) + ', ' + e.latlng.lng.toFixed(4) + ' — жми «Поставить метку»');
+  });
+
+  document.getElementById('saveBtn').onclick = async () => {
+    if (!pending) { status('Сначала кликни по карте в месте своего города'); return; }
+    if (nameInput.value.trim()) localStorage.setItem('geo_name', nameInput.value.trim());
+    const r = await fetch('/geomark', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), icon: curIcon,
+                            lat: pending.lat, lon: pending.lng})
+    });
+    if (r.ok) { status('✅ Метка поставлена!'); pending = null; load(); }
+    else status('Ошибка, попробуй ещё раз');
+  };
+
+  async function delMarker() {
+    if (!confirm('Вы точно хотите удалить метку?')) return;
+    await fetch('/geodel', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey()})
+    });
+    load();
+  }
+  window.delMarker = delMarker;
+  document.getElementById('delBtn').onclick = delMarker;
+
+  nameInput.onchange = () => { localStorage.setItem('geo_name', nameInput.value.trim()); load(); };
+  load();
+</script>
+</body>
+</html>"""
+
+
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-30-1129"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-30-1407"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-30-1129 -->
+<!-- build:2026-10-30-1407 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2067,6 +3117,13 @@ class AppHandler(BaseHTTPRequestHandler):
             self._respond(200, state["image"] if state else white_png(), "image/png")
         elif url.path == "/geomap":
             self._respond(200, GEO_HTML_PAGE.encode("utf-8"), "text/html; charset=utf-8")
+        elif url.path == "/geo2map":
+            # бета «ГеографияЧата 2.0» — только для Песочницы
+            if int(params.get("chat", ["0"])[0]) != GEO2_CHAT_ID:
+                self._respond(403, "beta: only sandbox chat".encode("utf-8"),
+                              "text/plain; charset=utf-8")
+            else:
+                self._respond(200, GEO2_HTML_PAGE.encode("utf-8"), "text/html; charset=utf-8")
         elif url.path == "/geodata":
             chat_id = int(params.get("chat", ["0"])[0])
             viewer = params.get("user", [""])[0]
@@ -3196,6 +4253,7 @@ GAME_MENU = InlineKeyboardMarkup(
         [InlineKeyboardButton("🐂 Быки и коровы", callback_data="game:bulls")],
         [InlineKeyboardButton("🎨 Рисовалка", callback_data="game:paint")],
         [InlineKeyboardButton("🌍 География чата", callback_data="game:geo")],
+        [InlineKeyboardButton("🌍✨ ГеографияЧата 2.0 (бета)", callback_data="game:geo2")],
         [InlineKeyboardButton("📜 СагаЧата", callback_data="game:saga")],
     ]
 )
@@ -3273,6 +4331,19 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             text += "\n(в группах кнопка открывает карту в браузере)"
         await context.bot.send_message(chat_id, text, reply_markup=geo_keyboard(chat_id, is_private))
         await query.edit_message_text("🌍 Карта запущена — сообщение с кнопкой появилось в чате выше.")
+        return
+
+    if game_key == "geo2":
+        if chat_id != GEO2_CHAT_ID:
+            await query.answer("🧪 Бета «ГеографияЧата 2.0» пока доступна только в группе Песочница!",
+                               show_alert=True)
+            return
+        text = (
+            "🌍✨ ГеографияЧата 2.0 — новая оболочка карты (бета)!\n"
+            "Тот же мир: метки, письма, события и острова — но в обновлённом интерфейсе."
+        )
+        await context.bot.send_message(chat_id, text, reply_markup=geo2_keyboard(chat_id))
+        await query.edit_message_text("🌍✨ ГеографияЧата 2.0 — сообщение с кнопкой появилось в чате выше.")
         return
 
     if game_key == "saga":
@@ -3362,6 +4433,12 @@ def paint_keyboard(chat_id: int, webapp: bool = True, drawer: str | None = None)
     else:
         btn = InlineKeyboardButton("🖌 Открыть холст (браузер)", url=url)
     return InlineKeyboardMarkup([[btn]])
+
+
+def geo2_keyboard(chat_id: int) -> InlineKeyboardMarkup:
+    """Бета 2.0: кнопка открывает карту (в группах — через браузер)."""
+    url = f"{APP_URL}/geo2map?chat={chat_id}"
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🌍✨ Открыть карту 2.0", url=url)]])
 
 
 def geo_keyboard(chat_id: int, webapp: bool) -> InlineKeyboardMarkup:
