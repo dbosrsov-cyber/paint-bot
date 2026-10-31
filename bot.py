@@ -1007,7 +1007,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-31-2019 -->
+<!-- build:2026-10-31-2031 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1115,6 +1115,9 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     button { padding:9px 11px; font-size:14px; }
     .an { font-size:22px; }
   }
+
+  /* тёмная карта: инверсия тайлов (маркеры и попапы не тронуты) */
+  .dark-map .leaflet-tile-pane { filter: invert(0.93) hue-rotate(180deg) saturate(0.35) brightness(0.95); }
 </style>
 </head>
 <body>
@@ -1144,7 +1147,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   const chat = new URLSearchParams(location.search).get('chat') || '0';
 
   const map = L.map('map').setView([55, 45], 3);
-  // ===== подстройка под тему Telegram: светлые/тёмные тайлы, переключатель вне TG =====
+  // ===== подстройка под тему Telegram: тёмная карта — CSS-фильтр поверх OSM-тайлов =====
   const inTelegram = Boolean((tg.initDataUnsafe && tg.initDataUnsafe.user) || tg.initData);
   const themeBtn = document.getElementById('themeBtn');
   if (!inTelegram) {
@@ -1170,16 +1173,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     const r = parseInt(c.substr(0, 2), 16), g = parseInt(c.substr(2, 2), 16), b = parseInt(c.substr(4, 2), 16);
     return (0.299 * r + 0.587 * g + 0.114 * b) < 128;
   }
-  let baseLayer = null;
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    {maxZoom: 18, attribution: '© OpenStreetMap'}).addTo(map);
   function applyMapTheme() {
-    const dark = isDarkNow();
-    const url = dark
-      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
-      : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-    if (baseLayer) { map.removeLayer(baseLayer); baseLayer = null; }
-    baseLayer = L.tileLayer(url, {maxZoom: 18,
-      attribution: dark ? '© OpenStreetMap © CARTO' : '© OpenStreetMap'}).addTo(map);
-    if (baseLayer.bringToBack) baseLayer.bringToBack();
+    map.getContainer().classList.toggle('dark-map', isDarkNow());
   }
   try { tg.onEvent('themeChanged', applyMapTheme); } catch (e) {}
   applyMapTheme();
@@ -2175,10 +2172,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-31-2019"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-31-2031"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-31-2019 -->
+<!-- build:2026-10-31-2031 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
