@@ -1007,7 +1007,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-30-1510 -->
+<!-- build:2026-10-31-2019 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1015,31 +1015,52 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<style>
-  :root {
+<style>  :root, [data-theme="dark"] {
     --bg: var(--tg-theme-bg-color, #0f1720);
     --card: var(--tg-theme-secondary-bg-color, #1a2634);
     --text: var(--tg-theme-text-color, #eef3f8);
     --hint: var(--tg-theme-hint-color, #8a99ab);
     --accent: var(--tg-theme-button-color, #2ea6ff);
     --accent-text: var(--tg-theme-button-text-color, #ffffff);
+    --link: var(--tg-theme-link-color, #7ec8ff);
+    --shadow: rgba(0,0,0,.45);
+    --popup-bg: var(--tg-theme-secondary-bg-color, #1c2a3a);
+  }
+  [data-theme="light"] {
+    --bg: var(--tg-theme-bg-color, #ffffff);
+    --card: var(--tg-theme-secondary-bg-color, #eef1f5);
+    --text: var(--tg-theme-text-color, #1c2733);
+    --hint: var(--tg-theme-hint-color, #6d7c8b);
+    --accent: var(--tg-theme-button-color, #2481cc);
+    --accent-text: var(--tg-theme-button-text-color, #ffffff);
+    --link: var(--tg-theme-link-color, #2481cc);
+    --shadow: rgba(30,50,70,.25);
+    --popup-bg: var(--tg-theme-secondary-bg-color, #f6f8fa);
   }
   * { box-sizing: border-box; }
-  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-    background:var(--bg); color:var(--text); }
-  #map { width:100%; height:64vh; border-radius:0 0 18px 18px; }
-  .bar { padding:8px; display:flex; flex-wrap:wrap; gap:6px; align-items:center; background:var(--card); }
-  input { flex:1; min-width:140px; padding:10px; border-radius:12px;
-    border:1px solid rgba(140,160,180,.25); font-size:15px; background:var(--bg); color:var(--text); }
+  html, body { margin:0; padding:0; }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    background:var(--bg); color:var(--text);
+    padding-bottom:env(safe-area-inset-bottom, 0px); }
+  ::-webkit-scrollbar { width:8px; height:8px; }
+  ::-webkit-scrollbar-thumb { background:var(--hint); border-radius:4px; opacity:.5; }
+  #map { width:100%; height:58vh; border-radius:0 0 18px 18px; }
+  .bar { padding:8px; display:flex; flex-wrap:wrap; gap:6px; align-items:center;
+    background:var(--card); }
+  input { flex:1; min-width:120px; padding:10px; border-radius:12px;
+    border:1px solid rgba(140,160,180,.25); font-size:15px; background:var(--bg);
+    color:var(--text); }
+  input::placeholder { color:var(--hint); }
   input:focus { outline:none; border-color:var(--accent); }
   button { padding:10px 14px; border-radius:12px; border:none; font-size:15px;
     background:var(--accent); color:var(--accent-text); cursor:pointer;
-    transition:transform .12s ease, opacity .12s ease, background .12s ease; }
+    transition:transform .12s ease, opacity .12s ease; }
   button:active { transform:scale(.95); opacity:.85; }
-  #status { position:fixed; left:50%; bottom:18px; transform:translateX(-50%) translateY(10px);
-    max-width:92vw; padding:10px 16px; border-radius:14px; background:rgba(15,23,32,.94);
-    color:#eef3f8; font-size:14px; opacity:0; transition:opacity .25s ease, transform .25s ease;
-    pointer-events:none; z-index:2000; box-shadow:0 6px 24px rgba(0,0,0,.4); }
+  #status { position:fixed; left:50%; bottom:calc(18px + env(safe-area-inset-bottom, 0px));
+    transform:translateX(-50%) translateY(10px); max-width:92vw; padding:10px 16px;
+    border-radius:14px; background:var(--card); color:var(--text); font-size:14px;
+    opacity:0; transition:opacity .25s ease, transform .25s ease; pointer-events:none;
+    z-index:2000; box-shadow:0 6px 24px var(--shadow); border:1px solid rgba(140,160,180,.2); }
   #status.show { opacity:1; transform:translateX(-50%) translateY(0); }
   .an { font-size:24px; background:var(--bg); border:2px solid rgba(140,160,180,.25);
     border-radius:12px; padding:4px 8px; cursor:pointer;
@@ -1057,20 +1078,43 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   /* бренд-чип на карте */
   .brand { position:absolute; top:10px; left:10px; z-index:1000; display:flex;
     align-items:baseline; gap:6px; padding:6px 12px; border-radius:999px;
-    background:rgba(15,23,32,.85); color:#eef3f8; font-size:14px;
-    backdrop-filter:blur(6px); box-shadow:0 2px 10px rgba(0,0,0,.3); pointer-events:none; }
-  .brand b { color:#7ec8ff; }
-  .brand span { font-size:11px; color:#8a99ab; }
+    background:var(--card); color:var(--text); font-size:14px;
+    box-shadow:0 2px 10px var(--shadow); pointer-events:none;
+    border:1px solid rgba(140,160,180,.2); opacity:.95; }
+  .brand b { color:var(--link); }
+  .brand span { font-size:11px; color:var(--hint); }
   /* карточки попапов Leaflet */
-  .leaflet-popup-content-wrapper { border-radius:16px; background:var(--card);
-    color:var(--text); box-shadow:0 10px 32px rgba(0,0,0,.45); }
-  .leaflet-popup-content { margin:12px 16px; font-size:14px; line-height:1.5; }
+  .leaflet-popup-content-wrapper { border-radius:16px; background:var(--popup-bg);
+    color:var(--text); box-shadow:0 10px 32px var(--shadow); }
+  .leaflet-popup-content { margin:12px 16px; font-size:14px; line-height:1.5;
+    max-height:50vh; overflow-y:auto; }
   .leaflet-popup-content button { margin:2px 2px 0 0; padding:7px 10px; font-size:13px; }
-  .leaflet-popup-tip { background:var(--card); }
+  .leaflet-popup-tip { background:var(--popup-bg); }
   .leaflet-popup-close-button { color:var(--hint) !important; font-size:18px !important;
     padding:7px 9px 0 0 !important; }
-  .leaflet-container { font:inherit; }
+  .leaflet-container { font:inherit; background:var(--bg); }
+  .leaflet-bar { border:1px solid rgba(140,160,180,.3) !important; border-radius:10px !important;
+    overflow:hidden; box-shadow:0 2px 8px var(--shadow) !important; }
   .leaflet-bar a { background:var(--card); color:var(--text); border-bottom:1px solid rgba(140,160,180,.2); }
+  .leaflet-bar a:hover { background:var(--bg); }
+  .leaflet-control-attribution { background:var(--card) !important; color:var(--hint) !important;
+    font-size:10px; border-radius:8px 0 0 0; }
+  .leaflet-control-attribution a { color:var(--link) !important; }
+  /* панель письма — прилипает к низу как шторка */
+  #letterBar { position:sticky; bottom:0; z-index:1500; border-radius:16px 16px 0 0;
+    box-shadow:0 -4px 20px var(--shadow); }
+  /* десктоп: карта выше, панели просторнее */
+  @media (min-width: 768px) {
+    #map { height:72vh; }
+    .bar { padding:10px 16px; gap:8px; }
+    input { font-size:16px; }
+    button { font-size:16px; }
+    .leaflet-popup-content { font-size:15px; }
+  }
+  @media (max-width: 420px) {
+    button { padding:9px 11px; font-size:14px; }
+    .an { font-size:22px; }
+  }
 </style>
 </head>
 <body>
@@ -1086,6 +1130,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   <button id="personaBtn" style="display:none;background:#8e44ad;">🎭 Тест2</button>
   <button id="volcanoBtn" style="display:none;background:#e05a3a;" title="Вызвать вулкан">🌋</button>
   <button id="meteorBtn" style="display:none;background:#5b7cfa;" title="Вызвать метеорит">☄️</button>
+  <button id="themeBtn" style="display:none;background:#666;" title="Сменить тему">🌓</button>
 </div>
 <div class="bar" id="letterBar" style="display:none;">
   <input id="letterText" placeholder="Текст письма (до 500 символов)" maxlength="500" style="flex:2;">
@@ -1099,8 +1144,45 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   const chat = new URLSearchParams(location.search).get('chat') || '0';
 
   const map = L.map('map').setView([55, 45], 3);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    {maxZoom: 18, attribution: '© OpenStreetMap'}).addTo(map);
+  // ===== подстройка под тему Telegram: светлые/тёмные тайлы, переключатель вне TG =====
+  const inTelegram = Boolean((tg.initDataUnsafe && tg.initDataUnsafe.user) || tg.initData);
+  const themeBtn = document.getElementById('themeBtn');
+  if (!inTelegram) {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    if (themeBtn) {
+      themeBtn.style.display = '';
+      themeBtn.onclick = () => {
+        const cur = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', cur);
+        applyMapTheme();
+      };
+    }
+  }
+  function isDarkNow() {
+    const tp = (tg && tg.themeParams) || {};
+    let bg = tp.bg_color;
+    if (!bg) {
+      bg = inTelegram ? '#0f1720'
+        : (document.documentElement.getAttribute('data-theme') === 'light' ? '#ffffff' : '#0f1720');
+    }
+    const c = String(bg).replace('#', '');
+    if (c.length < 6) return true;
+    const r = parseInt(c.substr(0, 2), 16), g = parseInt(c.substr(2, 2), 16), b = parseInt(c.substr(4, 2), 16);
+    return (0.299 * r + 0.587 * g + 0.114 * b) < 128;
+  }
+  let baseLayer = null;
+  function applyMapTheme() {
+    const dark = isDarkNow();
+    const url = dark
+      ? 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png'
+      : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+    if (baseLayer) { map.removeLayer(baseLayer); baseLayer = null; }
+    baseLayer = L.tileLayer(url, {maxZoom: 18,
+      attribution: dark ? '© OpenStreetMap © CARTO' : '© OpenStreetMap'}).addTo(map);
+    if (baseLayer.bringToBack) baseLayer.bringToBack();
+  }
+  try { tg.onEvent('themeChanged', applyMapTheme); } catch (e) {}
+  applyMapTheme();
   const statusEl = document.getElementById('status');
   let statusTimer = null;
   const status = t => {
@@ -2093,10 +2175,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-30-1510"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-31-2019"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-30-1510 -->
+<!-- build:2026-10-31-2019 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
