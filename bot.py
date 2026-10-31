@@ -1022,7 +1022,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-31-2043 -->
+<!-- build:2026-10-31-2055 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1132,7 +1132,23 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   }
 
   /* тёмная карта: инверсия тайлов (маркеры и попапы не тронуты) */
-  .dark-map .leaflet-tile-pane { filter: invert(0.93) hue-rotate(180deg) saturate(0.35) brightness(0.95); }
+  .dark-map .leaflet-tile-pane { filter: invert(0.94) hue-rotate(180deg) saturate(0.22) brightness(0.88) contrast(1.08); }
+  /* ==== FR24-стилистика тёмной темы: стекло, бирюза, тонкие кнопки ==== */
+  .dark-ui .bar { background: rgba(11,18,26,.9); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-top:1px solid rgba(125,211,252,.12); }
+  .dark-ui .bar button { background: rgba(30,45,60,.92); color:#bfe3f7; border:1px solid rgba(125,211,252,.25); border-radius:999px; }
+  .dark-ui .bar button:hover { border-color:#2dd4bf; color:#fff; }
+  .dark-ui .bar input { background: rgba(11,18,26,.85); color:#e8f1f8; border-radius:999px; border-color:rgba(125,211,252,.2); }
+  .dark-ui .brand { background: rgba(11,18,26,.82); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border:1px solid rgba(125,211,252,.22); }
+  .dark-ui #status { background: rgba(11,18,26,.93); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border:1px solid rgba(125,211,252,.18); }
+  .dark-ui .leaflet-popup-content-wrapper { background: rgba(15,23,32,.86); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border:1px solid rgba(125,211,252,.18); border-radius:14px; color:#e8f1f8; }
+  .dark-ui .leaflet-popup-tip { background: rgba(15,23,32,.86); }
+  .dark-ui .leaflet-popup-content button { background:#155e75; color:#eafaff; border-radius:999px; border:1px solid rgba(125,211,252,.3); }
+  .dark-ui .leaflet-popup-content button:hover { background:#0e7490; }
+  .dark-ui .leaflet-bar a { background: rgba(20,32,44,.92); color:#bfe3f7; }
+  .dark-ui .leaflet-bar a:hover { background: rgba(30,48,64,.95); }
+  .dark-ui .leaflet-control-attribution { background: rgba(11,18,26,.75) !important; }
+  /* свечение событий в тёмной теме вместо оранжевых колец */
+  .dark-ui .mk-pulse::after { border-color: rgba(45,212,191,.85); box-shadow: 0 0 14px rgba(45,212,191,.45); }
 </style>
 </head>
 <body>
@@ -1191,7 +1207,9 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
     {maxZoom: 18, attribution: '© OpenStreetMap'}).addTo(map);
   function applyMapTheme() {
-    map.getContainer().classList.toggle('dark-map', isDarkNow());
+    const dark = isDarkNow();
+    map.getContainer().classList.toggle('dark-map', dark);
+    document.body.classList.toggle('dark-ui', dark);
   }
   try { tg.onEvent('themeChanged', applyMapTheme); } catch (e) {}
   applyMapTheme();
@@ -1338,6 +1356,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     // кнопка ускорения — на любом письме в полёте (чужом и своём), любой пользователь
     const boostBtn = '<br><button onclick="boostLetter(&quot;' + l.id
       + '&quot;)">⏩ Ускорить (1 ЗП)</button>';
+    drawRoute('L' + l.id, l, '#7dd3fc');
     if (l.mine) {
       mk.bindPopup('✉️ Твоё письмо ещё в пути к тебе…' + boostBtn);
     } else {
@@ -1584,6 +1603,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   }
   function renderPoop(p) {
     const mk = L.marker([p.lat, p.lon], {icon: poopIcon(p)}).addTo(map);
+    if (!p.arrived) drawRoute('K' + p.id, p, '#f9a8d4');
     if (!p.arrived) {
       // до доставки адресат неизвестен никому — даже самому адресату
       mk.bindPopup('💩 Розовая Какашка в пути… (адресат: *****)');
@@ -1655,6 +1675,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   }
   function renderGift(g) {
     const mk = L.marker([g.lat, g.lon], {icon: giftIcon()}).addTo(map);
+    if (!g.arrived) drawRoute('G' + g.id, g, '#fbbf24');
     if (!g.arrived) {
       // до доставки адресат неизвестен никому — даже самому адресату (как у какашек)
       mk.bindPopup('🎁 Подарок в пути… (адресат: *****)');
@@ -1742,6 +1763,24 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     }
   };
 
+  // ---------- FR24-детали: курс самолёта и треки маршрутов ----------
+  function bearingDeg(lat1, lon1, lat2, lon2) {
+    const r = Math.PI / 180;
+    const y = Math.sin((lon2 - lon1) * r) * Math.cos(lat2 * r);
+    const x = Math.cos(lat1 * r) * Math.sin(lat2 * r)
+      - Math.sin(lat1 * r) * Math.cos(lat2 * r) * Math.cos((lon2 - lon1) * r);
+    return (Math.atan2(y, x) / r + 360) % 360;
+  }
+  const routeLines = {};   // ключ -> L.polyline (тонкий пунктирный трек)
+  function drawRoute(key, o, color, weight) {
+    if (routeLines[key]) { map.removeLayer(routeLines[key]); delete routeLines[key]; }
+    if (o.from_lat === undefined || o.to_lat === undefined) return;
+    routeLines[key] = L.polyline(
+      [[o.from_lat, o.from_lon], [o.to_lat, o.to_lon]],
+      {color: color, weight: weight || 2, dashArray: '2 7', opacity: .65}
+    ).addTo(map);
+  }
+
   // ---------- Острова: покупка, гости на самолёте, постройки, открытка ----------
   const islandMarkers = {};    // owner -> L.marker острова
   const planeMarkers = {};     // owner острова -> L.marker самолёта с гостем
@@ -1761,9 +1800,14 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       iconSize: [72, 72], iconAnchor: [36, 36], popupAnchor: [0, -40],
     });
   }
-  function planeIcon() {
+  function planeIcon(heading) {
+    const h = (heading === undefined || heading === null) ? 45 : Math.round(heading);
     return L.divIcon({
-      html: '<div class="mk" style="font-size:30px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))">✈️</div>',
+      html: '<div class="mk"><div style="width:30px;height:30px;line-height:1;transform:rotate(' + h + 'deg);'
+        + 'filter:drop-shadow(0 0 5px rgba(45,212,191,.55)) drop-shadow(0 1px 2px rgba(0,0,0,.5))">'
+        + '<svg viewBox="0 0 24 24" width="30" height="30" fill="#eaf6ff">'
+        + '<path d="M21.5 15.5v-2l-8.5-5V3.2c0-.8-.5-1.7-1-1.7s-1 .9-1 1.7v5.3l-8.5 5v2l8.5-2.7v5.4L8.6 20v1.5l3.4-1 3.4 1V20L13 18.2v-5.4l8.5 2.7z"/></svg>'
+        + '</div></div>',
       className: 'emoji-marker',
       iconSize: [40, 40], iconAnchor: [20, 20], popupAnchor: [0, -22],
     });
@@ -1816,7 +1860,9 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     islandMarkers[isl.owner] = mk;
   }
   function renderPlane(p) {
-    const mk = L.marker([p.lat, p.lon], {icon: planeIcon()}).addTo(map);
+    const mk = L.marker([p.lat, p.lon],
+      {icon: planeIcon(bearingDeg(p.from_lat, p.from_lon, p.to_lat, p.to_lon))}).addTo(map);
+    drawRoute('P' + p.island, p, '#2dd4bf', 2.5);
     const legTxt = {
       to_guest: 'летит за гостем…',
       to_island: 'везёт гостя на остров…',
@@ -2101,6 +2147,8 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     Object.keys(islandMarkers).forEach(k => delete islandMarkers[k]);
     Object.values(planeMarkers).forEach(m => map.removeLayer(m));
     Object.keys(planeMarkers).forEach(k => delete planeMarkers[k]);
+    Object.values(routeLines).forEach(pl => map.removeLayer(pl));
+    Object.keys(routeLines).forEach(k => delete routeLines[k]);
     lastLetters = data.letters || [];
     lastIslands = data.islands || [];
     lastMarkers = data.markers || [];
@@ -2187,10 +2235,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-31-2043"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-31-2055"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-31-2043 -->
+<!-- build:2026-10-31-2055 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -3319,6 +3367,8 @@ class AppHandler(BaseHTTPRequestHandler):
                         "from_name": letter.get("from_name", "?"),
                         "from": letter["from"],  # user key отправителя — для кнопки «Ответить»
                         "to_name": (dest or {}).get("name", "удалённой метке"),
+                        "from_lat": letter["from_lat"], "from_lon": letter["from_lon"],
+                        "to_lat": letter["to_lat"], "to_lon": letter["to_lon"],
                         # дата доставки (МСК) — для «старого письма» при чтении
                         "date": time.strftime("%d.%m.%Y %H:%M",
                                               time.gmtime((letter.get("arrived_ts")
@@ -3409,6 +3459,8 @@ class AppHandler(BaseHTTPRequestHandler):
                         "arrived": parrived,
                         "mine": poop["to"] == viewer,
                         "to_name": poop.get("to_name", ""),
+                        "from_lat": poop["from_lat"], "from_lon": poop["from_lon"],
+                        "to_lat": poop["to_lat"], "to_lon": poop["to_lon"],
                     })
                 # ---------- Похотливый Кит: активный кит ----------
                 s, _sub_spawned = submarine_get_active(chat_id)
@@ -3447,6 +3499,8 @@ class AppHandler(BaseHTTPRequestHandler):
                         "mine": gift["to"] == viewer,
                         "to": gift["to"],
                         "to_name": gift.get("to_name", ""),
+                        "from_lat": gift["from_lat"], "from_lon": gift["from_lon"],
+                        "to_lat": gift["to_lat"], "to_lon": gift["to_lon"],
                     })
                 # прибывшие подарки одного адресата не должны ложиться друг на друга
                 by_gdest = {}
@@ -3537,6 +3591,8 @@ class AppHandler(BaseHTTPRequestHandler):
                             planes_out.append({
                                 "island": isl["owner"], "guest_name": g["name"],
                                 "leg": g["leg"], "lat": round(plat, 6), "lon": round(plon, 6),
+                                "from_lat": g["from_lat"], "from_lon": g["from_lon"],
+                                "to_lat": g["to_lat"], "to_lon": g["to_lon"],
                             })
                     cur_guest = isl.get("guest")
                     owners = isl.get("owners") or [isl["owner"]]
