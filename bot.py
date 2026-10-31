@@ -1022,7 +1022,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-31-2055 -->
+<!-- build:2026-10-31-2067 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1081,6 +1081,16 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     border-radius:12px; padding:4px 8px; cursor:pointer;
     transition:transform .12s ease, border-color .12s ease, background .12s ease; }
   .an.on { border-color:var(--accent); background:rgba(46,166,255,.18); transform:scale(1.12); }
+  /* левая прозрачная панель инструментов (FR24-стиль) */
+  .toolbar { position:absolute; left:10px; top:50%; transform:translateY(-50%); z-index:1100;
+    display:flex; flex-direction:column; gap:8px; padding:10px 8px; border-radius:18px;
+    background:rgba(255,255,255,.78); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px);
+    border:1px solid rgba(140,160,180,.3); box-shadow:0 4px 18px var(--shadow); }
+  .toolbar button { width:42px; height:42px; padding:0; border-radius:12px; font-size:20px; line-height:1;
+    background:var(--card); color:var(--text); border:1px solid rgba(140,160,180,.25); cursor:pointer;
+    display:flex; align-items:center; justify-content:center;
+    transition:transform .12s ease, border-color .12s ease, color .12s ease; }
+  .toolbar button:hover { border-color:var(--accent); }
   .emoji-marker { background:none; border:none; }
   /* появление маркеров */
   .mk { animation:mkpop .35s cubic-bezier(.34,1.56,.64,1); }
@@ -1129,6 +1139,8 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   @media (max-width: 420px) {
     button { padding:9px 11px; font-size:14px; }
     .an { font-size:22px; }
+    .toolbar { left:6px; padding:8px 6px; gap:6px; }
+    .toolbar button { width:38px; height:38px; font-size:18px; }
   }
 
   /* тёмная карта: инверсия тайлов (маркеры и попапы не тронуты) */
@@ -1149,23 +1161,26 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   .dark-ui .leaflet-control-attribution { background: rgba(11,18,26,.75) !important; }
   /* свечение событий в тёмной теме вместо оранжевых колец */
   .dark-ui .mk-pulse::after { border-color: rgba(45,212,191,.85); box-shadow: 0 0 14px rgba(45,212,191,.45); }
+  .dark-ui .toolbar { background: rgba(11,18,26,.62); border-color: rgba(125,211,252,.18); }
+  .dark-ui .toolbar button { background: rgba(30,45,60,.6); color:#bfe3f7; border-color: rgba(125,211,252,.22); }
+  .dark-ui .toolbar button:hover { border-color:#2dd4bf; color:#fff; }
 </style>
 </head>
 <body>
-<div id="map"><div class="brand">🌍 ГеографияЧата <b>2.0</b> <span>бета · Песочница</span></div></div>
+<div id="map"><div class="brand">🌍 ГеографияЧата <b>2.0</b> <span>бета · Песочница</span></div>
+<div class="toolbar" id="toolsPanel">
+  <button id="saveBtn" title="Поставить метку">📍</button>
+  <button id="delBtn" title="Удалить мою метку" style="display:none;">🗑</button>
+  <button id="letterBtn" title="Отправить письмо">✉️</button>
+  <button id="distBtn" title="Измерить расстояние">📏</button>
+  <button id="islandBuyBtn" title="Купить остров (10 ЗП)">🏝️</button>
+  <button id="personaBtn" title="Действовать как Тест2" style="display:none;">🎭</button>
+  <button id="volcanoBtn" title="Вызвать вулкан" style="display:none;">🌋</button>
+  <button id="meteorBtn" title="Вызвать метеорит" style="display:none;">☄️</button>
+  <button id="themeBtn" title="Сменить тему" style="display:none;">🌓</button>
+</div></div>
 <div class="bar" id="animals"></div>
-<div class="bar">
-  <input id="name" placeholder="Твоё имя" maxlength="24">
-  <button id="delBtn" title="Удалить мою метку" style="display:none;background:#c0392b;">🗑</button>
-  <button id="saveBtn">📍 Поставить метку</button>
-  <button id="distBtn" style="background:#888;">📏 Расстояние</button>
-  <button id="letterBtn" style="background:#888;">✉️ Письмо</button>
-  <button id="islandBuyBtn" style="background:#888;">🏝️ Купить остров</button>
-  <button id="personaBtn" style="display:none;background:#8e44ad;">🎭 Тест2</button>
-  <button id="volcanoBtn" style="display:none;background:#e05a3a;" title="Вызвать вулкан">🌋</button>
-  <button id="meteorBtn" style="display:none;background:#5b7cfa;" title="Вызвать метеорит">☄️</button>
-  <button id="themeBtn" style="display:none;background:#666;" title="Сменить тему">🌓</button>
-</div>
+<div class="bar" style="padding:6px 10px;"><input id="name" placeholder="Твоё имя" maxlength="24"></div>
 <div class="bar" id="letterBar" style="display:none;">
   <input id="letterText" placeholder="Текст письма (до 500 символов)" maxlength="500" style="flex:2;">
   <button id="letterSend">Отправить</button>
@@ -2235,10 +2250,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-31-2055"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-31-2067"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-31-2055 -->
+<!-- build:2026-10-31-2067 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
