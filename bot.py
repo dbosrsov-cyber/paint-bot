@@ -331,7 +331,22 @@ def meteor_load_from_github() -> None:
         return
     meteor_state.update({int(cid): m for cid, m in loaded.get("meteors", {}).items()})
     stardust_state.update(loaded.get("stardust", {}))
+    meteor_cleanup_craters()
     print(f"[paint_bot] meteor: чатов {len(meteor_state)}, балансов пыли {len(stardust_state)}", flush=True)
+
+
+# Чаты, где воронки метеоритов не копятся: чистим при каждом старте бота
+METEOR_CRATER_CLEANUP_CHATS = (-1002304715333,)   # «Другое измерение»
+
+
+def meteor_cleanup_craters() -> None:
+    for cid in METEOR_CRATER_CLEANUP_CHATS:
+        m = meteor_state.get(cid)
+        if m and m.get("craters"):
+            removed = len(m["craters"])
+            m["craters"] = []
+            meteor_save_to_github()
+            logline(f"meteor craters cleaned chat={cid} removed={removed}")
 
 
 def submarine_save_to_github() -> None:
@@ -1007,7 +1022,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-31-2031 -->
+<!-- build:2026-10-31-2043 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2172,10 +2187,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-31-2031"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-10-31-2043"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-31-2031 -->
+<!-- build:2026-10-31-2043 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
