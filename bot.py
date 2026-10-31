@@ -308,6 +308,7 @@ SAGA_END_RE = re.compile(r"(конец|the end)[\.!\s…]*$", re.IGNORECASE)
 # stardust: {"chat_id|user_key": int} — личный баланс звёздной пыли
 meteor_state = {}
 stardust_state = {}
+meteor_credits = {}   # {tag: true} — выполненные разовые начисления (защита от повторов)
 METEOR_FILE = "meteor.json"
 METEOR_LIFETIME_SEC = 300     # 5 минут на сбор пыли из свежей воронки
 METEOR_PERIOD_SEC = 3600      # перерыв между падениями — час (+ случайные 0–50 мин)
@@ -321,7 +322,8 @@ METEOR_NOTIFY_TEXT = ("☄️ МЕТЕОРИТ! На карту чата упа�
 
 def meteor_save_to_github() -> None:
     payload = {"meteors": {str(k): v for k, v in meteor_state.items()},
-               "stardust": stardust_state}
+               "stardust": stardust_state,
+               "credits": meteor_credits}
     _save_json_to_github(METEOR_FILE, payload, geo_lock, "meteor")
 
 
@@ -331,8 +333,28 @@ def meteor_load_from_github() -> None:
         return
     meteor_state.update({int(cid): m for cid, m in loaded.get("meteors", {}).items()})
     stardust_state.update(loaded.get("stardust", {}))
+    meteor_credits.update(loaded.get("credits", {}))
+    apply_startup_credits()
     meteor_cleanup_craters()
     print(f"[paint_bot] meteor: чатов {len(meteor_state)}, балансов пыли {len(stardust_state)}", flush=True)
+
+
+# Разовые начисления ЗП при старте: (chat_id, user_key, amount, tag)
+# tag хранится в meteor.json — начисление сработает ровно один раз.
+STARTUP_CREDITS = [
+    (-1004400745434, "Sumai", 100, "sandbox_sumai_100zp_2026-11-01"),
+]
+
+
+def apply_startup_credits() -> None:
+    for chat_id, user, amount, tag in STARTUP_CREDITS:
+        if meteor_credits.get(tag):
+            continue
+        key = f"{chat_id}|{user}"
+        stardust_state[key] = stardust_state.get(key, 0) + amount
+        meteor_credits[tag] = True
+        meteor_save_to_github()
+        logline(f"startup credit applied: {key} +{amount} ЗП (tag {tag})")
 
 
 # Чаты, где воронки метеоритов не копятся: чистим при каждом старте бота
@@ -1022,7 +1044,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-31-2067 -->
+<!-- build:2026-11-01-0127 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2250,10 +2272,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-10-31-2067"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-0127"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-10-31-2067 -->
+<!-- build:2026-11-01-0127 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
