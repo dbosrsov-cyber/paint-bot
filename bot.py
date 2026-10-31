@@ -1044,7 +1044,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-0127 -->
+<!-- build:2026-11-01-0133 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1081,7 +1081,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     padding-bottom:env(safe-area-inset-bottom, 0px); }
   ::-webkit-scrollbar { width:8px; height:8px; }
   ::-webkit-scrollbar-thumb { background:var(--hint); border-radius:4px; opacity:.5; }
-  #map { width:100%; height:58vh; border-radius:0 0 18px 18px; }
+  #map { width:100%; height:62vh; border-radius:0 0 18px 18px; }
   .bar { padding:8px; display:flex; flex-wrap:wrap; gap:6px; align-items:center;
     background:var(--card); }
   input { flex:1; min-width:120px; padding:10px; border-radius:12px;
@@ -1103,6 +1103,9 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     border-radius:12px; padding:4px 8px; cursor:pointer;
     transition:transform .12s ease, border-color .12s ease, background .12s ease; }
   .an.on { border-color:var(--accent); background:rgba(46,166,255,.18); transform:scale(1.12); }
+  /* тонкая строка ника под картой */
+  .namebar { padding:2px 10px; }
+  .namebar input { padding:3px 12px; font-size:13px; border-radius:999px; }
   /* левая прозрачная панель инструментов (FR24-стиль) */
   .toolbar { position:absolute; left:10px; top:50%; transform:translateY(-50%); z-index:1100;
     display:flex; flex-direction:column; gap:8px; padding:10px 8px; border-radius:18px;
@@ -1152,7 +1155,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     box-shadow:0 -4px 20px var(--shadow); }
   /* десктоп: карта выше, панели просторнее */
   @media (min-width: 768px) {
-    #map { height:72vh; }
+    #map { height:75vh; }
     .bar { padding:10px 16px; gap:8px; }
     input { font-size:16px; }
     button { font-size:16px; }
@@ -1202,7 +1205,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   <button id="themeBtn" title="Сменить тему" style="display:none;">🌓</button>
 </div></div>
 <div class="bar" id="animals"></div>
-<div class="bar" style="padding:6px 10px;"><input id="name" placeholder="Твоё имя" maxlength="24"></div>
+<div class="bar namebar"><input id="name" placeholder="Твоё имя" maxlength="24"></div>
 <div class="bar" id="letterBar" style="display:none;">
   <input id="letterText" placeholder="Текст письма (до 500 символов)" maxlength="500" style="flex:2;">
   <button id="letterSend">Отправить</button>
@@ -1393,7 +1396,6 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     // кнопка ускорения — на любом письме в полёте (чужом и своём), любой пользователь
     const boostBtn = '<br><button onclick="boostLetter(&quot;' + l.id
       + '&quot;)">⏩ Ускорить (1 ЗП)</button>';
-    drawRoute('L' + l.id, l, '#7dd3fc');
     if (l.mine) {
       mk.bindPopup('✉️ Твоё письмо ещё в пути к тебе…' + boostBtn);
     } else {
@@ -1640,7 +1642,6 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   }
   function renderPoop(p) {
     const mk = L.marker([p.lat, p.lon], {icon: poopIcon(p)}).addTo(map);
-    if (!p.arrived) drawRoute('K' + p.id, p, '#f9a8d4');
     if (!p.arrived) {
       // до доставки адресат неизвестен никому — даже самому адресату
       mk.bindPopup('💩 Розовая Какашка в пути… (адресат: *****)');
@@ -1712,7 +1713,6 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   }
   function renderGift(g) {
     const mk = L.marker([g.lat, g.lon], {icon: giftIcon()}).addTo(map);
-    if (!g.arrived) drawRoute('G' + g.id, g, '#fbbf24');
     if (!g.arrived) {
       // до доставки адресат неизвестен никому — даже самому адресату (как у какашек)
       mk.bindPopup('🎁 Подарок в пути… (адресат: *****)');
@@ -1808,16 +1808,6 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       - Math.sin(lat1 * r) * Math.cos(lat2 * r) * Math.cos((lon2 - lon1) * r);
     return (Math.atan2(y, x) / r + 360) % 360;
   }
-  const routeLines = {};   // ключ -> L.polyline (тонкий пунктирный трек)
-  function drawRoute(key, o, color, weight) {
-    if (routeLines[key]) { map.removeLayer(routeLines[key]); delete routeLines[key]; }
-    if (o.from_lat === undefined || o.to_lat === undefined) return;
-    routeLines[key] = L.polyline(
-      [[o.from_lat, o.from_lon], [o.to_lat, o.to_lon]],
-      {color: color, weight: weight || 2, dashArray: '2 7', opacity: .65}
-    ).addTo(map);
-  }
-
   // ---------- Острова: покупка, гости на самолёте, постройки, открытка ----------
   const islandMarkers = {};    // owner -> L.marker острова
   const planeMarkers = {};     // owner острова -> L.marker самолёта с гостем
@@ -1899,7 +1889,6 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   function renderPlane(p) {
     const mk = L.marker([p.lat, p.lon],
       {icon: planeIcon(bearingDeg(p.from_lat, p.from_lon, p.to_lat, p.to_lon))}).addTo(map);
-    drawRoute('P' + p.island, p, '#2dd4bf', 2.5);
     const legTxt = {
       to_guest: 'летит за гостем…',
       to_island: 'везёт гостя на остров…',
@@ -2184,8 +2173,6 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     Object.keys(islandMarkers).forEach(k => delete islandMarkers[k]);
     Object.values(planeMarkers).forEach(m => map.removeLayer(m));
     Object.keys(planeMarkers).forEach(k => delete planeMarkers[k]);
-    Object.values(routeLines).forEach(pl => map.removeLayer(pl));
-    Object.keys(routeLines).forEach(k => delete routeLines[k]);
     lastLetters = data.letters || [];
     lastIslands = data.islands || [];
     lastMarkers = data.markers || [];
@@ -2272,10 +2259,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-0127"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-0133"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-0127 -->
+<!-- build:2026-11-01-0133 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
