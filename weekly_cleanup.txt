@@ -1,3 +1,2 @@
 weekly crater cleanup for chat -1002304715333 (Другое измерение)
-last run: 2026-10-31T22:11:53
-note: reload data (sandbox credit for Sumai)
+last run: 2026-11-01T01:00:04
