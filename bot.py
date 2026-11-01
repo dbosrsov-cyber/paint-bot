@@ -1117,7 +1117,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1455 -->
+<!-- build:2026-11-01-1458 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2481,7 +2481,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     // прибывших писем на карте нет (их показывает ящик на метке) — считаем только в пути
     const flyingLetters = (data.letters || []).filter(l => !l.arrived).length;
     status('🌍 Меток: ' + (data.markers || []).length + ' • ✉️ Писем в пути: '
-      + flyingLetters + ' • ☄️ ЗП: ' + (data.stardust || 0)
+      + flyingLetters
       + ' • 🏝️ Островов: ' + (data.islands || []).length
       + (data.volcano ? ' • 🌋 ВУЛКАН НА КАРТЕ!' : '')
       + (data.meteors && data.meteors.some(m => m.fresh && m.zp) ? ' • 💥 МЕТЕОРИТ!' : '')
@@ -2540,10 +2540,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1455"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1458"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1455 -->
+<!-- build:2026-11-01-1458 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -3491,7 +3491,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     // прибывших писем на карте нет (их показывает ящик на метке) — считаем только в пути
     const flyingLetters = (data.letters || []).filter(l => !l.arrived).length;
     status('🌍 Меток: ' + (data.markers || []).length + ' • ✉️ Писем в пути: '
-      + flyingLetters + ' • ☄️ ЗП: ' + (data.stardust || 0)
+      + flyingLetters
       + ' • 🏝️ Островов: ' + (data.islands || []).length
       + (data.volcano ? ' • 🌋 ВУЛКАН НА КАРТЕ!' : '')
       + (data.meteors && data.meteors.some(m => m.fresh && m.zp) ? ' • 💥 МЕТЕОРИТ!' : '')
