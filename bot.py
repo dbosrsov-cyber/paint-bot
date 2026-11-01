@@ -451,6 +451,35 @@ def meteor_cleanup_craters() -> None:
             logline(f"meteor craters cleaned chat={cid} removed={removed}")
 
 
+# ---------- СИФА: догонялки на кораблях (прототип в ГЕО2) ----------
+SIFA_FILE = "sifa.json"
+SIFA_SAVE_INTERVAL_SEC = 10   # не чаще одного сохранения в Git
+SIFA_SHIP_TTL_SEC = 900       # корабль исчезает через 15 мин без движения
+SIFA_MAX_JUMP_KM = 0.6        # антителепорт: лимит скачка за один пакет
+sifa_state = {}               # chat_id -> {user_key: {"lat","lon","heading","ts","name"}}
+sifa_lock = threading.Lock()
+_sifa_last_save = 0.0
+
+
+def sifa_save_to_github() -> None:
+    global _sifa_last_save
+    if not geo_token():
+        return
+    now = time.time()
+    if now - _sifa_last_save < SIFA_SAVE_INTERVAL_SEC:
+        return
+    _sifa_last_save = now
+    _save_json_to_github(SIFA_FILE, sifa_state, sifa_lock, "sifa")
+
+
+def sifa_load_from_github() -> None:
+    loaded = _load_json_from_github(SIFA_FILE, "sifa")
+    if loaded:
+        sifa_state.update({int(cid): ships for cid, ships in loaded.items()})
+        total = sum(len(s) for s in sifa_state.values())
+        print(f"[paint_bot] sifa: загружено {total} кораблей из Git", flush=True)
+
+
 def submarine_save_to_github() -> None:
     payload = {"submarines": {str(k): v for k, v in submarine_state.items()},
                "gifts": gifts_state}
@@ -1124,7 +1153,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1480 -->
+<!-- build:2026-11-01-1483 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1199,6 +1228,13 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     -webkit-backdrop-filter: blur(12px); border-color: rgba(125,211,252,.18); color:#e8f1f8; }
   /* тонкая строка ника под картой */
   .namebar { padding:2px 10px; }
+  /* джойстик Сифы */
+  #sifaPad { position:fixed; right:12px; bottom:130px; z-index:3000;
+    display:none; grid-template-columns:repeat(3,50px); grid-template-rows:repeat(3,50px); gap:6px; }
+  #sifaPad button { padding:0; font-size:20px; border-radius:14px;
+    background:rgba(30,45,60,.85); color:#bfe3f7; border:1px solid rgba(125,211,252,.3);
+    backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
+  #sifaPad button:active { background:rgba(45,212,191,.5); color:#fff; }
   /* окно-справка «на папирусе» */
   .papyrus { width:100%; max-width:420px; max-height:86vh; overflow-y:auto;
     background:#f3e5c0; color:#4a3418;
@@ -1316,6 +1352,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   <button id="islandBuyBtn" title="Купить остров (10 ЗП)">🏝️</button>
   <button id="chestBtn" title="Мой сундук">🧰</button>
   <button id="helpBtn" title="Что здесь можно делать">❓</button>
+  <button id="sifaBtn" title="Сифа — догонялки на кораблях">⛵</button>
   <button id="personaBtn" title="Действовать как Тест2" style="display:none;">🎭</button>
   <button id="volcanoBtn" title="Вызвать вулкан" style="display:none;">🌋</button>
   <button id="meteorBtn" title="Вызвать метеорит" style="display:none;">☄️</button>
@@ -1326,6 +1363,11 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   <input id="name" placeholder="Твоё имя" maxlength="24">
   <button id="emojiBtn" title="Сменить эмодзи метки" style="display:none;">🐾</button>
   <button id="delBtn" title="Удалить мою метку" style="display:none;">🗑</button>
+</div>
+<div id="sifaPad">
+  <span></span><button data-dir="up">▲</button><span></span>
+  <button data-dir="left">◀</button><button id="sifaExitBtn" title="Завершить Сифу">✕</button><button data-dir="right">▶</button>
+  <span></span><button data-dir="down">▼</button><span></span>
 </div>
 <div class="bar eventbar" id="eventBar" style="display:none;" title="Нажми, чтобы скрыть"></div>
 <div class="bar" id="islandBar" style="display:none;">
@@ -2392,6 +2434,138 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   document.getElementById('islandInfoCloseBtn').onclick = () => {
     document.getElementById('islandInfoModal').style.display = 'none';
   };
+  // ---------- СИФА: догонялки на кораблях (прототип) ----------
+  const SIFA_SPEED_KM_S = 1.0;   // 3600 км/ч — скорость корабля (подбирается)
+  const SIFA_TICK_MS = 150;
+  let sifaMode = false, sifaMarker = null, sifaPollTimer = null;
+  let sifaPos = null, sifaHeading = 0, sifaMoveTimer = null;
+  let sifaPushTimer = null, sifaNeedPush = false;
+  const sifaShips = {};   // user -> L.marker (чужие корабли)
+  const SIFA_DIRS = {up: 0, right: 90, down: 180, left: 270};
+  function sifaIcon(h) {
+    return L.divIcon({
+      html: '<div class="mk"><div style="font-size:32px;line-height:1;transform:rotate('
+        + (Math.round(h) + 45) + 'deg);filter:drop-shadow(0 0 5px rgba(45,212,191,.55))'
+        + ' drop-shadow(0 1px 2px rgba(0,0,0,.5))">⛵</div></div>',
+      className: 'emoji-marker',
+      iconSize: [40, 40], iconAnchor: [20, 20], popupAnchor: [0, -22],
+    });
+  }
+  function sifaRender() {
+    if (!sifaMarker) {
+      sifaMarker = L.marker([sifaPos.lat, sifaPos.lon], {icon: sifaIcon(sifaHeading)}).addTo(map);
+      sifaMarker.bindPopup('⛵ Твой корабль в «Сифе»');
+    }
+    sifaMarker.setLatLng([sifaPos.lat, sifaPos.lon]);
+    sifaMarker.setIcon(sifaIcon(sifaHeading));
+  }
+  function sifaPush() {
+    if (!sifaMode || !sifaPos) return;
+    fetch('/sifamove', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName(),
+        lat: sifaPos.lat, lon: sifaPos.lon, heading: sifaHeading})
+    }).catch(() => {});
+  }
+  function sifaSchedulePush() {
+    sifaNeedPush = true;
+    if (sifaPushTimer) return;
+    sifaPushTimer = setInterval(() => {
+      if (!sifaMode) { clearInterval(sifaPushTimer); sifaPushTimer = null; return; }
+      if (sifaNeedPush) { sifaNeedPush = false; sifaPush(); }
+    }, 400);
+  }
+  function sifaStartMove(dir) {
+    sifaStopMove();
+    sifaHeading = SIFA_DIRS[dir];
+    sifaRender();
+    sifaMoveTimer = setInterval(() => {
+      const rad = sifaHeading * Math.PI / 180;
+      const step = SIFA_SPEED_KM_S * (SIFA_TICK_MS / 1000);
+      const dLat = step / 111.32 * Math.cos(rad);
+      const dLon = step / (111.32 * Math.cos(sifaPos.lat * Math.PI / 180)) * Math.sin(rad);
+      sifaPos = {lat: Math.max(-85, Math.min(85, sifaPos.lat + dLat)), lon: sifaPos.lon + dLon};
+      sifaRender();
+      map.panTo([sifaPos.lat, sifaPos.lon]);
+      sifaSchedulePush();
+    }, SIFA_TICK_MS);
+  }
+  function sifaStopMove() {
+    if (sifaMoveTimer) { clearInterval(sifaMoveTimer); sifaMoveTimer = null; }
+  }
+  async function sifaLoadShips() {
+    if (!sifaMode) return;
+    const r = await fetch('/sifastate?chat=' + chat + '&user='
+      + encodeURIComponent(userKey()) + '&name=' + encodeURIComponent(userName()));
+    const data = await r.json().catch(() => ({}));
+    const seen = {};
+    (data.ships || []).forEach(s => {
+      if (s.mine) return;
+      seen[s.user] = true;
+      let mk = sifaShips[s.user];
+      if (!mk) {
+        mk = L.marker([s.lat, s.lon], {icon: sifaIcon(s.heading || 0)}).addTo(map);
+        mk.bindPopup('⛵ Корабль <b>' + escapeHtml(s.name) + '</b> — в «Сифе»!');
+        sifaShips[s.user] = mk;
+      } else {
+        mk.setLatLng([s.lat, s.lon]);
+        mk.setIcon(sifaIcon(s.heading || 0));
+      }
+    });
+    Object.keys(sifaShips).forEach(u => {
+      if (!seen[u]) { map.removeLayer(sifaShips[u]); delete sifaShips[u]; }
+    });
+  }
+  window.startSifa = () => {
+    if (sifaMode) return;
+    const me = (lastMarkers || []).find(mm => mm.user === userKey());
+    const c = me ? {lat: me.lat, lon: me.lon} : map.getCenter();
+    sifaPos = {lat: c.lat, lon: (c.lng !== undefined ? c.lng : c.lon)};
+    sifaHeading = 0;
+    sifaMode = true;
+    sifaRender();
+    document.getElementById('sifaPad').style.display = 'grid';
+    status('⛵ Сифа! Корабль на воде — правь джойстиком 🎮 (стрелки — с клавиатуры)');
+    sifaPush();
+    sifaLoadShips();
+    sifaPollTimer = setInterval(sifaLoadShips, 2500);
+  };
+  window.exitSifa = () => {
+    if (!sifaMode) return;
+    sifaMode = false;
+    sifaStopMove();
+    clearInterval(sifaPollTimer); sifaPollTimer = null;
+    clearInterval(sifaPushTimer); sifaPushTimer = null;
+    fetch('/sifaexit', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey()})
+    }).catch(() => {});
+    if (sifaMarker) { map.removeLayer(sifaMarker); sifaMarker = null; }
+    Object.keys(sifaShips).forEach(u => { map.removeLayer(sifaShips[u]); delete sifaShips[u]; });
+    document.getElementById('sifaPad').style.display = 'none';
+    status('⛵ Сифа окончена — корабль пришвартован');
+  };
+  document.querySelectorAll('#sifaPad button[data-dir]').forEach(btn => {
+    const dir = btn.getAttribute('data-dir');
+    const start = e => { e.preventDefault(); sifaStartMove(dir); };
+    const stop = () => { sifaStopMove(); sifaPush(); };
+    btn.addEventListener('touchstart', start, {passive: false});
+    btn.addEventListener('mousedown', start);
+    btn.addEventListener('touchend', stop);
+    btn.addEventListener('mouseup', stop);
+    btn.addEventListener('mouseleave', stop);
+  });
+  document.getElementById('sifaExitBtn').onclick = () => exitSifa();
+  document.getElementById('sifaBtn').onclick = () => { sifaMode ? exitSifa() : startSifa(); };
+  document.addEventListener('keydown', e => {
+    if (!sifaMode || e.repeat) return;
+    const k = {ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right'}[e.key];
+    if (k) sifaStartMove(k);
+  });
+  document.addEventListener('keyup', e => {
+    if (!sifaMode) return;
+    if (e.key.indexOf('Arrow') === 0) { sifaStopMove(); sifaPush(); }
+  });
   window.islandPoop = async () => {
     const r = await fetch('/islandpoop', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -2729,10 +2903,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1480"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1483"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1480 -->
+<!-- build:2026-11-01-1483 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -3824,6 +3998,23 @@ class AppHandler(BaseHTTPRequestHandler):
                               "text/plain; charset=utf-8")
             else:
                 self._respond(200, GEO2_HTML_PAGE.encode("utf-8"), "text/html; charset=utf-8")
+        elif url.path == "/sifastate":
+            chat_id = int(params.get("chat", ["0"])[0])
+            viewer = params.get("user", [""])[0]
+            viewer_name = params.get("name", [""])[0][:64]
+            now = time.time()
+            ships = []
+            with sifa_lock:
+                for u, s in list(sifa_state.get(chat_id, {}).items()):
+                    if now - s["ts"] > SIFA_SHIP_TTL_SEC:
+                        del sifa_state[chat_id][u]
+                        continue
+                    ships.append({
+                        "user": u, "name": s["name"],
+                        "lat": s["lat"], "lon": s["lon"], "heading": s["heading"],
+                        "mine": viewer_matches(u, viewer, viewer_name, chat_id),
+                    })
+            self._json_response(200, {"ships": ships})
         elif url.path == "/geodata":
             chat_id = int(params.get("chat", ["0"])[0])
             viewer = params.get("user", [""])[0]
@@ -4172,6 +4363,12 @@ class AppHandler(BaseHTTPRequestHandler):
         if url.path in ("/geosend", "/georead"):
             self._handle_letter_post(url)
             return
+        if url.path == "/sifamove":
+            self._handle_sifa_move_post()
+            return
+        if url.path == "/sifaexit":
+            self._handle_sifa_exit_post()
+            return
         if url.path == "/volcano":
             self._handle_volcano_post(url)
             return
@@ -4414,6 +4611,53 @@ class AppHandler(BaseHTTPRequestHandler):
         geo_save_to_github()
         letters_save_to_github()
         self._json_response(200, result)
+
+    def _handle_sifa_move_post(self) -> None:
+        """СИФА: корабль игрока движется — принимаем новую позицию."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+            lat = float(payload["lat"])
+            lon = float(payload["lon"])
+            heading = float(payload.get("heading", 0))
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        if not (-85.0 <= lat <= 85.0 and -180.0 <= lon <= 180.0):
+            self._json_response(400, {"error": "координаты за пределами карты"})
+            return
+        with sifa_lock:
+            ships = sifa_state.setdefault(chat_id, {})
+            prev = ships.get(user)
+            if prev is not None:
+                jump = haversine_km(prev["lat"], prev["lon"], lat, lon)
+                if jump > SIFA_MAX_JUMP_KM:
+                    self._json_response(409, {"error": "слишком резкий скачок"})
+                    return
+            name = (str(payload.get("name", ""))[:32]).strip() or user
+            ships[user] = {"lat": lat, "lon": lon, "heading": heading,
+                           "ts": time.time(), "name": name}
+        sifa_save_to_github()
+        self._json_response(200, {"ok": True})
+
+    def _handle_sifa_exit_post(self) -> None:
+        """СИФА: игрок вышел из режима — убираем его корабль."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        with sifa_lock:
+            ships = sifa_state.get(chat_id, {})
+            if user in ships:
+                del ships[user]
+        sifa_save_to_github()
+        self._json_response(200, {"ok": True})
 
     def _handle_volcano_post(self, url):
         """Извержение: пользователь целится меткой адресата — от вулкана летит розовая какашка."""
@@ -6079,6 +6323,7 @@ def main() -> None:
     meteor_load_from_github()
     submarine_load_from_github()
     islands_load_from_github()
+    sifa_load_from_github()
     apply_marker_bindings()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
