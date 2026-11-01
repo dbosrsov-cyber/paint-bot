@@ -1117,7 +1117,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1323 -->
+<!-- build:2026-11-01-1331 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1176,6 +1176,18 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     border-radius:12px; padding:4px 8px; cursor:pointer;
     transition:transform .12s ease, border-color .12s ease, background .12s ease; }
   .an.on { border-color:var(--accent); background:rgba(46,166,255,.18); transform:scale(1.12); }
+  /* модальные окна (ПочтаЧата) */
+  .modal { position:fixed; inset:0; z-index:5000; background:rgba(0,0,0,.45);
+    display:flex; align-items:center; justify-content:center; padding:18px; }
+  .modal-card { width:100%; max-width:420px; background:var(--popup-bg); color:var(--text);
+    border-radius:16px; padding:16px; box-shadow:0 10px 32px var(--shadow);
+    border:1px solid rgba(140,160,180,.25); }
+  .modal-card select, .modal-card textarea { width:100%; padding:10px; border-radius:12px;
+    border:1px solid rgba(140,160,180,.25); font-size:15px; background:var(--bg);
+    color:var(--text); margin-top:8px; font-family:inherit; box-sizing:border-box; }
+  .modal-card .btn-cancel { background:var(--hint); color:#fff; }
+  .dark-ui .modal-card { background: rgba(15,23,32,.93); backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px); border-color: rgba(125,211,252,.18); color:#e8f1f8; }
   /* тонкая строка ника под картой */
   .namebar { padding:2px 10px; }
   .namebar input { padding:3px 12px; font-size:13px; border-radius:999px; }
@@ -1269,7 +1281,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 <div class="toolbar" id="toolsPanel">
   <button id="saveBtn" title="Поставить метку">📍</button>
   <button id="delBtn" title="Удалить мою метку" style="display:none;">🗑</button>
-  <button id="letterBtn" title="Отправить письмо">✉️</button>
+  <button id="letterBtn" title="ПочтаЧата">✉️</button>
   <button id="distBtn" title="Измерить расстояние">📏</button>
   <button id="islandBuyBtn" title="Купить остров (10 ЗП)">🏝️</button>
   <button id="personaBtn" title="Действовать как Тест2" style="display:none;">🎭</button>
@@ -1283,6 +1295,28 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   <input id="letterText" placeholder="Текст письма (до 500 символов)" maxlength="500" style="flex:2;">
   <button id="letterSend">Отправить</button>
   <button id="letterCancel" style="background:#ddd;color:#333;">Отмена</button>
+</div>
+<div id="mailModal" class="modal" style="display:none;">
+  <div class="modal-card">
+    <b style="font-size:17px;">✉️ ПочтаЧата</b>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px;">
+      <button id="mailMyBtn">📬 Моя почта</button>
+      <button id="mailWriteBtn">✉️ Написать письмо</button>
+      <button id="mailCloseBtn" class="btn-cancel">Закрыть</button>
+    </div>
+  </div>
+</div>
+<div id="writeModal" class="modal" style="display:none;">
+  <div class="modal-card">
+    <b style="font-size:17px;">✉️ Написать письмо</b>
+    <label style="font-size:13px;color:var(--hint);">Адресат:</label>
+    <select id="mailTo"></select>
+    <textarea id="mailText" maxlength="500" rows="4" placeholder="Текст письма (до 500 символов)"></textarea>
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">
+      <button id="mailSendBtn">Отправить</button>
+      <button id="writeCloseBtn" class="btn-cancel">Отмена</button>
+    </div>
+  </div>
 </div>
 <div id="status"></div>
 <script>
@@ -1414,12 +1448,20 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     const mk = L.marker([m.lat, m.lon], {icon: animalIcon(emoji)}).addTo(map);
     let html = '<span style="font-size:22px">' + emoji + '</span> <b>' + escapeHtml(m.name) + '</b><br>'
       + m.lat.toFixed(3) + ', ' + m.lon.toFixed(3);
-    // приблизительное локальное время у метки относительно Москвы (15° долготы = 1 час)
-    const tzShift = Math.round((m.lon - 37.6173) / 15);
-    const tLocal = new Date(Date.now() + (3 + tzShift) * 3600000);
+    // локальное время: по долготе от Москвы; у некоторых меток — своя «родная» зона
+    const TIME_OVERRIDES = {'Андрюха': [-8, 'Нью-Йорк'], 'Ice': [-1, 'Кейптаун']};
+    const ovr = TIME_OVERRIDES[m.name];
+    let tLocal, tzLabel;
+    if (ovr) {
+      tLocal = new Date(Date.now() + ovr[0] * 3600000);
+      tzLabel = ovr[1];
+    } else {
+      const tzShift = Math.round((m.lon - 37.6173) / 15);
+      tLocal = new Date(Date.now() + (3 + tzShift) * 3600000);
+      tzLabel = 'МСК' + (tzShift >= 0 ? '+' : '−') + Math.abs(tzShift);
+    }
     const hh = String(tLocal.getUTCHours()).padStart(2, '0');
     const mm = String(tLocal.getUTCMinutes()).padStart(2, '0');
-    const tzLabel = 'МСК' + (tzShift >= 0 ? '+' : '−') + Math.abs(tzShift);
     html += '<br>🕒 ' + hh + ':' + mm + ' (' + tzLabel + ')';
     if (m.poops && m.user !== userKey()) html += '<br>💩 розовых какашек: ' + m.poops;
     if (m.gift_pics && m.gift_pics.length) html += '<br>🎁 подарки: ' + m.gift_pics.join(' ');
@@ -2165,14 +2207,66 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     pointA = null;
     if (distLine) { map.removeLayer(distLine); distLine = null; }
     distBtn.style.background = distMode ? '#e05a3a' : '#888';
-    letterBtn.style.background = letterMode ? '#e05a3a' : '#888';
     if (!letterMode) { letterBar.style.display = 'none'; letterTarget = null; }
     status(distMode ? '📏 Кликни первую метку (или точку на карте), потом вторую'
       : letterMode ? '✉️ Кликни метку ДРУГОГО участника, чтобы отправить письмо'
       : 'Режим выключен');
   }
   distBtn.onclick = () => setMode(distMode ? null : 'dist');
-  letterBtn.onclick = () => setMode(letterMode ? null : 'letter');
+  // ПочтаЧата: отдельное окно (моя почта / написать письмо с выбором адресата)
+  const mailModal = document.getElementById('mailModal');
+  const writeModal = document.getElementById('writeModal');
+  letterBtn.onclick = () => { mailModal.style.display = 'flex'; };
+  document.getElementById('mailCloseBtn').onclick = () => { mailModal.style.display = 'none'; };
+  document.getElementById('mailMyBtn').onclick = () => {
+    mailModal.style.display = 'none';
+    if (mailboxMarker) {
+      map.setView(mailboxMarker.getLatLng(), Math.max(map.getZoom(), 5));
+      mailboxMarker.openPopup();
+    } else {
+      status('📬 Почтовый Ящик появится рядом с твоей меткой — поставь метку на карте');
+    }
+  };
+  document.getElementById('mailWriteBtn').onclick = () => {
+    const sel = document.getElementById('mailTo');
+    sel.innerHTML = '';
+    let n = 0;
+    (lastMarkers || []).forEach(mm => {
+      if (mm.user === userKey()) return;
+      const opt = document.createElement('option');
+      opt.value = mm.user;
+      opt.textContent = (mm.icon || '📍') + ' ' + mm.name;
+      sel.appendChild(opt);
+      n++;
+    });
+    if (!n) { status('Пока некому писать — в чате только ты 🙂'); return; }
+    mailModal.style.display = 'none';
+    writeModal.style.display = 'flex';
+    document.getElementById('mailText').value = '';
+  };
+  document.getElementById('writeCloseBtn').onclick = () => { writeModal.style.display = 'none'; };
+  document.getElementById('mailSendBtn').onclick = async () => {
+    const sel = document.getElementById('mailTo');
+    const textEl = document.getElementById('mailText');
+    const text = textEl.value.trim();
+    if (!text) { status('Письмо пустое — напиши что-нибудь 🙂'); return; }
+    if (!sel.value) return;
+    const r = await fetch('/geosend', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName(),
+                          to_user: sel.value, text: text})
+    });
+    const data = await r.json().catch(() => ({}));
+    if (r.ok) {
+      writeModal.style.display = 'none';
+      status('✉️ Отправлено! Прибудет примерно через ' + data.eta_min + ' мин');
+      load();
+    } else if (r.status === 409) {
+      status('⚠️ ' + (data.error || 'Уже есть письмо в пути к этому адресату — дождись доставки'));
+    } else {
+      status('⚠️ ' + (data.error || 'не отправилось'));
+    }
+  };
   document.getElementById('islandBuyBtn').onclick = () => buyIsland();
 
   function tryLetterTarget(m) {
@@ -2334,10 +2428,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1323"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1331"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1323 -->
+<!-- build:2026-11-01-1331 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2426,12 +2520,20 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     const mk = L.marker([m.lat, m.lon], {icon: animalIcon(emoji)}).addTo(map);
     let html = '<span style="font-size:22px">' + emoji + '</span> <b>' + escapeHtml(m.name) + '</b><br>'
       + m.lat.toFixed(3) + ', ' + m.lon.toFixed(3);
-    // приблизительное локальное время у метки относительно Москвы (15° долготы = 1 час)
-    const tzShift = Math.round((m.lon - 37.6173) / 15);
-    const tLocal = new Date(Date.now() + (3 + tzShift) * 3600000);
+    // локальное время: по долготе от Москвы; у некоторых меток — своя «родная» зона
+    const TIME_OVERRIDES = {'Андрюха': [-8, 'Нью-Йорк'], 'Ice': [-1, 'Кейптаун']};
+    const ovr = TIME_OVERRIDES[m.name];
+    let tLocal, tzLabel;
+    if (ovr) {
+      tLocal = new Date(Date.now() + ovr[0] * 3600000);
+      tzLabel = ovr[1];
+    } else {
+      const tzShift = Math.round((m.lon - 37.6173) / 15);
+      tLocal = new Date(Date.now() + (3 + tzShift) * 3600000);
+      tzLabel = 'МСК' + (tzShift >= 0 ? '+' : '−') + Math.abs(tzShift);
+    }
     const hh = String(tLocal.getUTCHours()).padStart(2, '0');
     const mm = String(tLocal.getUTCMinutes()).padStart(2, '0');
-    const tzLabel = 'МСК' + (tzShift >= 0 ? '+' : '−') + Math.abs(tzShift);
     html += '<br>🕒 ' + hh + ':' + mm + ' (' + tzLabel + ')';
     if (m.poops && m.user !== userKey()) html += '<br>💩 розовых какашек: ' + m.poops;
     if (m.gift_pics && m.gift_pics.length) html += '<br>🎁 подарки: ' + m.gift_pics.join(' ');
