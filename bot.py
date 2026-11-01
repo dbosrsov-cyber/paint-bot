@@ -1117,7 +1117,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1461 -->
+<!-- build:2026-11-01-1464 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1339,6 +1339,21 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">
       <button id="mailSendBtn">Отправить</button>
       <button id="writeCloseBtn" class="btn-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+<div id="buildModal" class="modal" style="display:none;">
+  <div class="modal-card">
+    <b style="font-size:17px;">🏗 Строительство</b>
+    <div id="buildRow" style="display:flex;gap:10px;justify-content:center;margin-top:14px;flex-wrap:wrap;"></div>
+    <div id="buildMsg" style="margin-top:12px;font-size:13px;line-height:1.6;color:var(--hint);min-height:20px;"></div>
+    <div id="buildConfirm" style="display:none;margin-top:10px;align-items:center;gap:8px;justify-content:center;">
+      <span id="buildConfirmText" style="font-size:14px;"></span>
+      <button id="buildYes">Да</button>
+      <button id="buildNo" style="background:var(--hint);">Нет</button>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px;">
+      <button id="buildCloseBtn" class="btn-cancel">Закрыть</button>
     </div>
   </div>
 </div>
@@ -2033,21 +2048,12 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       html += '<br>' + (legTxt[isl.guest.leg] || '');
     }
     if (isl.mine) {
-      html += '<br><button onclick="startIslandInvite(&quot;' + isl.owner + '&quot;)">✈️ Пригласить гостя</button>'
-        + ' <button onclick="islandPoop()">💩 Удобрить (+1 опыт)</button>';
-      html += '<br><b>строительство:</b>';
-      Object.keys(ISLAND_BUILDINGS).forEach(bid => {
-        const spec = ISLAND_BUILDINGS[bid];
-        const price = spec[3] + ' ЗП' + (spec[4] ? ' + ' + spec[4] + ' 💩' : '');
-        if (built.indexOf(bid) >= 0) {
-          html += '<br>' + spec[0] + ' ' + spec[1] + ' — ✅ построено';
-        } else if (isl.level < spec[2]) {
-          html += '<br>' + spec[0] + ' ' + spec[1] + ' — 🔒 с ' + spec[2] + ' ур. (' + price + ')';
-        } else {
-          html += '<br>' + spec[0] + ' ' + spec[1] + ' (' + price + ') '
-            + '<button onclick="islandBuild(&quot;' + bid + '&quot;)">Построить</button>';
-        }
-      });
+      // пока самолёт занят (летит за гостем или везёт его) — приглашение скрыто
+      const planeBusy = isl.guest && (isl.guest.leg === 'to_guest' || isl.guest.leg === 'to_island');
+      html += '<br>'
+        + (planeBusy ? '' : '<button onclick="startIslandInvite(&quot;' + isl.owner + '&quot;)">✈️ Пригласить гостя</button> ')
+        + '<button onclick="islandPoop()">💩 Удобрить (+1 опыт)</button>'
+        + ' <button onclick="openBuildMenu()">🏗 Строительство</button>';
       html += '<br><i>гость на острове: +1 опыт тебе, гостю — ЗП и сувенир 🎁</i>';
     }
     // «Улететь» — для того, кто сейчас гостит на острове, независимо от владения
@@ -2202,6 +2208,77 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       status('⚠️ ' + (data.error || 'не построилось'));
       if (r.status === 403 || r.status === 409) load();
     }
+  };
+  // ---------- Строительство: окно с вариантами построек ----------
+  let buildPick = null;
+  window.openBuildMenu = () => {
+    const myIsl = (lastIslands || []).find(i => (i.owners || [i.owner]).indexOf(userKey()) >= 0);
+    if (!myIsl) { status('🏝️ Сначала купи остров'); return; }
+    const me = (lastMarkers || []).find(mm => mm.user === userKey());
+    const built = myIsl.buildings || [];
+    const row = document.getElementById('buildRow');
+    row.innerHTML = '';
+    Object.keys(ISLAND_BUILDINGS).forEach(bid => {
+      const spec = ISLAND_BUILDINGS[bid];
+      const b = document.createElement('button');
+      b.style.cssText = 'width:52px;height:52px;font-size:26px;padding:0;position:relative;'
+        + 'display:flex;align-items:center;justify-content:center;';
+      b.title = spec[1];
+      if (built.indexOf(bid) >= 0) {
+        // построено: серая неактивная кнопка с зелёной галочкой
+        b.disabled = true;
+        b.style.opacity = '.4';
+        b.style.filter = 'grayscale(.8)';
+        b.innerHTML = spec[0]
+          + '<span style="position:absolute;top:-8px;right:-8px;font-size:16px;">✅</span>';
+      } else {
+        b.textContent = spec[0];
+        b.onclick = () => buildOptionClick(bid, myIsl, me);
+      }
+      row.appendChild(b);
+    });
+    document.getElementById('buildMsg').textContent = '';
+    document.getElementById('buildConfirm').style.display = 'none';
+    document.getElementById('buildModal').style.display = 'flex';
+  };
+  function buildOptionClick(bid, myIsl, me) {
+    const spec = ISLAND_BUILDINGS[bid];
+    buildPick = bid;
+    const lacks = [];
+    if (myIsl.level < spec[2]) {
+      lacks.push('🔒 нужен ' + spec[2] + ' уровень острова (сейчас ' + myIsl.level + ')');
+    }
+    const myZp = me ? (me.zp || 0) : 0;
+    if (myZp < spec[3]) {
+      lacks.push('☄️ не хватает ЗвёзднойПыли: есть ' + myZp + ', нужно ' + spec[3]);
+    }
+    const myPoops = me ? (me.poops || 0) : 0;
+    if (spec[4] && myPoops < spec[4]) {
+      lacks.push('💩 не хватает какашек: есть ' + myPoops + ', нужно ' + spec[4]);
+    }
+    const msg = document.getElementById('buildMsg');
+    const confirm = document.getElementById('buildConfirm');
+    if (lacks.length) {
+      // условия не выполнены — показываем, что нужно для постройки
+      msg.innerHTML = '<b>' + spec[0] + ' ' + spec[1] + '</b> — условия:<br>' + lacks.join('<br>');
+      confirm.style.display = 'none';
+    } else {
+      msg.textContent = '';
+      document.getElementById('buildConfirmText').textContent =
+        'Построить «' + spec[1] + '» за ' + spec[3] + ' ЗП'
+        + (spec[4] ? ' + ' + spec[4] + ' 💩' : '') + '?';
+      confirm.style.display = 'flex';
+    }
+  }
+  document.getElementById('buildYes').onclick = () => {
+    document.getElementById('buildModal').style.display = 'none';
+    if (buildPick) islandBuild(buildPick);
+  };
+  document.getElementById('buildNo').onclick = () => {
+    document.getElementById('buildConfirm').style.display = 'none';
+  };
+  document.getElementById('buildCloseBtn').onclick = () => {
+    document.getElementById('buildModal').style.display = 'none';
   };
   window.islandPoop = async () => {
     const r = await fetch('/islandpoop', {
@@ -2540,10 +2617,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1461"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1464"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1461 -->
+<!-- build:2026-11-01-1464 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
