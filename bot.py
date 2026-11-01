@@ -1124,7 +1124,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1470 -->
+<!-- build:2026-11-01-1471 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1200,7 +1200,8 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   /* тонкая строка ника под картой */
   .namebar { padding:2px 10px; }
   /* окно-справка «на папирусе» */
-  .papyrus { width:100%; max-width:420px; background:#f3e5c0; color:#4a3418;
+  .papyrus { width:100%; max-width:420px; max-height:86vh; overflow-y:auto;
+    background:#f3e5c0; color:#4a3418;
     border-radius:6px; padding:18px 20px 14px;
     font-family:Georgia,'Times New Roman',serif;
     box-shadow:0 10px 32px var(--shadow), inset 0 0 46px rgba(150,110,50,.4);
@@ -2658,10 +2659,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1470"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1471"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1470 -->
+<!-- build:2026-11-01-1471 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
