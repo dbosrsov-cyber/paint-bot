@@ -1194,7 +1194,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1496 -->
+<!-- build:2026-11-01-1497 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1270,13 +1270,13 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   /* тонкая строка ника под картой */
   .namebar { padding:2px 10px; }
   /* джойстик и пульт Сифы */
-  #sifaPad { position:fixed; right:12px; bottom:190px; z-index:3000;
+  #sifaPad { position:fixed; right:12px; bottom:290px; z-index:3000;
     display:none; grid-template-columns:repeat(3,52px); grid-template-rows:repeat(3,52px); gap:6px; }
   #sifaPad button { padding:0; font-size:20px; border-radius:14px;
     background:rgba(30,45,60,.85); color:#bfe3f7; border:1px solid rgba(125,211,252,.3);
     backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
   #sifaPad button:active { background:rgba(45,212,191,.5); color:#fff; }
-  #sifaCtrl { position:fixed; right:12px; bottom:12px; z-index:3000; display:none;
+  #sifaCtrl { position:fixed; right:12px; bottom:100px; z-index:3000; display:none;
     flex-direction:column; gap:6px; width:168px; }
   #sifaCtrl button { padding:9px 6px; font-size:15px; border-radius:14px;
     background:rgba(30,45,60,.88); color:#bfe3f7; border:1px solid rgba(125,211,252,.35);
@@ -1285,7 +1285,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   #sifaCtrl button:active { background:rgba(45,212,191,.5); color:#fff; }
   #sifaFreezeInfo { display:none; padding:6px 10px; font-size:13px; border-radius:12px;
     background:rgba(60,30,40,.88); color:#ffd9e2; border:1px solid rgba(255,120,150,.4); }
-  #sifaAreaBar { position:fixed; right:12px; bottom:400px; z-index:3000; display:none;
+  #sifaAreaBar { position:fixed; right:12px; bottom:470px; z-index:3000; display:none;
     flex-direction:column; gap:6px; width:168px; padding:8px; border-radius:14px;
     background:rgba(30,45,60,.92); border:1px solid rgba(125,211,252,.4);
     backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
@@ -1433,7 +1433,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 </div>
 <div id="sifaCtrl">
   <div id="sifaFreezeInfo"></div>
-  <button id="sifaSailBtn" title="Плыть: 1500 км за 10 сек, потом 10 сек перезарядка">🚤 Плыть</button>
+  <button id="sifaSailBtn" title="Плыть: 1500 км за 10 сек, потом 10 сек перезарядка">🐬 Плыть</button>
   <button id="sifaMotorBtn" style="display:none;" title="МоторV8: скорость ×3 на 10 минут — но Сифа раскроется всем!">🚤 МоторВКЛ</button>
   <div style="display:flex;gap:6px;">
     <button id="sifaInfoBtn" title="Правила игры «Сифа»" style="flex:1;">ⓘ Правила</button>
@@ -2793,6 +2793,9 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       sifaPadOn = false;
       sifaPadEl.style.display = 'none';
       sifaCtrlEl.style.display = 'none';
+      sifaAreaBtn.style.display = 'none';
+      sifaAreaMode = false;
+      document.getElementById('sifaAreaBar').style.display = 'none';
       clearInterval(sifaPollTimer); sifaPollTimer = null;
       status('🐬 Джойстик убран — касатка осталась на карте');
       return;
@@ -2808,6 +2811,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       sifaPos = {lat: d.lat, lon: d.lon};
       sifaPadOn = true;
       sifaRender(false);
+      if (SIFA_AREA_ADMINS.indexOf(userKey()) >= 0) sifaAreaBtn.style.display = '';
       map.flyTo([d.lat, d.lon], Math.max(map.getZoom(), 4));
       sifaPadEl.style.display = 'grid';
       sifaCtrlEl.style.display = 'flex';
@@ -2825,6 +2829,12 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   document.getElementById('sifaInfoCloseBtn').onclick = () => {
     document.getElementById('sifaInfoModal').style.display = 'none';
   };
+  // границы хранятся на сервере и переживают рестарты: подтягиваем сразу при открытии карты
+  fetch('/sifastate?chat=' + chat + '&user=' + encodeURIComponent(userKey())
+    + '&name=' + encodeURIComponent(userName()))
+    .then(r => r.json().catch(() => ({})))
+    .then(d => { sifaAreaData = d.area || null; sifaDrawBounds(d.area); })
+    .catch(() => {});
   document.getElementById('sifaSailBtn').onclick = () => sifaStartSail();
   document.getElementById('sifaMotorBtn').onclick = async () => {
     const r = await fetch('/sifamotor', {
@@ -2843,7 +2853,6 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     });
   });
   const sifaAreaBtn = document.getElementById('sifaAreaBtn');
-  if (SIFA_AREA_ADMINS.indexOf(userKey()) >= 0) sifaAreaBtn.style.display = '';
   sifaAreaBtn.onclick = () => {
     sifaAreaMode = !sifaAreaMode;
     sifaAreaPts = [];
@@ -3201,10 +3210,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1496"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1497"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1496 -->
+<!-- build:2026-11-01-1497 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
