@@ -1194,7 +1194,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1488 -->
+<!-- build:2026-11-01-1489 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1474,6 +1474,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       <li>🏝️ Покупать остров: строить постройки, приглашать гостей, получать сувениры</li>
       <li>📏 Измерять расстояния между метками линейкой</li>
       <li>🧰 Заглядывать в «Мой сундук» — там все твои сокровища</li>
+      <li>🐬 «Сифа» — догонялки на касатках в океане: кнопка ⛵ справляет твою касатку в открытую воду</li>
+      <li>🧭 Курс — стрелками джойстика, ход — кнопкой «Плыть»: 1500 км за 10 секунд, потом 10 секунд перезарядка</li>
+      <li>🤝 Сблизься с чужой касаткой ближе 1000 км — передашь ей Сифу и телепортируешься в новую точку; принявший Сифу плыть не может 10 минут</li>
+      <li>🚤 Держатель Сифы может включить «МоторV8» (скорость ×3 на 10 минут), но тогда все узнают его касатку по красному треугольнику</li>
     </ul>
     <div style="display:flex;justify-content:flex-end;">
       <button id="helpCloseBtn" class="btn-cancel">Закрыть</button>
@@ -2521,6 +2525,16 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   const sifaShips = {};   // чужие кораблики (анонимные)
   const SIFA_DIRS = {up: 0, right: 90, down: 180, left: 270};
 
+  function sifaOrca() {   // касатка, вид сверху (носом вверх — по курсу)
+    return '<svg width="40" height="48" viewBox="0 0 40 48" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,.65))">'
+      + '<path d="M20 31 L8 47 L16.5 37.5 Z" fill="#181c21" stroke="rgba(191,227,247,.7)" stroke-width="1.2"/>'
+      + '<path d="M20 31 L32 47 L23.5 37.5 Z" fill="#181c21" stroke="rgba(191,227,247,.7)" stroke-width="1.2"/>'
+      + '<ellipse cx="20" cy="19" rx="10" ry="17" fill="#181c21" stroke="rgba(191,227,247,.8)" stroke-width="1.4"/>'
+      + '<ellipse cx="20" cy="26" rx="5" ry="9.5" fill="#eef3f7"/>'
+      + '<ellipse cx="14.6" cy="10.5" rx="2.1" ry="3.2" fill="#eef3f7"/>'
+      + '<ellipse cx="25.4" cy="10.5" rx="2.1" ry="3.2" fill="#eef3f7"/>'
+      + '</svg>';
+  }
   function sifaIcon(h, revealed) {
     const tri = revealed
       ? '<svg width="56" height="56" viewBox="0 0 56 56" style="position:absolute;inset:0">'
@@ -2532,7 +2546,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
         + '<div style="position:absolute;inset:0;display:flex;flex-direction:column;'
         + 'align-items:center;justify-content:center;transform:rotate(' + Math.round(h) + 'deg)">'
         + '<div style="font-size:13px;line-height:1;color:#7dd3fc;text-shadow:0 0 5px #000">▲</div>'
-        + '<div style="font-size:26px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))">🚤</div>'
+        + sifaOrca()
         + '</div></div>',
       className: 'emoji-marker', iconSize: [56, 56], iconAnchor: [28, 28], popupAnchor: [0, -26],
     });
@@ -2540,7 +2554,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   function sifaRender(revealed) {
     if (!sifaMarker) {
       sifaMarker = L.marker([sifaPos.lat, sifaPos.lon], {icon: sifaIcon(sifaHeading, revealed)}).addTo(map);
-      sifaMarker.bindPopup('🚤 Твой кораблик — догонялки «Сифа»');
+      sifaMarker.bindPopup('🐬 Твоя касатка — догонялки «Сифа»');
     }
     sifaMarker.setLatLng([sifaPos.lat, sifaPos.lon]);
     sifaMarker.setIcon(sifaIcon(sifaHeading, revealed));
@@ -2628,7 +2642,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       const ic = sifaIcon(s.heading || 0, !!s.revealed);
       if (!sifaShips[s.user]) {
         const mk = L.marker([s.lat, s.lon], {icon: ic}).addTo(map);
-        mk.bindPopup(s.revealed ? '🚤💨 Этот кораблик — СИФА с МоторомV8!' : '🚤 Загадочный кораблик');
+        mk.bindPopup(s.revealed ? '💨 Эта касатка — СИФА с МоторомV8!' : '🐬 Загадочная касатка');
         sifaShips[s.user] = mk;
       } else {
         sifaShips[s.user].setLatLng([s.lat, s.lon]);
@@ -2661,7 +2675,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     const speed = SIFA_SPEED * (motorOn ? SIFA_MOTOR_MULT : 1);
     const t0 = Date.now();
     document.getElementById('sifaSailBtn').disabled = true;
-    status('🚤 Плывём: ' + (motorOn ? '4500' : '1500') + ' км за 10 сек…');
+    status('🐬 Плывём: ' + (motorOn ? '4500' : '1500') + ' км за 10 сек…');
     sifaSailTimer = setInterval(() => {
       const el = (Date.now() - t0) / 1000;
       if (el >= SIFA_PRESS_SEC) { sifaStopSail(true); return; }
@@ -2681,11 +2695,19 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       sifaSchedulePush();
     }, SIFA_TICK_MS);
   }
+  function sifaPinIcon(n) {   // канцелярская кнопка с номером угла
+    return L.divIcon({
+      html: '<svg width="30" height="42" viewBox="0 0 30 42">'
+        + '<path d="M15 41 L10.5 26 L19.5 26 Z" fill="#8b98a5"/>'
+        + '<circle cx="15" cy="14" r="12.5" fill="#e0342f" stroke="#a11f1c" stroke-width="1.5"/>'
+        + '<circle cx="10.5" cy="9.5" r="3.6" fill="rgba(255,255,255,.4)"/>'
+        + '<text x="15" y="19" text-anchor="middle" font-size="13" font-weight="bold" '
+        + 'fill="#fff" font-family="Arial">' + n + '</text></svg>',
+      className: 'emoji-marker', iconSize: [30, 42], iconAnchor: [15, 40], popupAnchor: [0, -32]});
+  }
   function sifaPickArea(ll) {
     sifaAreaPts.push([ll.lat, ll.lng]);
-    sifaAreaMarks.push(L.marker([ll.lat, ll.lng], {icon: L.divIcon({
-      html: '<div style="font-size:20px">📌</div>',
-      className: 'emoji-marker', iconSize: [24, 24], iconAnchor: [12, 12]})}).addTo(map));
+    sifaAreaMarks.push(L.marker([ll.lat, ll.lng], {icon: sifaPinIcon(sifaAreaPts.length)}).addTo(map));
     if (sifaAreaPts.length < 4) {
       status('🚧 Угол ' + sifaAreaPts.length + '/4 — кликни следующий');
       return;
@@ -2732,7 +2754,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       sifaPadEl.style.display = 'grid';
       sifaCtrlEl.style.display = 'flex';
       status(d.sifa ? '😱 О нет… у тебя СИФА! Избавься: подплыви к чужому кораблику ближе 1000 км'
-                    : '🚤 Кораблик на воде! Курс — стрелками ▲◀▼▶, ход — кнопкой «Плыть»');
+                    : '🐬 Касатка в океане! Курс — стрелками ▲◀▼▶, ход — кнопкой «Плыть»');
       sifaPoll();
       clearInterval(sifaPollTimer);
       sifaPollTimer = setInterval(sifaPoll, 2500);
@@ -3113,10 +3135,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1488"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1489"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1488 -->
+<!-- build:2026-11-01-1489 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
