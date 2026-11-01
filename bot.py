@@ -1056,7 +1056,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1305 -->
+<!-- build:2026-11-01-1317 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1204,7 +1204,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 </style>
 </head>
 <body>
-<div id="map"><div class="brand">🌍 ГеографияЧата <b>2.0</b> <span>бета · Песочница</span></div>
+<div id="map"><div class="brand">🌍 ГеографияЧата <b>2.0</b> <span id="brandSub">бета · Песочница</span></div>
 <div class="toolbar" id="toolsPanel">
   <button id="saveBtn" title="Поставить метку">📍</button>
   <button id="delBtn" title="Удалить мою метку" style="display:none;">🗑</button>
@@ -1228,6 +1228,8 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   const tg = window.Telegram.WebApp;
   tg.ready(); tg.expand();
   const chat = new URLSearchParams(location.search).get('chat') || '0';
+  document.getElementById('brandSub').textContent =
+    chat === '-1004400745434' ? 'бета · Песочница' : '2.0 · Другое измерение';
 
   const map = L.map('map').setView([55, 45], 3);
   // ===== подстройка под тему Telegram: тёмная карта — CSS-фильтр поверх OSM-тайлов =====
@@ -1289,7 +1291,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   const isSumaiBeta = realUserKey() === 'Sumai'
     || (tgUser && tgUser.username === 'Sumai')
     || nameInput.value.trim() === 'Sumai';
-  if (isSumaiBeta) {
+  if (isSumaiBeta && chat === '-1004400745434') {
     document.getElementById('personaBtn').style.display = '';
     document.getElementById('volcanoBtn').style.display = '';
     document.getElementById('meteorBtn').style.display = '';
@@ -2271,10 +2273,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1305"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1317"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1305 -->
+<!-- build:2026-11-01-1317 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -3348,9 +3350,9 @@ class AppHandler(BaseHTTPRequestHandler):
         elif url.path == "/geomap":
             self._respond(200, GEO_HTML_PAGE.encode("utf-8"), "text/html; charset=utf-8")
         elif url.path == "/geo2map":
-            # бета «ГеографияЧата 2.0» — только для Песочницы
-            if int(params.get("chat", ["0"])[0]) != GEO2_CHAT_ID:
-                self._respond(403, "beta: only sandbox chat".encode("utf-8"),
+            # «ГеографияЧата 2.0» — Песочница и «Другое измерение» (остальным 403)
+            if int(params.get("chat", ["0"])[0]) not in (GEO2_CHAT_ID, ANON_GROUP_ID):
+                self._respond(403, "beta: allowed chats only".encode("utf-8"),
                               "text/plain; charset=utf-8")
             else:
                 self._respond(200, GEO2_HTML_PAGE.encode("utf-8"), "text/html; charset=utf-8")
@@ -4546,7 +4548,6 @@ GAME_MENU = InlineKeyboardMarkup(
         [InlineKeyboardButton("🐂 Быки и коровы", callback_data="game:bulls")],
         [InlineKeyboardButton("🎨 Рисовалка", callback_data="game:paint")],
         [InlineKeyboardButton("🌍 География чата", callback_data="game:geo")],
-        [InlineKeyboardButton("🌍✨ ГеографияЧата 2.0 (бета)", callback_data="game:geo2")],
         [InlineKeyboardButton("📜 СагаЧата", callback_data="game:saga")],
     ]
 )
@@ -4566,7 +4567,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not chat_allowed(update.effective_chat):
         return  # чужая группа — молчим (предупреждение отправляется при добавлении бота)
     remember_user(update.effective_user)
-    await update.message.reply_text("🎮 Привет! Выбери игру:", reply_markup=GAME_MENU)
+    menu_rows = [list(row) for row in GAME_MENU.inline_keyboard]
+    if update.effective_user.id == ADMIN_ID:
+        menu_rows.insert(2, [InlineKeyboardButton("🌍✨ ГеографияЧата 2.0 (бета)",
+                                                callback_data="game:geo2")])
+    await update.message.reply_text("🎮 Привет! Выбери игру:",
+                                    reply_markup=InlineKeyboardMarkup(menu_rows))
 
 
 async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -4627,13 +4633,14 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
 
     if game_key == "geo2":
-        if chat_id != GEO2_CHAT_ID:
-            await query.answer("🧪 Бета «ГеографияЧата 2.0» пока доступна только в группе Песочница!",
+        if chat_id not in (GEO2_CHAT_ID, ANON_GROUP_ID):
+            await query.answer("🧪 «ГеографияЧата 2.0» пока доступна только в чатах бета-теста!",
                                show_alert=True)
             return
         text = (
             "🌍✨ ГеографияЧата 2.0 — новая оболочка карты (бета)!\n"
-            "Тот же мир: метки, письма, события и острова — но в обновлённом интерфейсе."
+            "Те же метки, письма, подарки и события, что и в Географии чата, "
+            "— но в обновлённом интерфейсе."
         )
         await context.bot.send_message(chat_id, text, reply_markup=geo2_keyboard(chat_id))
         await query.edit_message_text("🌍✨ ГеографияЧата 2.0 — сообщение с кнопкой появилось в чате выше.")
