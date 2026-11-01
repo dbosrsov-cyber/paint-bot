@@ -1194,7 +1194,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1490 -->
+<!-- build:2026-11-01-1491 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1405,7 +1405,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   <button id="islandBuyBtn" title="Купить остров (10 ЗП)">🏝️</button>
   <button id="chestBtn" title="Мой сундук">🧰</button>
   <button id="helpBtn" title="Что здесь можно делать">❓</button>
-  <button id="sifaBtn" title="Сифа — догонялки на кораблях">⛵</button>
+  <button id="sifaBtn" title="Сифа — догонялки на касатках">🐬</button>
   <button id="sifaAreaBtn" title="Задать границы игры «Сифа» (кликни 4 угла)" style="display:none;">🚧</button>
   <button id="personaBtn" title="Действовать как Тест2" style="display:none;">🎭</button>
   <button id="volcanoBtn" title="Вызвать вулкан" style="display:none;">🌋</button>
@@ -1427,7 +1427,26 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   <div id="sifaFreezeInfo"></div>
   <button id="sifaSailBtn" title="Плыть: 1500 км за 10 сек, потом 10 сек перезарядка">🚤 Плыть</button>
   <button id="sifaMotorBtn" style="display:none;" title="МоторV8: скорость ×3 на 10 минут — но Сифа раскроется всем!">🚤 МоторВКЛ</button>
-  <button id="sifaHideBtn" title="Убрать джойстик (кораблик останется на карте)">✕ Спрятать</button>
+  <div style="display:flex;gap:6px;">
+    <button id="sifaInfoBtn" title="Правила игры «Сифа»" style="flex:1;">ⓘ Правила</button>
+    <button id="sifaHideBtn" title="Убрать джойстик (касатка останется на карте)" style="flex:2;">✕ Спрятать</button>
+  </div>
+</div>
+<div id="sifaInfoModal" class="modal" style="display:none;">
+  <div class="papyrus">
+    <b>🐬 Сифа — догонялки на касатках</b>
+    <ul>
+      <li>Кнопка 🐬 в панели справляет твою касатку в открытую воду: один кораблик на игрока, остаётся навсегда</li>
+      <li>Курс — стрелками джойстика ▲◀▼▶, ход — кнопкой «Плыть»: 1500 км за 10 секунд, потом 10 секунд перезарядка</li>
+      <li>Касатка плавает только по воде — у берега остановится сама</li>
+      <li>Сблизься с чужой касаткой ближе 1000 км — передашь ей Сифу и телепортируешься в новую точку</li>
+      <li>Кто принял Сифу — плыть не может 10 минут (на экране идёт отсчёт)</li>
+      <li>Держатель Сифы известен только ему самому, но у него есть кнопка «МоторV8»: скорость ×3 на 10 минут — вся карта увидит его касатку в красном треугольнике, а в чат уйдёт уведомление</li>
+    </ul>
+    <div style="display:flex;justify-content:flex-end;">
+      <button id="sifaInfoCloseBtn" class="btn-cancel">Закрыть</button>
+    </div>
+  </div>
 </div>
 <div class="bar eventbar" id="eventBar" style="display:none;" title="Нажми, чтобы скрыть"></div>
 <div class="bar" id="islandBar" style="display:none;">
@@ -1474,10 +1493,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       <li>🏝️ Покупать остров: строить постройки, приглашать гостей, получать сувениры</li>
       <li>📏 Измерять расстояния между метками линейкой</li>
       <li>🧰 Заглядывать в «Мой сундук» — там все твои сокровища</li>
-      <li>🐬 «Сифа» — догонялки на касатках в океане: кнопка ⛵ справляет твою касатку в открытую воду</li>
-      <li>🧭 Курс — стрелками джойстика, ход — кнопкой «Плыть»: 1500 км за 10 секунд, потом 10 секунд перезарядка</li>
-      <li>🤝 Сблизься с чужой касаткой ближе 1000 км — передашь ей Сифу и телепортируешься в новую точку; принявший Сифу плыть не может 10 минут</li>
-      <li>🚤 Держатель Сифы может включить «МоторV8» (скорость ×3 на 10 минут), но тогда все узнают его касатку по красному треугольнику</li>
+      <li>🐬 «Сифа» — догонялки на касатках по воде</li>
     </ul>
     <div style="display:flex;justify-content:flex-end;">
       <button id="helpCloseBtn" class="btn-cancel">Закрыть</button>
@@ -2736,10 +2752,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       sifaPadEl.style.display = 'none';
       sifaCtrlEl.style.display = 'none';
       clearInterval(sifaPollTimer); sifaPollTimer = null;
-      status('⛵ Джойстик убран — кораблик остался на карте');
+      status('🐬 Джойстик убран — касатка осталась на карте');
       return;
     }
-    status('⛵ Готовим кораблик…');
+    status('🐬 Готовим касатку…');
     try {
       const r = await fetch('/sifaspawn', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -2761,6 +2777,12 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     } catch (err) { status('⚠️ Нет связи с корабликом'); }
   };
   document.getElementById('sifaHideBtn').onclick = () => { if (sifaPadOn) sifaBtn.onclick(); };
+  document.getElementById('sifaInfoBtn').onclick = () => {
+    document.getElementById('sifaInfoModal').style.display = 'flex';
+  };
+  document.getElementById('sifaInfoCloseBtn').onclick = () => {
+    document.getElementById('sifaInfoModal').style.display = 'none';
+  };
   document.getElementById('sifaSailBtn').onclick = () => sifaStartSail();
   document.getElementById('sifaMotorBtn').onclick = async () => {
     const r = await fetch('/sifamotor', {
@@ -3136,10 +3158,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1490"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1491"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1490 -->
+<!-- build:2026-11-01-1491 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -4913,7 +4935,7 @@ class AppHandler(BaseHTTPRequestHandler):
             ships = entry["ships"]
             ship = ships.get(user)
             if ship is None:
-                self._json_response(404, {"error": "кораблика ещё нет — нажми ⛵ в панели"})
+                self._json_response(404, {"error": "касатки ещё нет — нажми 🐬 в панели"})
                 return
             if now < ship.get("frozen_until", 0):
                 self._json_response(403, {"error": "ты неподвижен — только что принял Сифу",
@@ -4998,7 +5020,7 @@ class AppHandler(BaseHTTPRequestHandler):
         try:
             tg_send_message(chat_id,
                 "🚤💨 Сифа обозначил себя! Активирован МоторV8 — 10 минут скорость ×3. "
-                "Ловите его, кораблики! ⛵")
+                "Ловите его, касатки! 🐬")
         except Exception as e:
             print(f"[paint_bot] sifa motor notify: {e!r}", flush=True)
         self._json_response(200, {"ok": True, "motor_until": ship["motor_until"]})
