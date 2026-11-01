@@ -1194,7 +1194,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1493 -->
+<!-- build:2026-11-01-1494 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1410,11 +1410,11 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   <button id="saveBtn" title="Поставить метку">📍</button>
   <button id="letterBtn" title="ПочтаЧата">✉️</button>
   <button id="distBtn" title="Измерить расстояние">📏</button>
+  <button id="sifaBtn" title="Сифа — догонялки на касатках">🐬</button>
+  <button id="sifaAreaBtn" title="Задать границы игры «Сифа» (кликни 4 угла)" style="display:none;">🚧</button>
   <button id="islandBuyBtn" title="Купить остров (10 ЗП)">🏝️</button>
   <button id="chestBtn" title="Мой сундук">🧰</button>
   <button id="helpBtn" title="Что здесь можно делать">❓</button>
-  <button id="sifaBtn" title="Сифа — догонялки на касатках">🐬</button>
-  <button id="sifaAreaBtn" title="Задать границы игры «Сифа» (кликни 4 угла)" style="display:none;">🚧</button>
   <button id="personaBtn" title="Действовать как Тест2" style="display:none;">🎭</button>
   <button id="volcanoBtn" title="Вызвать вулкан" style="display:none;">🌋</button>
   <button id="meteorBtn" title="Вызвать метеорит" style="display:none;">☄️</button>
@@ -1437,7 +1437,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   <button id="sifaMotorBtn" style="display:none;" title="МоторV8: скорость ×3 на 10 минут — но Сифа раскроется всем!">🚤 МоторВКЛ</button>
   <div style="display:flex;gap:6px;">
     <button id="sifaInfoBtn" title="Правила игры «Сифа»" style="flex:1;">ⓘ Правила</button>
-    <button id="sifaHideBtn" title="Убрать джойстик (касатка останется на карте)" style="flex:2;">✕ Спрятать</button>
+    <button id="sifaHideBtn" title="Выйти из игры (касатка останется на карте)" style="flex:2;">✕ Выйти</button>
   </div>
 </div>
 <div id="sifaAreaBar">
@@ -2548,7 +2548,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   }
   let sifaPadOn = false, sifaMarker = null, sifaPollTimer = null;
   let sifaPos = null, sifaHeading = 0, sifaSailTimer = null, sifaCooldownUntil = 0;
-  let sifaMe = {}, sifaBoundsRect = null;
+  let sifaMe = {}, sifaBoundsRect = null, sifaAreaData = null;
   let sifaAreaMode = false, sifaAreaPts = [], sifaAreaMarks = [];
   let sifaPushTimer = null, sifaNeedPush = false;
   const sifaShips = {};   // чужие касатки (анонимные)
@@ -2657,7 +2657,8 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     const d = await r.json().catch(() => ({}));
     const now = Date.now() / 1000;
     if (d.me) sifaMe = d.me;
-    if (d.area) sifaDrawBounds(d.area);
+    sifaAreaData = d.area || null;
+    sifaDrawBounds(d.area);
     const seen = {};
     (d.ships || []).forEach(s => {
       if (s.mine) {
@@ -2716,7 +2717,13 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       nLat = Math.max(-85, Math.min(85, nLat));
       if (!sifaIsWater(nLat, nLon)) {
         sifaStopSail(true);
-        status('🏖 Берег! Кораблик остановился у суши');
+        status('🏖 Берег! Касатка остановилась у суши');
+        return;
+      }
+      if (sifaAreaData && (nLat < sifaAreaData[0] || nLat > sifaAreaData[2]
+          || nLon < sifaAreaData[1] || nLon > sifaAreaData[3])) {
+        sifaStopSail(true);
+        status('🚧 Вы достигли границ зоны игры!');
         return;
       }
       sifaPos = {lat: nLat, lon: nLon};
@@ -3186,10 +3193,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1493"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1494"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1493 -->
+<!-- build:2026-11-01-1494 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
