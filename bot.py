@@ -320,6 +320,18 @@ METEOR_NOTIFY_TEXT = ("☄️ МЕТЕОРИТ! На карту чата упа�
                       "ускорять письма ✉️⏩")
 
 
+def viewer_matches(recipient: str, viewer: str, name: str, chat_id: int) -> bool:
+    """Зритель == адресат? Ключ метки может отличаться от ключа Telegram WebApp
+    (метки ставили и из браузера — по имени), поэтому совпадаем также по имени
+    метки-адресата."""
+    if recipient == viewer:
+        return True
+    if not name:
+        return False
+    marker = geo_state.get(chat_id, {}).get(recipient)
+    return bool(marker) and marker.get("name") == name
+
+
 def meteor_save_to_github() -> None:
     payload = {"meteors": {str(k): v for k, v in meteor_state.items()},
                "stardust": stardust_state,
@@ -1044,7 +1056,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-0133 -->
+<!-- build:2026-11-01-1305 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1407,7 +1419,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   async function readLetter(id) {
     const r = await fetch('/georead', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), id: id})
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), id: id})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -1727,7 +1739,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   async function openGift(id) {
     const r = await fetch('/subopen', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), id: id})
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), id: id})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -1788,7 +1800,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   window.boostLetter = async (id) => {
     const r = await fetch('/letterboost', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), id: id})
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), id: id})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -2159,7 +2171,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   }
 
   async function load() {
-    const r = await fetch('/geodata?chat=' + chat + '&user=' + encodeURIComponent(userKey()) + '&t=' + Date.now());
+    const r = await fetch('/geodata?chat=' + chat + '&user=' + encodeURIComponent(userKey()) + '&name=' + encodeURIComponent(userName()) + '&t=' + Date.now());
     const data = await r.json();
     Object.values(markers).forEach(m => map.removeLayer(m));
     Object.keys(markers).forEach(k => delete markers[k]);
@@ -2259,10 +2271,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-0133"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1305"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-0133 -->
+<!-- build:2026-11-01-1305 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2419,7 +2431,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   async function readLetter(id) {
     const r = await fetch('/georead', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), id: id})
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), id: id})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -2739,7 +2751,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   async function openGift(id) {
     const r = await fetch('/subopen', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), id: id})
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), id: id})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -2800,7 +2812,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   window.boostLetter = async (id) => {
     const r = await fetch('/letterboost', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), id: id})
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), id: id})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -3157,7 +3169,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   }
 
   async function load() {
-    const r = await fetch('/geodata?chat=' + chat + '&user=' + encodeURIComponent(userKey()) + '&t=' + Date.now());
+    const r = await fetch('/geodata?chat=' + chat + '&user=' + encodeURIComponent(userKey()) + '&name=' + encodeURIComponent(userName()) + '&t=' + Date.now());
     const data = await r.json();
     Object.values(markers).forEach(m => map.removeLayer(m));
     Object.keys(markers).forEach(k => delete markers[k]);
@@ -3345,6 +3357,7 @@ class AppHandler(BaseHTTPRequestHandler):
         elif url.path == "/geodata":
             chat_id = int(params.get("chat", ["0"])[0])
             viewer = params.get("user", [""])[0]
+            viewer_name = params.get("name", [""])[0][:64]
             with geo_lock:
                 letters_out = []
                 changed = False
@@ -3386,7 +3399,7 @@ class AppHandler(BaseHTTPRequestHandler):
                         "id": lid, "lat": round(lat, 6), "lon": round(lon, 6),
                         "arrived": arrived,
                         "read": letter.get("read_ts") is not None,
-                        "mine": letter["to"] == viewer,
+                        "mine": viewer_matches(letter["to"], viewer, viewer_name, chat_id),
                         "to": letter["to"],
                         "from_name": letter.get("from_name", "?"),
                         "from": letter["from"],  # user key отправителя — для кнопки «Ответить»
@@ -3481,7 +3494,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     poops_out.append({
                         "id": pid, "lat": round(plat, 6), "lon": round(plon, 6),
                         "arrived": parrived,
-                        "mine": poop["to"] == viewer,
+                        "mine": viewer_matches(poop["to"], viewer, viewer_name, chat_id),
                         "to_name": poop.get("to_name", ""),
                         "from_lat": poop["from_lat"], "from_lon": poop["from_lon"],
                         "to_lat": poop["to_lat"], "to_lon": poop["to_lon"],
@@ -3520,7 +3533,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     gifts_out.append({
                         "id": gid, "lat": round(glat, 6), "lon": round(glon, 6),
                         "arrived": garrived,
-                        "mine": gift["to"] == viewer,
+                        "mine": viewer_matches(gift["to"], viewer, viewer_name, chat_id),
                         "to": gift["to"],
                         "to_name": gift.get("to_name", ""),
                         "from_lat": gift["from_lat"], "from_lon": gift["from_lon"],
@@ -3880,7 +3893,8 @@ class AppHandler(BaseHTTPRequestHandler):
             if letter is None or letter["chat"] != chat_id:
                 self._json_response(404, {"error": "письмо не найдено"})
                 return
-            if letter["to"] != user:
+            if not viewer_matches(letter["to"], user,
+                                  str(payload.get("name", ""))[:64], chat_id):
                 self._json_response(403, {"error": "это письмо не тебе"})
                 return
             _, _, arrived = letter_progress(letter)
@@ -3898,7 +3912,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 if read_ts is None:
                     # первое чтение: фиксируем время и счётчик «прочитано»
                     letter["read_ts"] = now
-                    dest = geo_state.get(chat_id, {}).get(user)
+                    dest = geo_state.get(chat_id, {}).get(letter["to"])
                     if dest is not None:
                         dest["read"] = dest.get("read", 0) + 1
                 result = {
@@ -4151,7 +4165,8 @@ class AppHandler(BaseHTTPRequestHandler):
             if gift is None or gift["chat"] != chat_id:
                 self._json_response(404, {"error": "подарок не найден"})
                 return
-            if gift["to"] != user:
+            if not viewer_matches(gift["to"], user,
+                                  str(payload.get("name", ""))[:64], chat_id):
                 self._json_response(403, {"error": "этот подарок не тебе"})
                 return
             _, _, arrived = gift_progress(gift)
