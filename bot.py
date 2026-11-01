@@ -472,12 +472,26 @@ def sifa_is_land(lat: float, lon: float) -> bool:
     c = min(719, max(0, int((lon + 180.0) * 2)))
     return bool((_sifa_land[r * 90 + (c >> 3)] >> (7 - (c & 7))) & 1)
 
+def sifa_area_ok(area, lat, lon):
+    """Точка внутри области игры? maxLon > 180 — область пересекает меридиан 180°."""
+    if not (area[0] <= lat <= area[2]):
+        return False
+    if area[3] <= 180.0:
+        return area[1] <= lon <= area[3]
+    w = (area[3] - area[1]) % 360.0
+    u = (lon - area[1]) % 360.0
+    return u <= w
+
 def sifa_random_water(area):
     import random as _rnd
     for _ in range(800):
         if area:
             lat = _rnd.uniform(area[0], area[2])
-            lon = _rnd.uniform(area[1], area[3])
+            if area[3] > 180.0:
+                w = (area[3] - area[1]) % 360.0
+                lon = ((area[1] + _rnd.uniform(0.0, w) + 540.0) % 360.0) - 180.0
+            else:
+                lon = _rnd.uniform(area[1], area[3])
         else:
             lat = _rnd.uniform(-58.0, 72.0)
             lon = _rnd.uniform(-180.0, 180.0)
@@ -1194,7 +1208,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1499 -->
+<!-- build:2026-11-01-1500 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2268,7 +2282,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     // «Улететь» — для того, кто сейчас гостит на острове, независимо от владения
     // (совладелец тоже может быть гостем — кнопка не должна теряться из-за isl.mine)
     if (isl.guest && isl.guest.user === userKey() && isl.guest.leg === 'staying') {
-      html += '<br><button onclick="leaveIsland()">✈️ Улететь (домой)</button>';
+      html += '<div style="text-align:center;margin:6px 0 10px;"><button onclick="leaveIsland()">✈️ Улететь (домой)</button></div>';
     }
     html += '<div style="text-align:center;"><button onclick="openIslandCard(&quot;' + isl.owner + '&quot;)">🖼 Открытка острова</button></div>';
     mk.bindPopup(html);
@@ -2627,8 +2641,16 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     const ab = document.getElementById('sifaAreaBtn');
     ab.style.display = (sifaPadOn && SIFA_AREA_ADMINS.indexOf(userKey()) >= 0 && !area) ? '' : 'none';
     if (!area || !sifaPadOn) return;
-    sifaBoundsRect = L.rectangle([[area[0], area[1]], [area[2], area[3]]],
-      {className: 'sifa-bounds', interactive: false}).addTo(map);
+    const opt = {className: 'sifa-bounds', interactive: false};
+    if (area[3] > 180) {   // область пересекает меридиан 180° — рисуем двумя прямоугольниками
+      const grp = L.layerGroup([
+        L.rectangle([[area[0], area[1]], [area[2], 180]], opt),
+        L.rectangle([[area[0], -180], [area[2], area[3] - 360]], opt)]);
+      grp.addTo(map);
+      sifaBoundsRect = grp;
+    } else {
+      sifaBoundsRect = L.rectangle([[area[0], area[1]], [area[2], area[3]]], opt).addTo(map);
+    }
   }
   function sifaFmtLeft(until) {
     let s = Math.max(0, Math.ceil(until - Date.now() / 1000));
@@ -2727,7 +2749,19 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       if (sifaAreaData) {
         // у границы не останавливаемся и не ругаемся — скользим вдоль неё
         nLat = Math.max(sifaAreaData[0], Math.min(sifaAreaData[2], nLat));
-        nLon = Math.max(sifaAreaData[1], Math.min(sifaAreaData[3], nLon));
+        const wLon = sifaAreaData[1], eLon = sifaAreaData[3];
+        if (eLon <= 180) {
+          nLon = Math.max(wLon, Math.min(eLon, nLon));
+        } else {
+          // область пересекает меридиан 180°: запретная полоса — (eLon-360)..wLon
+          const w = (eLon - wLon) % 360;
+          let u = ((nLon - wLon) % 360 + 360) % 360;
+          if (u > w) {   // зашли в полосу — прижимаемся к ближайшей кромке
+            const back = u - w, fwd = 360 - u;
+            u = (back <= fwd) ? w : 0;
+            nLon = ((wLon + u + 540) % 360) - 180;
+          }
+        }
       }
       if (!sifaIsWater(nLat, nLon)) {
         sifaStopSail(true);
@@ -3211,10 +3245,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1499"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1500"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1499 -->
+<!-- build:2026-11-01-1500 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -5002,7 +5036,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._json_response(422, {"error": "кораблик не плавает по суше"})
                 return
             area = entry.get("area")
-            if area and not (area[0] <= lat <= area[2] and area[1] <= lon <= area[3]):
+            if area and not sifa_area_ok(area, lat, lon):
                 self._json_response(422, {"error": "за границами игры «Сифа»"})
                 return
             ship.update({"lat": lat, "lon": lon, "heading": heading, "ts": now})
