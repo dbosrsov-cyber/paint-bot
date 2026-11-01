@@ -1117,7 +1117,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1452 -->
+<!-- build:2026-11-01-1455 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1192,6 +1192,11 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     -webkit-backdrop-filter: blur(12px); border-color: rgba(125,211,252,.18); color:#e8f1f8; }
   /* тонкая строка ника под картой */
   .namebar { padding:2px 10px; }
+  /* информационная строка событий под ником — высотой с панель ника */
+  .eventbar { min-height:36px; padding:4px 12px; font-size:12px; line-height:1.4;
+    color:var(--hint); align-items:center; cursor:pointer; }
+  .dark-ui .eventbar { background: rgba(11,18,26,.72); color:#9fc3d8;
+    border-top:1px solid rgba(125,211,252,.1); }
   .namebar input { padding:5px 12px; font-size:13px; border-radius:999px; }
   .namebar button { padding:4px 11px; font-size:15px; border-radius:999px;
     background:transparent; color:var(--text); border:1px solid rgba(140,160,180,.35); }
@@ -1304,6 +1309,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   <button id="emojiBtn" title="Сменить эмодзи метки" style="display:none;">🐾</button>
   <button id="delBtn" title="Удалить мою метку" style="display:none;">🗑</button>
 </div>
+<div class="bar eventbar" id="eventBar" style="display:none;" title="Нажми, чтобы скрыть"></div>
 <div class="bar" id="islandBar" style="display:none;">
   <span style="flex:1;font-size:15px;">🏝️ Купить остров за <b>10 ЗП</b>?</span>
   <button id="islandYes">Да</button>
@@ -1390,13 +1396,20 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   try { tg.onEvent('themeChanged', applyMapTheme); } catch (e) {}
   applyMapTheme();
   const statusEl = document.getElementById('status');
+  const eventBarEl = document.getElementById('eventBar');
   let statusTimer = null;
   const status = t => {
     statusEl.textContent = t;
+    // события (с эмодзи) оседают в строке под ником — её видно, пока не заменит следующее событие
+    if (/[🌋☄🐳🏝💩📬🎁✉]/.test(t)) {
+      eventBarEl.textContent = t;
+      eventBarEl.style.display = 'flex';
+    }
     statusEl.classList.add('show');
     clearTimeout(statusTimer);
     statusTimer = setTimeout(() => statusEl.classList.remove('show'), 2600);
   };
+  eventBarEl.onclick = () => { eventBarEl.style.display = 'none'; };
   const escapeHtml = s => { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; };
 
   const tgUser = (tg.initDataUnsafe && tg.initDataUnsafe.user) || null;
@@ -1873,7 +1886,9 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     const mk = L.marker([g.lat, g.lon], {icon: giftIcon()}).addTo(map);
     if (!g.arrived) {
       // до доставки адресат неизвестен никому — даже самому адресату (как у какашек)
-      mk.bindPopup('🎁 Подарок в пути… (адресат: *****)');
+      mk.bindPopup(g.i_sent
+        ? '🎁 Твой подарок летит к <b>' + escapeHtml(g.to_name) + '</b>…'
+        : '🎁 Подарок в пути… (адресат: *****)');
     } else if (g.mine) {
       mk.bindPopup('🎁 Тебе доставил подарок Похотливый Кит!<br><b>Нажми на него, чтобы открыть</b>');
       mk.on('click', () => openGift(g.id));
@@ -2525,10 +2540,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1452"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1455"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1452 -->
+<!-- build:2026-11-01-1455 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -3003,7 +3018,9 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     const mk = L.marker([g.lat, g.lon], {icon: giftIcon()}).addTo(map);
     if (!g.arrived) {
       // до доставки адресат неизвестен никому — даже самому адресату (как у какашек)
-      mk.bindPopup('🎁 Подарок в пути… (адресат: *****)');
+      mk.bindPopup(g.i_sent
+        ? '🎁 Твой подарок летит к <b>' + escapeHtml(g.to_name) + '</b>…'
+        : '🎁 Подарок в пути… (адресат: *****)');
     } else if (g.mine) {
       mk.bindPopup('🎁 Тебе доставил подарок Похотливый Кит!<br><b>Нажми на него, чтобы открыть</b>');
       mk.on('click', () => openGift(g.id));
@@ -3801,6 +3818,7 @@ class AppHandler(BaseHTTPRequestHandler):
                         "mine": viewer_matches(gift["to"], viewer, viewer_name, chat_id),
                         "to": gift["to"],
                         "to_name": gift.get("to_name", ""),
+                        "i_sent": viewer_matches(gift.get("from", ""), viewer, viewer_name, chat_id),
                         "from_lat": gift["from_lat"], "from_lon": gift["from_lon"],
                         "to_lat": gift["to_lat"], "to_lon": gift["to_lon"],
                     })
