@@ -1194,7 +1194,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1487 -->
+<!-- build:2026-11-01-1488 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1425,7 +1425,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 </div>
 <div id="sifaCtrl">
   <div id="sifaFreezeInfo"></div>
-  <button id="sifaSailBtn" title="Плыть: 1500 км за 10 сек, потом 10 сек перезарядка">⛵ Плыть</button>
+  <button id="sifaSailBtn" title="Плыть: 1500 км за 10 сек, потом 10 сек перезарядка">🚤 Плыть</button>
   <button id="sifaMotorBtn" style="display:none;" title="МоторV8: скорость ×3 на 10 минут — но Сифа раскроется всем!">🚤 МоторВКЛ</button>
   <button id="sifaHideBtn" title="Убрать джойстик (кораблик останется на карте)">✕ Спрятать</button>
 </div>
@@ -2532,7 +2532,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
         + '<div style="position:absolute;inset:0;display:flex;flex-direction:column;'
         + 'align-items:center;justify-content:center;transform:rotate(' + Math.round(h) + 'deg)">'
         + '<div style="font-size:13px;line-height:1;color:#7dd3fc;text-shadow:0 0 5px #000">▲</div>'
-        + '<div style="font-size:26px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))">⛵</div>'
+        + '<div style="font-size:26px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))">🚤</div>'
         + '</div></div>',
       className: 'emoji-marker', iconSize: [56, 56], iconAnchor: [28, 28], popupAnchor: [0, -26],
     });
@@ -2540,7 +2540,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   function sifaRender(revealed) {
     if (!sifaMarker) {
       sifaMarker = L.marker([sifaPos.lat, sifaPos.lon], {icon: sifaIcon(sifaHeading, revealed)}).addTo(map);
-      sifaMarker.bindPopup('⛵ Твой кораблик — догонялки «Сифа»');
+      sifaMarker.bindPopup('🚤 Твой кораблик — догонялки «Сифа»');
     }
     sifaMarker.setLatLng([sifaPos.lat, sifaPos.lon]);
     sifaMarker.setIcon(sifaIcon(sifaHeading, revealed));
@@ -2628,7 +2628,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       const ic = sifaIcon(s.heading || 0, !!s.revealed);
       if (!sifaShips[s.user]) {
         const mk = L.marker([s.lat, s.lon], {icon: ic}).addTo(map);
-        mk.bindPopup(s.revealed ? '🚤💨 Этот кораблик — СИФА с МоторомV8!' : '⛵ Загадочный кораблик');
+        mk.bindPopup(s.revealed ? '🚤💨 Этот кораблик — СИФА с МоторомV8!' : '🚤 Загадочный кораблик');
         sifaShips[s.user] = mk;
       } else {
         sifaShips[s.user].setLatLng([s.lat, s.lon]);
@@ -2661,7 +2661,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     const speed = SIFA_SPEED * (motorOn ? SIFA_MOTOR_MULT : 1);
     const t0 = Date.now();
     document.getElementById('sifaSailBtn').disabled = true;
-    status('⛵ Плывём: ' + (motorOn ? '4500' : '1500') + ' км за 10 сек…');
+    status('🚤 Плывём: ' + (motorOn ? '4500' : '1500') + ' км за 10 сек…');
     sifaSailTimer = setInterval(() => {
       const el = (Date.now() - t0) / 1000;
       if (el >= SIFA_PRESS_SEC) { sifaStopSail(true); return; }
@@ -2732,7 +2732,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       sifaPadEl.style.display = 'grid';
       sifaCtrlEl.style.display = 'flex';
       status(d.sifa ? '😱 О нет… у тебя СИФА! Избавься: подплыви к чужому кораблику ближе 1000 км'
-                    : '⛵ Кораблик на воде! Курс — стрелками ▲◀▼▶, ход — кнопкой «Плыть»');
+                    : '🚤 Кораблик на воде! Курс — стрелками ▲◀▼▶, ход — кнопкой «Плыть»');
       sifaPoll();
       clearInterval(sifaPollTimer);
       sifaPollTimer = setInterval(sifaPoll, 2500);
@@ -3113,10 +3113,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1487"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1488"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1487 -->
+<!-- build:2026-11-01-1488 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
