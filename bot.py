@@ -1117,7 +1117,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1449 -->
+<!-- build:2026-11-01-1452 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1151,10 +1151,12 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   html, body { margin:0; padding:0; }
   body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
     background:var(--bg); color:var(--text);
-    padding-bottom:env(safe-area-inset-bottom, 0px); }
+    padding-bottom:env(safe-area-inset-bottom, 0px);
+    display:flex; flex-direction:column; height:100vh; height:100dvh; }
   ::-webkit-scrollbar { width:8px; height:8px; }
   ::-webkit-scrollbar-thumb { background:var(--hint); border-radius:4px; opacity:.5; }
-  #map { width:100%; height:62vh; border-radius:0 0 18px 18px; }
+  #map { width:100%; flex:1 1 auto; height:auto; min-height:50vh;
+    border-radius:0 0 18px 18px; }
   .bar { padding:8px; display:flex; flex-wrap:wrap; gap:6px; align-items:center;
     background:var(--card); }
   input { flex:1; min-width:120px; padding:10px; border-radius:12px;
@@ -2523,10 +2525,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1449"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1452"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1449 -->
+<!-- build:2026-11-01-1452 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
