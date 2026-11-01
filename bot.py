@@ -454,8 +454,45 @@ def meteor_cleanup_craters() -> None:
 # ---------- СИФА: догонялки на кораблях (прототип в ГЕО2) ----------
 SIFA_FILE = "sifa.json"
 SIFA_SAVE_INTERVAL_SEC = 10   # не чаще одного сохранения в Git
-SIFA_SHIP_TTL_SEC = 900       # корабль исчезает через 15 мин без движения
-SIFA_MAX_JUMP_KM = 0.6        # антителепорт: лимит скачка за один пакет
+# --- догонялки «Сифа» ---
+SIFA_PRESS_KM = 1500.0        # один ход «Плыть» — 1500 км за 10 сек
+SIFA_PRESS_SEC = 10.0
+SIFA_MOTOR_MULT = 3.0         # МоторV8: 4500 км за 10 сек
+SIFA_PASS_KM = 1000.0         # ближе 1000 км — Сифа передана
+SIFA_FROZEN_SEC = 600         # принявший Сифу неподвижен 10 минут
+SIFA_MOTOR_SEC = 600          # МоторV8 работает 10 минут
+SIFA_MAX_JUMP_KM = 250.0      # антителепорт: лимит скачка за один пакет
+SIFA_AREA_ADMINS = ("Sumai", "769828689", "8668538137")  # кто задаёт границы игры
+SIFA_LAND_MASK_B64 = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH/4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADf//8AAf///wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB/////////////AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//////////////gAAAAbgAAB4AAAAAAPwAAAAAAAAAAAAAAAAAAAAAAAAAAB//////////////AAAB//wAAD8AAAAAAf8AAAAAAAAAAAAAAAAAAAAAAAAcH3/////////////wAAAD//wAAB4AAAAAAP/4AAAAAAAAAAAAAAAAAAAAAAc+P/////////////+AAAAB/3gAAAAAAAAAAH/8AAAAAAAAAAAAAAAAAAAAAD+fH////5/////////AAAAA/nAAAAAAB4AAAAD/8AAAAAAAAAAAAAAAAAAAAH//w////Af///////+AAAAAPCAAAAAH78AAA////AAAB/gAAAAAAAAAAAAAAD//4///+AP///////+AAAAAAAAAAAAP94AAP////gAAD/wAAAAAAAAAAAAAAP/94e///AAAf/////+AAAAAAAAAAAA/4AAH/////+HgB/gAAAAAAAAAAAAAAf/+8////gAAH/////8AAAAAAAAAAAD+AHgP///////4AfgAAAAAgAAAAAAAA///9////9AAD/////4AAAAAAAAAAAH4AP7////////8m//gAAAAwAAf+AAAAf//+/9///4AD/////4AAAAAAA/gAAH4Af//////////////8AAAgAB///+H//f//P+///+AD/////wAAAAAA//4AADw8/////////////////P8gAf//////////f/////AB/////gAAAAAD///wADH////////////////////8A//////////////8f/wA/////AAAAAAP///+M//////////////////////+4f/////////////8//8B////wAAAAAAf////f///////////////////////8//////////////4f/+A///4Af8AAAA/////////////////////////////5//////////////w//8A///gA/+AAAB////////////////////////////f8//////////////5//4Af/wAAf8AAAH////////////////////////////A+H////////////387/wAP/wAAP4AAA/////////////////////////////AMP///////////+D5//gAH/gAAAAAAB/////////////////////////////AAf///////////8Ax/+AAD/AAAAAAAD//P/////////////////////////6AAP///////////4AB/4wAB/AAAAAAAD//n//////////////////////n/+AAAH//z////////4AB/94AAOAAAAAAYD//j//////////////////////H/4AAAA//AD///////8AB//8AAAAAAAAA8B//j////////////////////+efgAAAAAP+AA////////wA//+AAAAAAAAB+A//3///////////////////4AA/wAAAAB/cAAD///////8A///AAAAAAAAB8Af/v///////////////////wAB/wAAAAH8AAAB////////z///4AAAAAAAH+Af/v///////////////////AAD/gAAAAPgAAAB////////////8AAAAAAAP/Af/////////////////////6AB/AAAAAEAAAAD////////7///+AAAAAAAPvz///////////////////////AB+AAAAAAAAAABH///////////+AAAAAAAPf////////////////////////AB8AAAAAAAAAAAH////////////AAAAAAAGf////////////////////////AA4AAAAAAAAAAAH////////////AAAAAAAA/////////////////////////gAQAAAAAAAAAAAD///////////fgAAAAAAAf////////////////////////gAAAAAAAAAAAAABv/////////8/wAAAAAAA/////////////////////////AAAAAAAAAAAAAAAf/////////5fwAAAAAAAf///////////////////////3AAAAAAAAAAAAAAAf//////////igAAAAAAAH///////////////////////ngAAAAAAAAAAAAAAf//////////AAAAAAAAAD/////v/////////////////DAAAAAAAAAAAAAAAf/////////+AAAAAAAADj/////Gf/f/////////////+HgAAAAAAAAAAAAAAf////////8wAAAAAAAAH/////+AP/v/////////////8PwAAAAAAAAAAAAAAf////////wAAAAAAAAAP//j//+Pj/n/////////////4fgAAAAAAAAAAAAAAf////////wAAAAAAAAAP/4N//////x////////////+APAAAAAAAAAAAAAAAf////////gAAAAAAAAAP/we//////7////////////8AeAAAAAAAAAAAAAAAf///////+AAAAAAAAAAP/geHff///z////////////4AeAAAAAAAAAAAAAAAP///////8AAAAAAAAAAP/gMaPv///x//////////+74A8AAAAAAAAAAAAAAAP///////4AAAAAAAAAAP/f+8PP///////////////58D8AAAAAAAAAAAAAAAH///////4AAAAAAAAAAH///YHH///////////////x8f8AAAAAAAAAAAAAAAD///////4AAAAAAAAAAB///ACBt//////////////g9/8AAAAAAAAAAAAAAAB///////wAAAAAAAAAAD//+AAAB//////////////h7/4AAAAAAAAAAAAAAAA///////gAAAAAAAAAAH///4GAD//////////////wn+AAAAAAAAAAAAAAAAAP/////+AAAAAAAAAAAP///8P4j//////////////wHwAAAAAAAAAAAAAAAAAP/////8AAAAAAAAAAAf/////////////////////4HAAAAAAAAAAAAAAAAAAH/////8AAAAAAAAAAAf/////////////////////wCAAAAAAAAAAAAAAAAAAD/////8AAAAAAAAAAAf/////////////////////4AAAAAAAAAAAAAAAAAAAB///hg8AAAAAAAAAAB//////////v///////////4AAAAAAAAAAAAAAAAAAAD///AA/AAAAAAAAAAD///////9//3///////////wAAAAAAAAAAAAAAAAAAAB///AAfgAAAAAAAAAH//////////9///////////gAAAAAAAAAAAAAAAAAAAAf//AAPAAAAAAAAAAP//////////+///////////QAAAAAAAAAAAAAAAAAAAAd/+AAEAAAAAAAAAAP//////////////////////4AAAAAAAAAAAAAAAAAAAAI/+AAuAAAAAAAAAAf////////////Af////////wAAAAAAAAAAAAAAAAAAAAAf+AB/gAAAAAAAAAf////////v///gP///////5wAAAAAAAAAAAAAAAAAAAAAP/A4v4AAAAAAAAA/////////////AH///////ggAAAAAAAAAAAAAgAAAAAAAf/B8B9wAAAAAAAAf////////3///AD//8P//YAAAAAAAAAAAAAABwAAAAAAAP/n8Ab9AAAAAAAAf////////z//+AA//4H/+8AAAAAAAAAAAAAAAgAAAAAAAH//4AH/gAAAAAAAf////////7//8AA//gH/+4AwAAAAAAAAAAAAAAAAAAAAAD//4AD9AAAAAAAAf////////9//4AA//AH//QB4AAAAAAAAAAAAAAAAAAAAAAf//AAAAAAAAAAA/////////8//gAA/+AH//gB4AAAAAAAAAAAAAAAAAAAAAAH//gAAAAAAAAAA/////////+/+AAAf8AD//wB4AAAAAAAAAAAAAAAAAAAAAAAH/wAAAAAAAAAA///////////8AAAf4AAf/wB8AAAAAAAAAAAAAAAAAAAAAAAD/gAAAAAAAAAA///////////gAAAP4AAf/wA+AAAAAAAAAAAAAAAAAAAAAAAA/wBAAAAAAAAA//////////+YAAAP4AAf/wAPAAAAAAAAAAAAAAAAAAAAAAAAHgP/KAAAAAAAf/////////38AAAH4AAO/wBfgAAAAAAAAAAAAAAAAAAAAAAAHyf//AAAAAAAP//////////8AAAH4AAcfgDpAAAAAAAAAAAAAAAAAAAAAAAAD////AAAAAAAH//////////8AAAH8AAcOAHHgAAAAAAAAAAAAAAAAAAAAAAAB////gAAAAAAD//////////4AAAD8AAeEACPgAAAAAAAAAAAAAAAAAAAAAAAA////wAAAAAAD//////////4AAABeAAPAAMfwAAAAAAAAAAAAAAAAAAAAAAAAE////gAAAAAB//////////wAAAAeAAHgAePgAAAAAAAAAAAAAAAAAAAAAAAAB////wAAAAAAf/////////wAAAAMAA3wA/CAAAAAAAAAAAAAAAAAAAAAAAAAA////4AAAAAAP/B///////gAAAAAAB7wB/AAAAAAAAAAAAAAAAAAAAAAAAAAB////8AAAAAACAA///////AAAAAAAA/wH+AAAAAAAAAAAAAAAAAAAAAAAAAAD////8AAAAAAAAAH/////+AAAAAAAAf4f+AIAAAAAAAAAAAAAAAAAAAAAAAAD////+AAAAAAAAAP/////8AAAAAAAAP4/+8cAAAAAAAAAAAAAAAAAAAAAAAAH////+AAAAAAAAAP/////4AAAAAAAAPw//+cgAAAAAAAAAAAAAAAAAAAAAAAH/////4AAAAAAAAP/////gAAAAAAAAH4//8JwAAAAAAAAAAAAAAAAAAAAAAAP/////+AAAAAAAAP/////gAAAAAAAAD8f/4D7wAAAAAAAAAAAAAAAAAAAAAAP//////4AAAAAAAH/////AAAAAAAAAD+f/4j/+AAAAAAAAAAAAAAAAAAAAAAH//////8AAAAAAAD////+AAAAAAAAAB+P753//gAAAAAAAAAAAAAAAAAAAAAP///////gAAAAAAD////8AAAAAAAAAA+Axcif/ywAAAAAAAAAAAAAAAAAAAAP///////wAAAAAAB////8AAAAAAAAAAfgAcAf//5AAAAAAAAAAAAAAAAAAAAP///////wAAAAAAB////8AAAAAAAAAAP+AIAd/+zoAAAAAAAAAAAAAAAAAAAH///////wAAAAAAA////8AAAAAAAAAAD/mogJ/8BcAAAAAAAAAAAAAAAAAAAD///////wAAAAAAA////8AAAAAAAAAAB///wA/+ALAAAAAAAAAAAAAAAAAAAD///////gAAAAAAA////+AAAAAAAAAAAAnvgAOPgHgAAAAAAAAAAAAAAAAAAB///////gAAAAAAA////+AAAAAAAAAAAABCAgCHwDAAAAAAAAAAAAAAAAAAAA///////AAAAAAAAf///+AQAAAAAAAAAAAAB+HAgAAAAAAAAAAAAAAAAAAAAA//////+AAAAAAAA/////A4AAAAAAAAAAAAD/HAAAAAAAAAAAAAAAAAAAAAAAf/////8AAAAAAAA/////A4AAAAAAAAAAAA3+HgAAAAAAAAAAAAAAAAAAAAAAf/////8AAAAAAAB/////B4AAAAAAAAAAAD/+HwAAAAAAAAAAAAAAAAAAAAAAP/////8AAAAAAAB////+P4AAAAAAAAAAAH//HwAABABAAAAAAAAAAAAAAAAAH/////8AAAAAAAB////+f4AAAAAAAAAAAP///4AADgDAAAAAAAAAAAAAAAAAB/////8AAAAAAAB////8fwAAAAAAAAAAAf///4AABAHAAAAAAAAAAAAAAAAAAf////4AAAAAAAB////wfwAAAAAAAAAAAf///4AAAACAAAAAAAAAAAAAAAAAAf////4AAAAAAAA////AfwAAAAAAAAAAD////+AAIAAAAAAAAAAAAAAAAAAAAf////4AAAAAAAA////AfwAAAAAAAAAAf/////AAcAAAAAAAAAAAAAAAAAAAAf////wAAAAAAAAf///A/gAAAAAAAAAA//////AAOAAAAAAAAAAAAAAAAAAAAf////gAAAAAAAAf///g/gAAAAAAAAAB//////gAEAAAAAAAAAAAAAAAAAAAAf////AAAAAAAAAf///AfgAAAAAAAAAB//////wAAAAAAAAAAAAAAAAAAAAAA////4AAAAAAAAAP///AfAAAAAAAAAAD//////4AAAAAAAAAAAAAAAAAAAAAA////gAAAAAAAAAP//+AOAAAAAAAAAAB//////8AAAAAAAAAAAAAAAAAAAAAA////AAAAAAAAAAP//8AEAAAAAAAAAAD//////8AAAAAAAAAAAAAAAAAAAAAA////AAAAAAAAAAP//8AAAAAAAAAAAAB//////8AAAAAAAAAAAAAAAAAAAAAA////AAAAAAAAAAH//4AAAAAAAAAAAAA//////+AAAAAAAAAAAAAAAAAAAAAA///+AAAAAAAAAAD//wAAAAAAAAAAAAA//////8AAAAAAAAAAAAAAAAAAAAAB///+AAAAAAAAAAD//wAAAAAAAAAAAAA//////8AAAAAAAAAAAAAAAAAAAAAB///8AAAAAAAAAAB//gAAAAAAAAAAAAAf/////8AAAAAAAAAAAAAAAAAAAAAA///4AAAAAAAAAAB//AAAAAAAAAAAAAAf/////4AAAAAAAAAAAAAAAAAAAAAB///wAAAAAAAAAAB/+AAAAAAAAAAAAAA//AP//wAAAAAAAAAAAAAAAAAAAAAB///gAAAAAAAAAAA/4AAAAAAAAAAAAAAf8AP//wAABAAAAAAAAAAAAAAAAAAD///AAAAAAAAAAAAYAAAAAAAAAAAAAAAOAAF//gAADgAAAAAAAAAAAAAAAAAD//8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//gAABwAAAAAAAAAAAAAAAAAH//8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf/gAAA8AAAAAAAAAAAAAAAAAD//4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/AAAA+AAAAAAAAAAAAAAAAAD//gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABYAAAB8AAAAAAAAAAAAAAAAAH/+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcAAAD8AAAAAAAAAAAAAAAAAH/8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA+AAAH4AAAAAAAAAAAAAAAAAH/8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA+AAAPwAAAAAAAAAAAAAAAAAD/4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcAAA/AAAAAAAAAAAAAAAAAAH/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAB+AAAAAAAAAAAAAAAAAAP/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD8AAAAAAAAAAAAAAAAAAP/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB4AAAAAAAAAAAAAAAAAAP/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAAAAAAAAAAAAAAAAf/AAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf+AAAAAAAAAAAAAAAAAAAAAAOAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP8AwAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP8B4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH8AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAB+AAAAAAAAAAAAAAAAAAH4AAAAAAB4HgAD+AAAAAAAAAAAAAAAAAAAAAAAAAD4AAAAAAAAAAAAAAAAAA//AAAD//////////wAAAAAAAAAAAAAAAAAAAAAAAHwAAAAAAAAAAAAAAAAAf///4Af///////////AAAAAAAAAAAAAAAAAAAAAAA34AAAAAAAAAAAAAAAPz////8B/////////////wAAAAAAAAAAAAAAAAAAAAB/8AAAAAAAAAAA8/8///////+f/////////////+AAAAAAAAAAAAAAAAAAAAH/+AAAAAAAAZ////////////8////////////////4AAAAAAAAAAAAAAAAAAP//AAAAAAAB//////////////////////////////8AAAAAAAAABmAAB8f+HH//AAAAAAAP//////////////////////////////8AAAAAAAAP///oD///////AAAAAAAf//////////////////////////////4AAAAAAD/////////////+AAAAAAB///////////////////////////////gAAAAAAH/////////////4AAAAAP///////////////////////////////8AAAAAD///////////////gAAAAD////////////////////////////////4AAAADn//////////////wAAB8A/////////////////////////////////+AAAAH7/////////////4AAAH+B//////////////////////////////////AAAAD9/////////////+A/A//A/////////////////////////////////+AAAAA4f///////////////h/+f////////////////////////////////+AAAAAAA////////////////h////////////////////////////////////wAAAAAAf/////////////////////////////////////////////////////gA+/gAf//////////////////////////////////////////////////////8//wAP//////////////////////////////////////////////////////++/gAA//////////////////////////////////////////////////////8AAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"  # 360x180 бит: 1 = суша (с запасом по берегам)
+import base64 as _sifa_b64
+_sifa_land = _sifa_b64.b64decode(SIFA_LAND_MASK_B64)
+
+def sifa_is_land(lat: float, lon: float) -> bool:
+    r = min(179, max(0, int(90.0 - lat)))
+    c = min(359, max(0, int(lon + 180.0)))
+    return bool((_sifa_land[r * 45 + (c >> 3)] >> (7 - (c & 7))) & 1)
+
+def sifa_random_water(area):
+    import random as _rnd
+    for _ in range(800):
+        if area:
+            lat = _rnd.uniform(area[0], area[2])
+            lon = _rnd.uniform(area[1], area[3])
+        else:
+            lat = _rnd.uniform(-58.0, 72.0)
+            lon = _rnd.uniform(-180.0, 180.0)
+        if not sifa_is_land(lat, lon):
+            return lat, lon
+    return 25.0, -40.0   # Средина Атлантики — гарантированная вода
+
+def _sifa_entry(chat_id: int) -> dict:
+    """Запись чата в sifa_state: {"ships": {...}, "area": [...]}. Вызывать под sifa_lock."""
+    entry = sifa_state.get(chat_id)
+    if not (isinstance(entry, dict) and "ships" in entry):
+        old = entry if isinstance(entry, dict) else {}
+        entry = {"ships": old, "area": None}
+        sifa_state[chat_id] = entry
+    return entry
 sifa_state = {}               # chat_id -> {user_key: {"lat","lon","heading","ts","name"}}
 sifa_lock = threading.Lock()
 _sifa_last_save = 0.0
@@ -475,8 +512,12 @@ def sifa_save_to_github() -> None:
 def sifa_load_from_github() -> None:
     loaded = _load_json_from_github(SIFA_FILE, "sifa")
     if loaded:
-        sifa_state.update({int(cid): ships for cid, ships in loaded.items()})
-        total = sum(len(s) for s in sifa_state.values())
+        total = 0
+        for cid, entry in loaded.items():
+            if not (isinstance(entry, dict) and "ships" in entry):
+                entry = {"ships": entry if isinstance(entry, dict) else {}, "area": None}
+            sifa_state[int(cid)] = entry
+            total += len(entry["ships"])
         print(f"[paint_bot] sifa: загружено {total} кораблей из Git", flush=True)
 
 
@@ -1153,7 +1194,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1485 -->
+<!-- build:2026-11-01-1486 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1228,13 +1269,25 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     -webkit-backdrop-filter: blur(12px); border-color: rgba(125,211,252,.18); color:#e8f1f8; }
   /* тонкая строка ника под картой */
   .namebar { padding:2px 10px; }
-  /* джойстик Сифы */
-  #sifaPad { position:fixed; right:12px; bottom:130px; z-index:3000;
-    display:none; grid-template-columns:repeat(3,50px); grid-template-rows:repeat(3,50px); gap:6px; }
+  /* джойстик и пульт Сифы */
+  #sifaPad { position:fixed; right:12px; bottom:190px; z-index:3000;
+    display:none; grid-template-columns:repeat(3,52px); grid-template-rows:repeat(3,52px); gap:6px; }
   #sifaPad button { padding:0; font-size:20px; border-radius:14px;
     background:rgba(30,45,60,.85); color:#bfe3f7; border:1px solid rgba(125,211,252,.3);
     backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
   #sifaPad button:active { background:rgba(45,212,191,.5); color:#fff; }
+  #sifaCtrl { position:fixed; right:12px; bottom:12px; z-index:3000; display:none;
+    flex-direction:column; gap:6px; width:168px; }
+  #sifaCtrl button { padding:9px 6px; font-size:15px; border-radius:14px;
+    background:rgba(30,45,60,.88); color:#bfe3f7; border:1px solid rgba(125,211,252,.35);
+    backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
+  #sifaCtrl button:disabled { opacity:.45; }
+  #sifaCtrl button:active { background:rgba(45,212,191,.5); color:#fff; }
+  #sifaFreezeInfo { display:none; padding:6px 10px; font-size:13px; border-radius:12px;
+    background:rgba(60,30,40,.88); color:#ffd9e2; border:1px solid rgba(255,120,150,.4); }
+  .sifa-bounds { stroke:#7dd3fc; stroke-width:2; stroke-dasharray:8 10;
+    fill:rgba(125,211,252,.05); animation:sifaBlink 2.2s ease-in-out infinite; }
+  @keyframes sifaBlink { 0%,100% {opacity:.95} 50% {opacity:.2} }
   /* окно-справка «на папирусе» */
   .papyrus { width:100%; max-width:420px; max-height:86vh; overflow-y:auto;
     background:#f3e5c0; color:#4a3418;
@@ -1353,6 +1406,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   <button id="chestBtn" title="Мой сундук">🧰</button>
   <button id="helpBtn" title="Что здесь можно делать">❓</button>
   <button id="sifaBtn" title="Сифа — догонялки на кораблях">⛵</button>
+  <button id="sifaAreaBtn" title="Задать границы игры «Сифа» (кликни 4 угла)" style="display:none;">🚧</button>
   <button id="personaBtn" title="Действовать как Тест2" style="display:none;">🎭</button>
   <button id="volcanoBtn" title="Вызвать вулкан" style="display:none;">🌋</button>
   <button id="meteorBtn" title="Вызвать метеорит" style="display:none;">☄️</button>
@@ -1365,9 +1419,15 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   <button id="delBtn" title="Удалить мою метку" style="display:none;">🗑</button>
 </div>
 <div id="sifaPad">
-  <span></span><button data-dir="up">▲</button><span></span>
-  <button data-dir="left">◀</button><button id="sifaExitBtn" title="Завершить Сифу">✕</button><button data-dir="right">▶</button>
-  <span></span><button data-dir="down">▼</button><span></span>
+  <span></span><button data-dir="up" title="Курс: север">▲</button><span></span>
+  <button data-dir="left" title="Курс: запад">◀</button><span></span><button data-dir="right" title="Курс: восток">▶</button>
+  <span></span><button data-dir="down" title="Курс: юг">▼</button><span></span>
+</div>
+<div id="sifaCtrl">
+  <div id="sifaFreezeInfo"></div>
+  <button id="sifaSailBtn" title="Плыть: 1500 км за 10 сек, потом 10 сек перезарядка">⛵ Плыть</button>
+  <button id="sifaMotorBtn" style="display:none;" title="МоторV8: скорость ×3 на 10 минут — но Сифа раскроется всем!">🚤 МоторВКЛ</button>
+  <button id="sifaHideBtn" title="Убрать джойстик (кораблик останется на карте)">✕ Спрятать</button>
 </div>
 <div class="bar eventbar" id="eventBar" style="display:none;" title="Нажми, чтобы скрыть"></div>
 <div class="bar" id="islandBar" style="display:none;">
@@ -2434,138 +2494,285 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   document.getElementById('islandInfoCloseBtn').onclick = () => {
     document.getElementById('islandInfoModal').style.display = 'none';
   };
-  // ---------- СИФА: догонялки на кораблях (прототип) ----------
-  const SIFA_SPEED_KM_S = 1.0;   // 3600 км/ч — скорость корабля (подбирается)
+  // ---------- СИФА: догонялки на кораблях ----------
+  const SIFA_PRESS_KM = 1500, SIFA_PRESS_SEC = 10, SIFA_MOTOR_MULT = 3;
+  const SIFA_SPEED = SIFA_PRESS_KM / SIFA_PRESS_SEC;   // 150 км/с
   const SIFA_TICK_MS = 150;
-  let sifaMode = false, sifaMarker = null, sifaPollTimer = null;
-  let sifaPos = null, sifaHeading = 0, sifaMoveTimer = null;
+  const SIFA_AREA_ADMINS = ['Sumai', '769828689', '8668538137', '1217843099', '8584582199'];
+  const sifaMask = (() => { const s = atob('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH/4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADf//8AAf///wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB/////////////AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//////////////gAAAAbgAAB4AAAAAAPwAAAAAAAAAAAAAAAAAAAAAAAAAAB//////////////AAAB//wAAD8AAAAAAf8AAAAAAAAAAAAAAAAAAAAAAAAcH3/////////////wAAAD//wAAB4AAAAAAP/4AAAAAAAAAAAAAAAAAAAAAAc+P/////////////+AAAAB/3gAAAAAAAAAAH/8AAAAAAAAAAAAAAAAAAAAAD+fH////5/////////AAAAA/nAAAAAAB4AAAAD/8AAAAAAAAAAAAAAAAAAAAH//w////Af///////+AAAAAPCAAAAAH78AAA////AAAB/gAAAAAAAAAAAAAAD//4///+AP///////+AAAAAAAAAAAAP94AAP////gAAD/wAAAAAAAAAAAAAAP/94e///AAAf/////+AAAAAAAAAAAA/4AAH/////+HgB/gAAAAAAAAAAAAAAf/+8////gAAH/////8AAAAAAAAAAAD+AHgP///////4AfgAAAAAgAAAAAAAA///9////9AAD/////4AAAAAAAAAAAH4AP7////////8m//gAAAAwAAf+AAAAf//+/9///4AD/////4AAAAAAA/gAAH4Af//////////////8AAAgAB///+H//f//P+///+AD/////wAAAAAA//4AADw8/////////////////P8gAf//////////f/////AB/////gAAAAAD///wADH////////////////////8A//////////////8f/wA/////AAAAAAP///+M//////////////////////+4f/////////////8//8B////wAAAAAAf////f///////////////////////8//////////////4f/+A///4Af8AAAA/////////////////////////////5//////////////w//8A///gA/+AAAB////////////////////////////f8//////////////5//4Af/wAAf8AAAH////////////////////////////A+H////////////387/wAP/wAAP4AAA/////////////////////////////AMP///////////+D5//gAH/gAAAAAAB/////////////////////////////AAf///////////8Ax/+AAD/AAAAAAAD//P/////////////////////////6AAP///////////4AB/4wAB/AAAAAAAD//n//////////////////////n/+AAAH//z////////4AB/94AAOAAAAAAYD//j//////////////////////H/4AAAA//AD///////8AB//8AAAAAAAAA8B//j////////////////////+efgAAAAAP+AA////////wA//+AAAAAAAAB+A//3///////////////////4AA/wAAAAB/cAAD///////8A///AAAAAAAAB8Af/v///////////////////wAB/wAAAAH8AAAB////////z///4AAAAAAAH+Af/v///////////////////AAD/gAAAAPgAAAB////////////8AAAAAAAP/Af/////////////////////6AB/AAAAAEAAAAD////////7///+AAAAAAAPvz///////////////////////AB+AAAAAAAAAABH///////////+AAAAAAAPf////////////////////////AB8AAAAAAAAAAAH////////////AAAAAAAGf////////////////////////AA4AAAAAAAAAAAH////////////AAAAAAAA/////////////////////////gAQAAAAAAAAAAAD///////////fgAAAAAAAf////////////////////////gAAAAAAAAAAAAABv/////////8/wAAAAAAA/////////////////////////AAAAAAAAAAAAAAAf/////////5fwAAAAAAAf///////////////////////3AAAAAAAAAAAAAAAf//////////igAAAAAAAH///////////////////////ngAAAAAAAAAAAAAAf//////////AAAAAAAAAD/////v/////////////////DAAAAAAAAAAAAAAAf/////////+AAAAAAAADj/////Gf/f/////////////+HgAAAAAAAAAAAAAAf////////8wAAAAAAAAH/////+AP/v/////////////8PwAAAAAAAAAAAAAAf////////wAAAAAAAAAP//j//+Pj/n/////////////4fgAAAAAAAAAAAAAAf////////wAAAAAAAAAP/4N//////x////////////+APAAAAAAAAAAAAAAAf////////gAAAAAAAAAP/we//////7////////////8AeAAAAAAAAAAAAAAAf///////+AAAAAAAAAAP/geHff///z////////////4AeAAAAAAAAAAAAAAAP///////8AAAAAAAAAAP/gMaPv///x//////////+74A8AAAAAAAAAAAAAAAP///////4AAAAAAAAAAP/f+8PP///////////////58D8AAAAAAAAAAAAAAAH///////4AAAAAAAAAAH///YHH///////////////x8f8AAAAAAAAAAAAAAAD///////4AAAAAAAAAAB///ACBt//////////////g9/8AAAAAAAAAAAAAAAB///////wAAAAAAAAAAD//+AAAB//////////////h7/4AAAAAAAAAAAAAAAA///////gAAAAAAAAAAH///4GAD//////////////wn+AAAAAAAAAAAAAAAAAP/////+AAAAAAAAAAAP///8P4j//////////////wHwAAAAAAAAAAAAAAAAAP/////8AAAAAAAAAAAf/////////////////////4HAAAAAAAAAAAAAAAAAAH/////8AAAAAAAAAAAf/////////////////////wCAAAAAAAAAAAAAAAAAAD/////8AAAAAAAAAAAf/////////////////////4AAAAAAAAAAAAAAAAAAAB///hg8AAAAAAAAAAB//////////v///////////4AAAAAAAAAAAAAAAAAAAD///AA/AAAAAAAAAAD///////9//3///////////wAAAAAAAAAAAAAAAAAAAB///AAfgAAAAAAAAAH//////////9///////////gAAAAAAAAAAAAAAAAAAAAf//AAPAAAAAAAAAAP//////////+///////////QAAAAAAAAAAAAAAAAAAAAd/+AAEAAAAAAAAAAP//////////////////////4AAAAAAAAAAAAAAAAAAAAI/+AAuAAAAAAAAAAf////////////Af////////wAAAAAAAAAAAAAAAAAAAAAf+AB/gAAAAAAAAAf////////v///gP///////5wAAAAAAAAAAAAAAAAAAAAAP/A4v4AAAAAAAAA/////////////AH///////ggAAAAAAAAAAAAAgAAAAAAAf/B8B9wAAAAAAAAf////////3///AD//8P//YAAAAAAAAAAAAAABwAAAAAAAP/n8Ab9AAAAAAAAf////////z//+AA//4H/+8AAAAAAAAAAAAAAAgAAAAAAAH//4AH/gAAAAAAAf////////7//8AA//gH/+4AwAAAAAAAAAAAAAAAAAAAAAD//4AD9AAAAAAAAf////////9//4AA//AH//QB4AAAAAAAAAAAAAAAAAAAAAAf//AAAAAAAAAAA/////////8//gAA/+AH//gB4AAAAAAAAAAAAAAAAAAAAAAH//gAAAAAAAAAA/////////+/+AAAf8AD//wB4AAAAAAAAAAAAAAAAAAAAAAAH/wAAAAAAAAAA///////////8AAAf4AAf/wB8AAAAAAAAAAAAAAAAAAAAAAAD/gAAAAAAAAAA///////////gAAAP4AAf/wA+AAAAAAAAAAAAAAAAAAAAAAAA/wBAAAAAAAAA//////////+YAAAP4AAf/wAPAAAAAAAAAAAAAAAAAAAAAAAAHgP/KAAAAAAAf/////////38AAAH4AAO/wBfgAAAAAAAAAAAAAAAAAAAAAAAHyf//AAAAAAAP//////////8AAAH4AAcfgDpAAAAAAAAAAAAAAAAAAAAAAAAD////AAAAAAAH//////////8AAAH8AAcOAHHgAAAAAAAAAAAAAAAAAAAAAAAB////gAAAAAAD//////////4AAAD8AAeEACPgAAAAAAAAAAAAAAAAAAAAAAAA////wAAAAAAD//////////4AAABeAAPAAMfwAAAAAAAAAAAAAAAAAAAAAAAAE////gAAAAAB//////////wAAAAeAAHgAePgAAAAAAAAAAAAAAAAAAAAAAAAB////wAAAAAAf/////////wAAAAMAA3wA/CAAAAAAAAAAAAAAAAAAAAAAAAAA////4AAAAAAP/B///////gAAAAAAB7wB/AAAAAAAAAAAAAAAAAAAAAAAAAAB////8AAAAAACAA///////AAAAAAAA/wH+AAAAAAAAAAAAAAAAAAAAAAAAAAD////8AAAAAAAAAH/////+AAAAAAAAf4f+AIAAAAAAAAAAAAAAAAAAAAAAAAD////+AAAAAAAAAP/////8AAAAAAAAP4/+8cAAAAAAAAAAAAAAAAAAAAAAAAH////+AAAAAAAAAP/////4AAAAAAAAPw//+cgAAAAAAAAAAAAAAAAAAAAAAAH/////4AAAAAAAAP/////gAAAAAAAAH4//8JwAAAAAAAAAAAAAAAAAAAAAAAP/////+AAAAAAAAP/////gAAAAAAAAD8f/4D7wAAAAAAAAAAAAAAAAAAAAAAP//////4AAAAAAAH/////AAAAAAAAAD+f/4j/+AAAAAAAAAAAAAAAAAAAAAAH//////8AAAAAAAD////+AAAAAAAAAB+P753//gAAAAAAAAAAAAAAAAAAAAAP///////gAAAAAAD////8AAAAAAAAAA+Axcif/ywAAAAAAAAAAAAAAAAAAAAP///////wAAAAAAB////8AAAAAAAAAAfgAcAf//5AAAAAAAAAAAAAAAAAAAAP///////wAAAAAAB////8AAAAAAAAAAP+AIAd/+zoAAAAAAAAAAAAAAAAAAAH///////wAAAAAAA////8AAAAAAAAAAD/mogJ/8BcAAAAAAAAAAAAAAAAAAAD///////wAAAAAAA////8AAAAAAAAAAB///wA/+ALAAAAAAAAAAAAAAAAAAAD///////gAAAAAAA////+AAAAAAAAAAAAnvgAOPgHgAAAAAAAAAAAAAAAAAAB///////gAAAAAAA////+AAAAAAAAAAAABCAgCHwDAAAAAAAAAAAAAAAAAAAA///////AAAAAAAAf///+AQAAAAAAAAAAAAB+HAgAAAAAAAAAAAAAAAAAAAAA//////+AAAAAAAA/////A4AAAAAAAAAAAAD/HAAAAAAAAAAAAAAAAAAAAAAAf/////8AAAAAAAA/////A4AAAAAAAAAAAA3+HgAAAAAAAAAAAAAAAAAAAAAAf/////8AAAAAAAB/////B4AAAAAAAAAAAD/+HwAAAAAAAAAAAAAAAAAAAAAAP/////8AAAAAAAB////+P4AAAAAAAAAAAH//HwAABABAAAAAAAAAAAAAAAAAH/////8AAAAAAAB////+f4AAAAAAAAAAAP///4AADgDAAAAAAAAAAAAAAAAAB/////8AAAAAAAB////8fwAAAAAAAAAAAf///4AABAHAAAAAAAAAAAAAAAAAAf////4AAAAAAAB////wfwAAAAAAAAAAAf///4AAAACAAAAAAAAAAAAAAAAAAf////4AAAAAAAA////AfwAAAAAAAAAAD////+AAIAAAAAAAAAAAAAAAAAAAAf////4AAAAAAAA////AfwAAAAAAAAAAf/////AAcAAAAAAAAAAAAAAAAAAAAf////wAAAAAAAAf///A/gAAAAAAAAAA//////AAOAAAAAAAAAAAAAAAAAAAAf////gAAAAAAAAf///g/gAAAAAAAAAB//////gAEAAAAAAAAAAAAAAAAAAAAf////AAAAAAAAAf///AfgAAAAAAAAAB//////wAAAAAAAAAAAAAAAAAAAAAA////4AAAAAAAAAP///AfAAAAAAAAAAD//////4AAAAAAAAAAAAAAAAAAAAAA////gAAAAAAAAAP//+AOAAAAAAAAAAB//////8AAAAAAAAAAAAAAAAAAAAAA////AAAAAAAAAAP//8AEAAAAAAAAAAD//////8AAAAAAAAAAAAAAAAAAAAAA////AAAAAAAAAAP//8AAAAAAAAAAAAB//////8AAAAAAAAAAAAAAAAAAAAAA////AAAAAAAAAAH//4AAAAAAAAAAAAA//////+AAAAAAAAAAAAAAAAAAAAAA///+AAAAAAAAAAD//wAAAAAAAAAAAAA//////8AAAAAAAAAAAAAAAAAAAAAB///+AAAAAAAAAAD//wAAAAAAAAAAAAA//////8AAAAAAAAAAAAAAAAAAAAAB///8AAAAAAAAAAB//gAAAAAAAAAAAAAf/////8AAAAAAAAAAAAAAAAAAAAAA///4AAAAAAAAAAB//AAAAAAAAAAAAAAf/////4AAAAAAAAAAAAAAAAAAAAAB///wAAAAAAAAAAB/+AAAAAAAAAAAAAA//AP//wAAAAAAAAAAAAAAAAAAAAAB///gAAAAAAAAAAA/4AAAAAAAAAAAAAAf8AP//wAABAAAAAAAAAAAAAAAAAAD///AAAAAAAAAAAAYAAAAAAAAAAAAAAAOAAF//gAADgAAAAAAAAAAAAAAAAAD//8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA//gAABwAAAAAAAAAAAAAAAAAH//8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf/gAAA8AAAAAAAAAAAAAAAAAD//4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/AAAA+AAAAAAAAAAAAAAAAAD//gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABYAAAB8AAAAAAAAAAAAAAAAAH/+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcAAAD8AAAAAAAAAAAAAAAAAH/8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA+AAAH4AAAAAAAAAAAAAAAAAH/8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA+AAAPwAAAAAAAAAAAAAAAAAD/4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAcAAA/AAAAAAAAAAAAAAAAAAH/wAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAIAAB+AAAAAAAAAAAAAAAAAAP/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD8AAAAAAAAAAAAAAAAAAP/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB4AAAAAAAAAAAAAAAAAAP/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAwAAAAAAAAAAAAAAAAAAf/AAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAf+AAAAAAAAAAAAAAAAAAAAAAOAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP8AwAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP8B4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH8AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD/gAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPYAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAB+AAAAAAAAAAAAAAAAAAH4AAAAAAB4HgAD+AAAAAAAAAAAAAAAAAAAAAAAAAD4AAAAAAAAAAAAAAAAAA//AAAD//////////wAAAAAAAAAAAAAAAAAAAAAAAHwAAAAAAAAAAAAAAAAAf///4Af///////////AAAAAAAAAAAAAAAAAAAAAAA34AAAAAAAAAAAAAAAPz////8B/////////////wAAAAAAAAAAAAAAAAAAAAB/8AAAAAAAAAAA8/8///////+f/////////////+AAAAAAAAAAAAAAAAAAAAH/+AAAAAAAAZ////////////8////////////////4AAAAAAAAAAAAAAAAAAP//AAAAAAAB//////////////////////////////8AAAAAAAAABmAAB8f+HH//AAAAAAAP//////////////////////////////8AAAAAAAAP///oD///////AAAAAAAf//////////////////////////////4AAAAAAD/////////////+AAAAAAB///////////////////////////////gAAAAAAH/////////////4AAAAAP///////////////////////////////8AAAAAD///////////////gAAAAD////////////////////////////////4AAAADn//////////////wAAB8A/////////////////////////////////+AAAAH7/////////////4AAAH+B//////////////////////////////////AAAAD9/////////////+A/A//A/////////////////////////////////+AAAAA4f///////////////h/+f////////////////////////////////+AAAAAAA////////////////h////////////////////////////////////wAAAAAAf/////////////////////////////////////////////////////gA+/gAf//////////////////////////////////////////////////////8//wAP//////////////////////////////////////////////////////++/gAA//////////////////////////////////////////////////////8AAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'); const a = new Uint8Array(s.length);
+    for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return a; })();
+  function sifaIsWater(lat, lon) {
+    const r = Math.min(179, Math.max(0, Math.floor(90 - lat)));
+    const c = Math.min(359, Math.max(0, Math.floor(lon + 180)));
+    return !((sifaMask[r * 45 + (c >> 3)] >> (7 - (c & 7))) & 1);
+  }
+  function sifaKm(lat1, lon1, lat2, lon2) {
+    const rad = Math.PI / 180, R = 6371;
+    const dLa = (lat2 - lat1) * rad, dLo = (lon2 - lon1) * rad;
+    const a = Math.sin(dLa / 2) * Math.sin(dLa / 2)
+      + Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin(dLo / 2) * Math.sin(dLo / 2);
+    return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+  let sifaPadOn = false, sifaMarker = null, sifaPollTimer = null;
+  let sifaPos = null, sifaHeading = 0, sifaSailTimer = null, sifaCooldownUntil = 0;
+  let sifaMe = {}, sifaBoundsRect = null;
+  let sifaAreaMode = false, sifaAreaPts = [], sifaAreaMarks = [];
   let sifaPushTimer = null, sifaNeedPush = false;
-  const sifaShips = {};   // user -> L.marker (чужие корабли)
+  const sifaShips = {};   // чужие кораблики (анонимные)
   const SIFA_DIRS = {up: 0, right: 90, down: 180, left: 270};
-  function sifaIcon(h) {
+
+  function sifaIcon(h, revealed) {
+    const tri = revealed
+      ? '<svg width="56" height="56" viewBox="0 0 56 56" style="position:absolute;inset:0">'
+        + '<polygon points="28,2 54,50 2,50" fill="rgba(255,70,70,.30)" '
+        + 'stroke="rgba(255,70,70,.95)" stroke-width="2.5"/></svg>'
+      : '';
     return L.divIcon({
-      html: '<div class="mk"><div style="font-size:32px;line-height:1;transform:rotate('
-        + (Math.round(h) + 45) + 'deg);filter:drop-shadow(0 0 5px rgba(45,212,191,.55))'
-        + ' drop-shadow(0 1px 2px rgba(0,0,0,.5))">⛵</div></div>',
-      className: 'emoji-marker',
-      iconSize: [40, 40], iconAnchor: [20, 20], popupAnchor: [0, -22],
+      html: '<div style="position:relative;width:56px;height:56px">' + tri
+        + '<div style="position:absolute;inset:0;display:flex;flex-direction:column;'
+        + 'align-items:center;justify-content:center;transform:rotate(' + Math.round(h) + 'deg)">'
+        + '<div style="font-size:13px;line-height:1;color:#7dd3fc;text-shadow:0 0 5px #000">▲</div>'
+        + '<div style="font-size:26px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))">⛵</div>'
+        + '</div></div>',
+      className: 'emoji-marker', iconSize: [56, 56], iconAnchor: [28, 28], popupAnchor: [0, -26],
     });
   }
-  function sifaRender() {
+  function sifaRender(revealed) {
     if (!sifaMarker) {
-      sifaMarker = L.marker([sifaPos.lat, sifaPos.lon], {icon: sifaIcon(sifaHeading)}).addTo(map);
-      sifaMarker.bindPopup('⛵ Твой корабль в «Сифе»');
+      sifaMarker = L.marker([sifaPos.lat, sifaPos.lon], {icon: sifaIcon(sifaHeading, revealed)}).addTo(map);
+      sifaMarker.bindPopup('⛵ Твой кораблик — догонялки «Сифа»');
     }
     sifaMarker.setLatLng([sifaPos.lat, sifaPos.lon]);
-    sifaMarker.setIcon(sifaIcon(sifaHeading));
+    sifaMarker.setIcon(sifaIcon(sifaHeading, revealed));
   }
   function sifaPush() {
-    if (!sifaMode || !sifaPos) return;
+    if (!sifaPos) return;
     fetch('/sifamove', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName(),
-        lat: sifaPos.lat, lon: sifaPos.lon, heading: sifaHeading})
-    }).catch(() => {});
+      body: JSON.stringify({chat: chat, user: userKey(), lat: sifaPos.lat, lon: sifaPos.lon, heading: sifaHeading})
+    }).then(r => r.json().catch(() => ({})))
+      .then(d => {
+        if (d.error) { status('⚠️ ' + d.error); return; }
+        if (d.teleported && typeof d.lat === 'number') {
+          sifaPos = {lat: d.lat, lon: d.lon};
+          sifaRender((sifaMe.motor_until || 0) > Date.now() / 1000);
+          map.panTo([d.lat, d.lon]);
+          status('🌀 Сифа передана! Тебя телепортировало в новую точку');
+          sifaPoll();
+        }
+      }).catch(() => {});
   }
   function sifaSchedulePush() {
     sifaNeedPush = true;
     if (sifaPushTimer) return;
     sifaPushTimer = setInterval(() => {
-      if (!sifaMode) { clearInterval(sifaPushTimer); sifaPushTimer = null; return; }
+      if (!sifaPadOn) { clearInterval(sifaPushTimer); sifaPushTimer = null; return; }
       if (sifaNeedPush) { sifaNeedPush = false; sifaPush(); }
     }, 400);
   }
-  function sifaStartMove(dir) {
-    sifaStopMove();
-    sifaHeading = SIFA_DIRS[dir];
-    sifaRender();
-    sifaMoveTimer = setInterval(() => {
-      const rad = sifaHeading * Math.PI / 180;
-      const step = SIFA_SPEED_KM_S * (SIFA_TICK_MS / 1000);
-      const dLat = step / 111.32 * Math.cos(rad);
-      const dLon = step / (111.32 * Math.cos(sifaPos.lat * Math.PI / 180)) * Math.sin(rad);
-      sifaPos = {lat: Math.max(-85, Math.min(85, sifaPos.lat + dLat)), lon: sifaPos.lon + dLon};
-      sifaRender();
-      map.panTo([sifaPos.lat, sifaPos.lon]);
-      sifaSchedulePush();
-    }, SIFA_TICK_MS);
+  function sifaDrawBounds(area) {
+    if (sifaBoundsRect) { map.removeLayer(sifaBoundsRect); sifaBoundsRect = null; }
+    if (!area) return;
+    sifaBoundsRect = L.rectangle([[area[0], area[1]], [area[2], area[3]]],
+      {className: 'sifa-bounds', interactive: false}).addTo(map);
   }
-  function sifaStopMove() {
-    if (sifaMoveTimer) { clearInterval(sifaMoveTimer); sifaMoveTimer = null; }
+  function sifaFmtLeft(until) {
+    let s = Math.max(0, Math.ceil(until - Date.now() / 1000));
+    const m = Math.floor(s / 60); s %= 60;
+    return m + ':' + String(s).padStart(2, '0');
   }
-  async function sifaLoadShips() {
-    if (!sifaMode) return;
+  function sifaUpdateCtrl() {
+    const now = Date.now() / 1000;
+    const freezeEl = document.getElementById('sifaFreezeInfo');
+    const motorBtn = document.getElementById('sifaMotorBtn');
+    const sailBtn = document.getElementById('sifaSailBtn');
+    if ((sifaMe.frozen_until || 0) > now) {
+      freezeEl.style.display = 'block';
+      freezeEl.textContent = '❄ Ты принял Сифу — неподвижен ещё ' + sifaFmtLeft(sifaMe.frozen_until);
+      sailBtn.disabled = true;
+    } else {
+      freezeEl.style.display = 'none';
+      if (now >= sifaCooldownUntil && !sifaSailTimer) sailBtn.disabled = false;
+    }
+    if (sifaMe.sifa) {
+      motorBtn.style.display = '';
+      if ((sifaMe.motor_until || 0) > now) {
+        motorBtn.disabled = true;
+        motorBtn.textContent = '🚤 V8: ' + sifaFmtLeft(sifaMe.motor_until);
+      } else {
+        motorBtn.disabled = false;
+        motorBtn.textContent = '🚤 МоторВКЛ';
+      }
+    } else motorBtn.style.display = 'none';
+  }
+  async function sifaPoll() {
+    if (!sifaPos) return;
     const r = await fetch('/sifastate?chat=' + chat + '&user='
       + encodeURIComponent(userKey()) + '&name=' + encodeURIComponent(userName()));
-    const data = await r.json().catch(() => ({}));
+    const d = await r.json().catch(() => ({}));
+    const now = Date.now() / 1000;
+    if (d.me) sifaMe = d.me;
+    if (d.area) sifaDrawBounds(d.area);
     const seen = {};
-    (data.ships || []).forEach(s => {
-      if (s.mine) return;
+    (d.ships || []).forEach(s => {
+      if (s.mine) {
+        if (sifaKm(sifaPos.lat, sifaPos.lon, s.lat, s.lon) > 300) {
+          sifaPos = {lat: s.lat, lon: s.lon};
+          sifaRender(now < (sifaMe.motor_until || 0));
+          map.panTo([s.lat, s.lon]);
+        }
+        return;
+      }
       seen[s.user] = true;
-      let mk = sifaShips[s.user];
-      if (!mk) {
-        mk = L.marker([s.lat, s.lon], {icon: sifaIcon(s.heading || 0)}).addTo(map);
-        mk.bindPopup('⛵ Корабль <b>' + escapeHtml(s.name) + '</b> — в «Сифе»!');
+      const ic = sifaIcon(s.heading || 0, !!s.revealed);
+      if (!sifaShips[s.user]) {
+        const mk = L.marker([s.lat, s.lon], {icon: ic}).addTo(map);
+        mk.bindPopup(s.revealed ? '🚤💨 Этот кораблик — СИФА с МоторомV8!' : '⛵ Загадочный кораблик');
         sifaShips[s.user] = mk;
       } else {
-        mk.setLatLng([s.lat, s.lon]);
-        mk.setIcon(sifaIcon(s.heading || 0));
+        sifaShips[s.user].setLatLng([s.lat, s.lon]);
+        sifaShips[s.user].setIcon(ic);
       }
     });
     Object.keys(sifaShips).forEach(u => {
       if (!seen[u]) { map.removeLayer(sifaShips[u]); delete sifaShips[u]; }
     });
+    sifaUpdateCtrl();
   }
-  window.startSifa = () => {
-    if (sifaMode) return;
-    const me = (lastMarkers || []).find(mm => mm.user === userKey());
-    const c = me ? {lat: me.lat, lon: me.lon} : map.getCenter();
-    sifaPos = {lat: c.lat, lon: (c.lng !== undefined ? c.lng : c.lon)};
-    sifaHeading = 0;
-    sifaMode = true;
-    sifaRender();
-    document.getElementById('sifaPad').style.display = 'grid';
-    status('⛵ Сифа! Корабль на воде — правь джойстиком 🎮 (стрелки — с клавиатуры)');
+  function sifaStopSail(withCooldown) {
+    if (sifaSailTimer) { clearInterval(sifaSailTimer); sifaSailTimer = null; }
+    if (withCooldown) {
+      sifaCooldownUntil = Date.now() / 1000 + SIFA_PRESS_SEC;
+      setTimeout(() => {
+        if (!sifaSailTimer && (sifaMe.frozen_until || 0) <= Date.now() / 1000)
+          document.getElementById('sifaSailBtn').disabled = false;
+      }, SIFA_PRESS_SEC * 1000);
+    }
     sifaPush();
-    sifaLoadShips();
-    sifaPollTimer = setInterval(sifaLoadShips, 2500);
+  }
+  function sifaStartSail() {
+    const now = Date.now() / 1000;
+    if (now < sifaCooldownUntil || !sifaPos || sifaSailTimer) return;
+    if ((sifaMe.frozen_until || 0) > now) {
+      status('❄ Ты неподвижен — подожди отсчёт под джойстиком'); return;
+    }
+    const motorOn = (sifaMe.motor_until || 0) > now;
+    const speed = SIFA_SPEED * (motorOn ? SIFA_MOTOR_MULT : 1);
+    const t0 = Date.now();
+    document.getElementById('sifaSailBtn').disabled = true;
+    status('⛵ Плывём: ' + (motorOn ? '4500' : '1500') + ' км за 10 сек…');
+    sifaSailTimer = setInterval(() => {
+      const el = (Date.now() - t0) / 1000;
+      if (el >= SIFA_PRESS_SEC) { sifaStopSail(true); return; }
+      const rad = sifaHeading * Math.PI / 180;
+      const step = speed * (SIFA_TICK_MS / 1000);
+      let nLat = sifaPos.lat + step / 111.32 * Math.cos(rad);
+      let nLon = sifaPos.lon + step / (111.32 * Math.cos(sifaPos.lat * Math.PI / 180)) * Math.sin(rad);
+      nLat = Math.max(-85, Math.min(85, nLat));
+      if (!sifaIsWater(nLat, nLon)) {
+        sifaStopSail(true);
+        status('🏖 Берег! Кораблик остановился у суши');
+        return;
+      }
+      sifaPos = {lat: nLat, lon: nLon};
+      sifaRender(motorOn);
+      map.panTo([nLat, nLon]);
+      sifaSchedulePush();
+    }, SIFA_TICK_MS);
+  }
+  function sifaPickArea(ll) {
+    sifaAreaPts.push([ll.lat, ll.lng]);
+    sifaAreaMarks.push(L.marker([ll.lat, ll.lng], {icon: L.divIcon({
+      html: '<div style="font-size:20px">📌</div>',
+      className: 'emoji-marker', iconSize: [24, 24], iconAnchor: [12, 12]})}).addTo(map));
+    if (sifaAreaPts.length < 4) {
+      status('🚧 Угол ' + sifaAreaPts.length + '/4 — кликни следующий');
+      return;
+    }
+    const pts = sifaAreaPts.slice();
+    fetch('/sifaarea', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: userKey(), points: pts})
+    }).then(r => r.json().catch(() => ({})))
+      .then(d => {
+        status(d.error ? '⚠️ ' + d.error : '🚧 Границы Сифы сохранены!');
+        sifaAreaMode = false;
+        document.getElementById('sifaAreaBtn').style.background = '#888';
+        sifaAreaMarks.forEach(m => map.removeLayer(m)); sifaAreaMarks = [];
+        if (d.area) sifaDrawBounds(d.area);
+      }).catch(() => status('⚠️ Границы не сохранились — нет связи'));
+  }
+  const sifaBtn = document.getElementById('sifaBtn');
+  const sifaPadEl = document.getElementById('sifaPad');
+  const sifaCtrlEl = document.getElementById('sifaCtrl');
+  sifaBtn.onclick = async () => {
+    if (sifaPadOn) {   // прячем только джойстик — кораблик остаётся навсегда
+      sifaPadOn = false;
+      sifaPadEl.style.display = 'none';
+      sifaCtrlEl.style.display = 'none';
+      clearInterval(sifaPollTimer); sifaPollTimer = null;
+      status('⛵ Джойстик убран — кораблик остался на карте');
+      return;
+    }
+    status('⛵ Готовим кораблик…');
+    try {
+      const r = await fetch('/sifaspawn', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({chat: chat, user: userKey(), name: userName()})
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d.error) { status('⚠️ ' + (d.error || 'не вышло справить кораблик')); return; }
+      sifaPos = {lat: d.lat, lon: d.lon};
+      sifaPadOn = true;
+      sifaRender(false);
+      map.panTo([d.lat, d.lon]);
+      sifaPadEl.style.display = 'grid';
+      sifaCtrlEl.style.display = 'flex';
+      status(d.sifa ? '😱 О нет… у тебя СИФА! Избавься: подплыви к чужому кораблику ближе 1000 км'
+                    : '⛵ Кораблик на воде! Курс — стрелками ▲◀▼▶, ход — кнопкой «Плыть»');
+      sifaPoll();
+      clearInterval(sifaPollTimer);
+      sifaPollTimer = setInterval(sifaPoll, 2500);
+    } catch (err) { status('⚠️ Нет связи с корабликом'); }
   };
-  window.exitSifa = () => {
-    if (!sifaMode) return;
-    sifaMode = false;
-    sifaStopMove();
-    clearInterval(sifaPollTimer); sifaPollTimer = null;
-    clearInterval(sifaPushTimer); sifaPushTimer = null;
-    fetch('/sifaexit', {
+  document.getElementById('sifaHideBtn').onclick = () => { if (sifaPadOn) sifaBtn.onclick(); };
+  document.getElementById('sifaSailBtn').onclick = () => sifaStartSail();
+  document.getElementById('sifaMotorBtn').onclick = async () => {
+    const r = await fetch('/sifamotor', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({chat: chat, user: userKey()})
-    }).catch(() => {});
-    if (sifaMarker) { map.removeLayer(sifaMarker); sifaMarker = null; }
-    Object.keys(sifaShips).forEach(u => { map.removeLayer(sifaShips[u]); delete sifaShips[u]; });
-    document.getElementById('sifaPad').style.display = 'none';
-    status('⛵ Сифа окончена — корабль пришвартован');
+    });
+    const d = await r.json().catch(() => ({}));
+    status(d.error ? '⚠️ ' + d.error : '🚤💨 МоторV8 активирован на 10 минут!');
+    sifaPoll();
   };
   document.querySelectorAll('#sifaPad button[data-dir]').forEach(btn => {
-    const dir = btn.getAttribute('data-dir');
-    const start = e => { e.preventDefault(); sifaStartMove(dir); };
-    const stop = () => { sifaStopMove(); sifaPush(); };
-    btn.addEventListener('touchstart', start, {passive: false});
-    btn.addEventListener('mousedown', start);
-    btn.addEventListener('touchend', stop);
-    btn.addEventListener('mouseup', stop);
-    btn.addEventListener('mouseleave', stop);
+    btn.addEventListener('click', e => {
+      e.preventDefault();
+      sifaHeading = SIFA_DIRS[btn.getAttribute('data-dir')];
+      sifaRender((sifaMe.motor_until || 0) > Date.now() / 1000);
+    });
   });
-  document.getElementById('sifaExitBtn').onclick = () => exitSifa();
-  document.getElementById('sifaBtn').onclick = () => { sifaMode ? exitSifa() : startSifa(); };
+  const sifaAreaBtn = document.getElementById('sifaAreaBtn');
+  if (SIFA_AREA_ADMINS.indexOf(userKey()) >= 0) sifaAreaBtn.style.display = '';
+  sifaAreaBtn.onclick = () => {
+    sifaAreaMode = !sifaAreaMode;
+    sifaAreaPts = [];
+    sifaAreaMarks.forEach(m => map.removeLayer(m)); sifaAreaMarks = [];
+    if (sifaAreaMode) { try { setMode(null); } catch (e) {} }
+    sifaAreaBtn.style.background = sifaAreaMode ? '#e05a3a' : '#888';
+    status(sifaAreaMode ? '🚧 Кликни по карте УГОЛ 1/4 области игры' : '🚧 Режим границ выключен');
+  };
   document.addEventListener('keydown', e => {
-    if (!sifaMode || e.repeat) return;
+    if (!sifaPadOn || e.repeat) return;
     const k = {ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right'}[e.key];
-    if (k) sifaStartMove(k);
+    if (k) {
+      sifaHeading = SIFA_DIRS[k];
+      sifaRender((sifaMe.motor_until || 0) > Date.now() / 1000);
+    }
+    if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); sifaStartSail(); }
   });
-  document.addEventListener('keyup', e => {
-    if (!sifaMode) return;
-    if (e.key.indexOf('Arrow') === 0) { sifaStopMove(); sifaPush(); }
-  });
+  setInterval(sifaUpdateCtrl, 1000);
   window.islandPoop = async () => {
     const r = await fetch('/islandpoop', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -2903,10 +3110,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1485"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1486"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1485 -->
+<!-- build:2026-11-01-1486 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -3863,6 +4070,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   setInterval(load, 60000);  // автообновление; позиции писем считает сервер по времени
 
   map.on('click', e => {
+    if (sifaAreaMode) { sifaPickArea(e.latlng); return; }
     if (distMode) {
       pickPoint({lat: e.latlng.lat, lon: e.latlng.lng, name: 'точка на карте'});
       return;
@@ -4004,17 +4212,26 @@ class AppHandler(BaseHTTPRequestHandler):
             viewer_name = params.get("name", [""])[0][:64]
             now = time.time()
             ships = []
+            me = None
+            area = None
             with sifa_lock:
-                for u, s in list(sifa_state.get(chat_id, {}).items()):
-                    if now - s["ts"] > SIFA_SHIP_TTL_SEC:
-                        del sifa_state[chat_id][u]
-                        continue
-                    ships.append({
-                        "user": u, "name": s["name"],
-                        "lat": s["lat"], "lon": s["lon"], "heading": s["heading"],
-                        "mine": viewer_matches(u, viewer, viewer_name, chat_id),
-                    })
-            self._json_response(200, {"ships": ships})
+                entry = sifa_state.get(chat_id)
+                if entry:
+                    area = entry.get("area")
+                    for u, s in list(entry["ships"].items()):
+                        mine = viewer_matches(u, viewer, viewer_name, chat_id)
+                        if mine:
+                            me = {"sifa": bool(s.get("sifa")),
+                                  "frozen_until": s.get("frozen_until", 0),
+                                  "motor_until": s.get("motor_until", 0),
+                                  "lat": s["lat"], "lon": s["lon"], "heading": s["heading"]}
+                        ships.append({
+                            "user": u,
+                            "lat": s["lat"], "lon": s["lon"], "heading": s["heading"],
+                            "mine": mine,
+                            "revealed": now < s.get("motor_until", 0),
+                        })
+            self._json_response(200, {"ships": ships, "area": area, "me": me})
         elif url.path == "/geodata":
             chat_id = int(params.get("chat", ["0"])[0])
             viewer = params.get("user", [""])[0]
@@ -4366,6 +4583,15 @@ class AppHandler(BaseHTTPRequestHandler):
         if url.path == "/sifamove":
             self._handle_sifa_move_post()
             return
+        if url.path == "/sifaspawn":
+            self._handle_sifa_spawn_post()
+            return
+        if url.path == "/sifaarea":
+            self._handle_sifa_area_post()
+            return
+        if url.path == "/sifamotor":
+            self._handle_sifa_motor_post()
+            return
         if url.path == "/sifaexit":
             self._handle_sifa_exit_post()
             return
@@ -4612,8 +4838,35 @@ class AppHandler(BaseHTTPRequestHandler):
         letters_save_to_github()
         self._json_response(200, result)
 
+    def _handle_sifa_spawn_post(self) -> None:
+        """СИФА: создать кораблик (один на игрока, спавн только в открытой воде)."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        import random as _rnd
+        with sifa_lock:
+            entry = _sifa_entry(chat_id)
+            ships = entry["ships"]
+            ship = ships.get(user)
+            if ship is None:
+                lat, lon = sifa_random_water(entry.get("area"))
+                name = (str(payload.get("name", ""))[:32]).strip() or user
+                ship = {"lat": lat, "lon": lon, "heading": 0, "ts": time.time(),
+                        "name": name, "sifa": False, "frozen_until": 0, "motor_until": 0}
+                ships[user] = ship
+            if ships and not any(s.get("sifa") for s in ships.values()):
+                _rnd.choice(list(ships.values()))["sifa"] = True
+        sifa_save_to_github()
+        self._json_response(200, {"ok": True, "lat": ship["lat"], "lon": ship["lon"],
+                                  "sifa": bool(ship.get("sifa"))})
+
     def _handle_sifa_move_post(self) -> None:
-        """СИФА: корабль игрока движется — принимаем новую позицию."""
+        """СИФА: новая позиция корабля + передача Сифы по близости."""
         try:
             length = int(self.headers.get("Content-Length", 0))
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
@@ -4628,22 +4881,77 @@ class AppHandler(BaseHTTPRequestHandler):
         if not (-85.0 <= lat <= 85.0 and -180.0 <= lon <= 180.0):
             self._json_response(400, {"error": "координаты за пределами карты"})
             return
+        now = time.time()
+        teleported = False
         with sifa_lock:
-            ships = sifa_state.setdefault(chat_id, {})
-            prev = ships.get(user)
-            if prev is not None:
-                jump = haversine_km(prev["lat"], prev["lon"], lat, lon)
-                if jump > SIFA_MAX_JUMP_KM:
-                    self._json_response(409, {"error": "слишком резкий скачок"})
-                    return
-            name = (str(payload.get("name", ""))[:32]).strip() or user
-            ships[user] = {"lat": lat, "lon": lon, "heading": heading,
-                           "ts": time.time(), "name": name}
+            entry = _sifa_entry(chat_id)
+            ships = entry["ships"]
+            ship = ships.get(user)
+            if ship is None:
+                self._json_response(404, {"error": "кораблика ещё нет — нажми ⛵ в панели"})
+                return
+            if now < ship.get("frozen_until", 0):
+                self._json_response(403, {"error": "ты неподвижен — только что принял Сифу",
+                                          "frozen_until": ship["frozen_until"]})
+                return
+            jump = haversine_km(ship["lat"], ship["lon"], lat, lon)
+            if jump > SIFA_MAX_JUMP_KM:
+                self._json_response(409, {"error": "слишком резкий скачок"})
+                return
+            if sifa_is_land(lat, lon):
+                self._json_response(422, {"error": "кораблик не плавает по суше"})
+                return
+            area = entry.get("area")
+            if area and not (area[0] <= lat <= area[2] and area[1] <= lon <= area[3]):
+                self._json_response(422, {"error": "за границами игры «Сифа»"})
+                return
+            ship.update({"lat": lat, "lon": lon, "heading": heading, "ts": now})
+            if ship.get("sifa"):
+                for ou, os in ships.items():
+                    if ou == user or os.get("sifa"):
+                        continue
+                    if now < os.get("frozen_until", 0):
+                        continue
+                    if haversine_km(lat, lon, os["lat"], os["lon"]) <= SIFA_PASS_KM:
+                        os["sifa"] = True
+                        os["frozen_until"] = now + SIFA_FROZEN_SEC
+                        ship["sifa"] = False
+                        tlat, tlon = sifa_random_water(area)
+                        ship.update({"lat": tlat, "lon": tlon, "ts": now})
+                        teleported = True
+                        break
+            if ships and not any(s.get("sifa") for s in ships.values()):
+                import random as _rnd
+                _rnd.choice(list(ships.values()))["sifa"] = True
         sifa_save_to_github()
-        self._json_response(200, {"ok": True})
+        self._json_response(200, {"ok": True, "teleported": teleported,
+                                  "lat": ship["lat"], "lon": ship["lon"]})
 
-    def _handle_sifa_exit_post(self) -> None:
-        """СИФА: игрок вышел из режима — убираем его корабль."""
+    def _handle_sifa_area_post(self) -> None:
+        """СИФА: Sumai задаёт границы области игры (4 угла по карте)."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+            points = payload["points"]
+            assert len(points) == 4
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        if user not in SIFA_AREA_ADMINS:
+            self._json_response(403, {"error": "границы игры задаёт только Sumai"})
+            return
+        lats = [float(p[0]) for p in points]
+        lons = [float(p[1]) for p in points]
+        with sifa_lock:
+            entry = _sifa_entry(chat_id)
+            entry["area"] = [min(lats), min(lons), max(lats), max(lons)]
+        sifa_save_to_github()
+        self._json_response(200, {"ok": True, "area": entry["area"]})
+
+    def _handle_sifa_motor_post(self) -> None:
+        """СИФА: держатель Сифы включает МоторV8 — раскрытие + уведомление в чат."""
         try:
             length = int(self.headers.get("Content-Length", 0))
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
@@ -4652,12 +4960,27 @@ class AppHandler(BaseHTTPRequestHandler):
         except Exception:
             self._json_response(400, {"error": "bad request"})
             return
+        now = time.time()
         with sifa_lock:
-            ships = sifa_state.get(chat_id, {})
-            if user in ships:
-                del ships[user]
+            entry = sifa_state.get(chat_id) or {}
+            ship = (entry.get("ships") or {}).get(user)
+            if not ship or not ship.get("sifa"):
+                self._json_response(403, {"error": "МоторV8 — только у того, кто держит Сифу"})
+                return
+            ship["motor_until"] = now + SIFA_MOTOR_SEC
+            ship["ts"] = now
         sifa_save_to_github()
-        self._json_response(200, {"ok": True})
+        try:
+            tg_send_message(chat_id,
+                "🚤💨 Сифа обозначил себя! Активирован МоторV8 — 10 минут скорость ×3. "
+                "Ловите его, кораблики! ⛵")
+        except Exception as e:
+            print(f"[paint_bot] sifa motor notify: {e!r}", flush=True)
+        self._json_response(200, {"ok": True, "motor_until": ship["motor_until"]})
+
+    def _handle_sifa_exit_post(self) -> None:
+        """СИФА (устаревшее): корабль убрать нельзя — он остаётся навсегда."""
+        self._json_response(410, {"error": "кораблик остаётся на карте навсегда"})
 
     def _handle_volcano_post(self, url):
         """Извержение: пользователь целится меткой адресата — от вулкана летит розовая какашка."""
