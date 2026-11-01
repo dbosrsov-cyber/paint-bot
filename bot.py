@@ -320,6 +320,67 @@ METEOR_NOTIFY_TEXT = ("☄️ МЕТЕОРИТ! На карту чата упа�
                       "ускорять письма ✉️⏩")
 
 
+# Привязки Telegram-ID к существующим меткам: (chat_id, старый ключ, новый ключ = tg id).
+# Одноразовая миграция при старте: переименовывает ключ метки и все ссылки на него.
+MARKER_TG_BINDINGS = [
+    (-1002304715333, "Вита", "58334278"),
+]
+
+
+def apply_marker_bindings() -> None:
+    for chat_id, old_key, new_key in MARKER_TG_BINDINGS:
+        tag = f"bind_marker_{chat_id}_{old_key}_{new_key}"
+        if meteor_credits.get(tag):
+            continue
+        markers = geo_state.get(chat_id, {})
+        marker = markers.get(old_key)
+        if marker is not None:
+            markers[new_key] = markers.pop(old_key)
+            marker["user"] = new_key
+            for letter in letters_state.values():
+                if letter.get("chat") != chat_id:
+                    continue
+                if letter.get("from") == old_key:
+                    letter["from"] = new_key
+                if letter.get("to") == old_key:
+                    letter["to"] = new_key
+            for poop in poops_state.values():
+                if poop.get("chat") == chat_id and poop.get("to") == old_key:
+                    poop["to"] = new_key
+            for gift in gifts_state.values():
+                if gift.get("chat") != chat_id:
+                    continue
+                if gift.get("from") == old_key:
+                    gift["from"] = new_key
+                if gift.get("to") == old_key:
+                    gift["to"] = new_key
+            for isl in islands_state.values():
+                if isl.get("chat") != chat_id:
+                    continue
+                if isl.get("owner") == old_key:
+                    isl["owner"] = new_key
+                owners = isl.get("owners")
+                if owners and old_key in owners:
+                    isl["owners"] = [new_key if o == old_key else o for o in owners]
+                guest = isl.get("guest")
+                if guest and guest.get("user") == old_key:
+                    guest["user"] = new_key
+            skey_old = f"{chat_id}|{old_key}"
+            if skey_old in stardust_state:
+                skey_new = f"{chat_id}|{new_key}"
+                merged = stardust_state.pop(skey_old) + stardust_state.get(skey_new, 0)
+                stardust_state[skey_new] = merged
+            geo_save_to_github()
+            letters_save_to_github()
+            volcano_save_to_github()
+            meteor_save_to_github()
+            submarine_save_to_github()
+            islands_save_to_github()
+            logline(f"marker binding applied: chat={chat_id} {old_key} -> {new_key}")
+        meteor_credits[tag] = True
+        meteor_save_to_github()
+
+
 def viewer_matches(recipient: str, viewer: str, name: str, chat_id: int) -> bool:
     """Зритель == адресат? Ключ метки может отличаться от ключа Telegram WebApp
     (метки ставили и из браузера — по имени), поэтому совпадаем также по имени
@@ -1056,7 +1117,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1317 -->
+<!-- build:2026-11-01-1323 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2273,10 +2334,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1317"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1323"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1317 -->
+<!-- build:2026-11-01-1323 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -5548,6 +5609,7 @@ def main() -> None:
     meteor_load_from_github()
     submarine_load_from_github()
     islands_load_from_github()
+    apply_marker_bindings()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
