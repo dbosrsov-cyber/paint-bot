@@ -435,6 +435,13 @@ METEOR_CRATER_CLEANUP_CHATS = (-1002304715333,)   # «Другое измере�
 
 
 def meteor_cleanup_craters() -> None:
+    # Только в окне воскресной задачи (вс 01:00–06:00 МСК). При каждом старте бота
+    # чистить нельзя: Render перезапускает сервис при деплоях и простое — воронки
+    # стирались бы по несколько раз в день вместо раза в неделю.
+    now_msk = datetime.datetime.now(MSK_TZ)
+    if now_msk.weekday() != 6 or not (1 <= now_msk.hour < 6):
+        print(f"[paint_bot] meteor: уборка воронок пропущена (сейчас {now_msk.strftime('%a %H:%M')} МСК, окно — вс 01:00-06:00)", flush=True)
+        return
     for cid in METEOR_CRATER_CLEANUP_CHATS:
         m = meteor_state.get(cid)
         if m and m.get("craters"):
@@ -1117,7 +1124,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1464 -->
+<!-- build:2026-11-01-1467 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2617,10 +2624,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1464"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1467"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1464 -->
+<!-- build:2026-11-01-1467 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
