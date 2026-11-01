@@ -1117,7 +1117,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1441 -->
+<!-- build:2026-11-01-1446 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2521,10 +2521,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1441"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1446"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1441 -->
+<!-- build:2026-11-01-1446 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -5803,6 +5803,57 @@ async def on_anon_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await msg.reply_text("⚠️ Не получилось отправить — попробуй ещё раз.")
 
 
+GEO2_ANNOUNCE_FLAG = "geo2_release_announced.txt"  # флаг в data-репо: анонс релиза GEO2 отправлен
+
+
+async def announce_geo2_release_job(context) -> None:
+    """Одноразовый анонс GEO2 в чаты бета-теста. Флаг в data-репо не даёт повторить при рестарте."""
+    try:
+        urllib.request.urlopen(geo_github_request("GET", GEO2_ANNOUNCE_FLAG), timeout=15)
+        context.job.schedule_removal()  # анонс уже был — задача больше не нужна
+        return
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            print(f"[paint_bot] анонс GEO2: флаг проверить не вышло: {e!r}", flush=True)
+            return  # временная ошибка — повторим на следующем тике
+    except Exception as e:
+        print(f"[paint_bot] анонс GEO2: флаг проверить не вышло: {e!r}", flush=True)
+        return
+    text = (
+        "🌍✨ Друзья, привет!\n\n"
+        "Для вас полностью переработан интерфейс «ГеографииЧата» — теперь это удобная "
+        "панель инструментов сбоку, тёмная тема, «Мой сундук» с вашими сокровищами, "
+        "красивые окна и плавная карта. Все ваши метки, письма, подарки и события — на месте.\n\n"
+        "Посмотреть можно прямо сейчас — жмите «Открыть карту» 👇"
+    )
+    sent = 0
+    for cid in (GEO2_CHAT_ID, ANON_GROUP_ID):
+        try:
+            await context.bot.send_message(cid, text, reply_markup=geo2_keyboard(cid))
+            sent += 1
+        except Exception as e:
+            print(f"[paint_bot] анонс GEO2 в чат {cid} не ушёл: {e!r}", flush=True)
+    if sent == 0:
+        return  # ни в один чат не дошло — флаг не ставим, повторим через 2 мин
+    try:
+        body = {"content": base64.b64encode("2026-11-01".encode("utf-8")).decode("ascii")}
+        try:
+            current = json.load(urllib.request.urlopen(
+                geo_github_request("GET", GEO2_ANNOUNCE_FLAG), timeout=15))
+            body["sha"] = current["sha"]
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                raise
+        req = geo_github_request("PUT", GEO2_ANNOUNCE_FLAG,
+                               {"Content-Type": "application/json"})
+        req.data = json.dumps({**body, "message": "geo2 release announced"}).encode("utf-8")
+        urllib.request.urlopen(req, timeout=15)
+        print("[paint_bot] анонс GEO2 отправлен, флаг в data-репо выставлен", flush=True)
+    except Exception as e:
+        print(f"[paint_bot] анонс GEO2 ушёл, но флаг не записался: {e!r}", flush=True)
+    context.job.schedule_removal()
+
+
 def main() -> None:
     # Поднимаем сохранённые метки географии, письма и вулканы из GitHub (после перезапусков)
     geo_load_from_github()
@@ -5848,6 +5899,8 @@ def main() -> None:
     app.job_queue.run_repeating(volcano_spawn_job, interval=60.0, first=10.0)
     # метеориты: фоновое падение + уведомление в чат
     app.job_queue.run_repeating(meteor_fall_job, interval=60.0, first=20.0)
+    # одноразовый анонс релиза GEO2 (самоотключается после отправки)
+    app.job_queue.run_repeating(announce_geo2_release_job, interval=120.0, first=15.0)
     # подводные лодки: фоновый спавн в океанах БЕЗ уведомления в чат
     app.job_queue.run_repeating(submarine_spawn_job, interval=60.0, first=30.0)
     app.run_polling()
