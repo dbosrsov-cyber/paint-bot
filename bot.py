@@ -88,7 +88,7 @@ LETTER_TEST_SPEED_KM_PER_MIN = 500.0
 LETTER_TEST_PAIRS = set()
 # Письма, где отправитель ИЛИ адресат — из этого списка, летят в N раз быстрее
 # базовой скорости (Андрюха — далеко, США; 2.0 = 200 км за 10 мин)
-LETTER_FAST_SENDERS = {"Андрюха": 2.0}
+LETTER_FAST_SENDERS = {}   # 2026-11-01: у Андрюхи обычная скорость (метка переехала ближе)
 LETTER_MAX_TEXT = 500
 LETTER_READ_KEEP_SEC = 86400  # прочитанное письмо можно перечитывать сутки, потом удаляется
 # УДАЛЕНИЕ ЧАСТИЧНО ОТКЛЮЧЕНО (2026-10-26, по просьбе владельца): прочитанные письма
@@ -1117,7 +1117,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1331 -->
+<!-- build:2026-11-01-1357 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1167,8 +1167,8 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     transition:transform .12s ease, opacity .12s ease; }
   button:active { transform:scale(.95); opacity:.85; }
   #status { position:fixed; left:50%; bottom:calc(18px + env(safe-area-inset-bottom, 0px));
-    transform:translateX(-50%) translateY(10px); max-width:92vw; padding:10px 16px;
-    border-radius:14px; background:var(--card); color:var(--text); font-size:14px;
+    transform:translateX(-50%) translateY(10px); max-width:92vw; padding:5px 10px;
+    border-radius:10px; background:var(--card); color:var(--text); font-size:12px;
     opacity:0; transition:opacity .25s ease, transform .25s ease; pointer-events:none;
     z-index:2000; box-shadow:0 6px 24px var(--shadow); border:1px solid rgba(140,160,180,.2); }
   #status.show { opacity:1; transform:translateX(-50%) translateY(0); }
@@ -1190,7 +1190,13 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     -webkit-backdrop-filter: blur(12px); border-color: rgba(125,211,252,.18); color:#e8f1f8; }
   /* тонкая строка ника под картой */
   .namebar { padding:2px 10px; }
-  .namebar input { padding:3px 12px; font-size:13px; border-radius:999px; }
+  .namebar input { padding:5px 12px; font-size:13px; border-radius:999px; }
+  .namebar button { padding:4px 11px; font-size:15px; border-radius:999px;
+    background:transparent; color:var(--text); border:1px solid rgba(140,160,180,.35); }
+  .namebar button:hover { border-color:var(--accent); }
+  .dark-ui .namebar button { background: rgba(30,45,60,.5); color:#bfe3f7;
+    border-color: rgba(125,211,252,.22); }
+  .dark-ui .namebar button:hover { border-color:#2dd4bf; }
   /* левая прозрачная панель инструментов (FR24-стиль) */
   .toolbar { position:absolute; left:10px; top:50%; transform:translateY(-50%); z-index:1100;
     display:flex; flex-direction:column; gap:8px; padding:10px 8px; border-radius:18px;
@@ -1236,8 +1242,9 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     font-size:10px; border-radius:8px 0 0 0; }
   .leaflet-control-attribution a { color:var(--link) !important; }
   /* панель письма — прилипает к низу как шторка */
-  #letterBar { position:sticky; bottom:0; z-index:1500; border-radius:16px 16px 0 0;
-    box-shadow:0 -4px 20px var(--shadow); }
+  #letterBar, #islandBar { position:sticky; bottom:0; z-index:1500; border-radius:16px 16px 0 0;
+    box-shadow:0 -4px 20px var(--shadow); align-items:center; }
+  .dark-ui #islandBar { background: rgba(11,18,26,.9); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
   /* десктоп: карта выше, панели просторнее */
   @media (min-width: 768px) {
     #map { height:75vh; }
@@ -1280,17 +1287,26 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 <div id="map"><div class="brand">🌍 ГеографияЧата <b>2.0</b> <span id="brandSub">бета · Песочница</span></div>
 <div class="toolbar" id="toolsPanel">
   <button id="saveBtn" title="Поставить метку">📍</button>
-  <button id="delBtn" title="Удалить мою метку" style="display:none;">🗑</button>
   <button id="letterBtn" title="ПочтаЧата">✉️</button>
   <button id="distBtn" title="Измерить расстояние">📏</button>
   <button id="islandBuyBtn" title="Купить остров (10 ЗП)">🏝️</button>
+  <button id="chestBtn" title="Мой сундук">🧰</button>
   <button id="personaBtn" title="Действовать как Тест2" style="display:none;">🎭</button>
   <button id="volcanoBtn" title="Вызвать вулкан" style="display:none;">🌋</button>
   <button id="meteorBtn" title="Вызвать метеорит" style="display:none;">☄️</button>
   <button id="themeBtn" title="Сменить тему" style="display:none;">🌓</button>
 </div></div>
 <div class="bar" id="animals"></div>
-<div class="bar namebar"><input id="name" placeholder="Твоё имя" maxlength="24"></div>
+<div class="bar namebar">
+  <input id="name" placeholder="Твоё имя" maxlength="24">
+  <button id="emojiBtn" title="Сменить эмодзи метки" style="display:none;">🐾</button>
+  <button id="delBtn" title="Удалить мою метку" style="display:none;">🗑</button>
+</div>
+<div class="bar" id="islandBar" style="display:none;">
+  <span style="flex:1;font-size:15px;">🏝️ Купить остров за <b>10 ЗП</b>?</span>
+  <button id="islandYes">Да</button>
+  <button id="islandNo" style="background:var(--hint);">Нет</button>
+</div>
 <div class="bar" id="letterBar" style="display:none;">
   <input id="letterText" placeholder="Текст письма (до 500 символов)" maxlength="500" style="flex:2;">
   <button id="letterSend">Отправить</button>
@@ -1315,6 +1331,15 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">
       <button id="mailSendBtn">Отправить</button>
       <button id="writeCloseBtn" class="btn-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+<div id="chestModal" class="modal" style="display:none;">
+  <div class="modal-card">
+    <b style="font-size:17px;">🧰 Мой сундук</b>
+    <div id="chestBody" style="margin-top:10px;font-size:14px;line-height:1.8;"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px;">
+      <button id="chestCloseBtn" class="btn-cancel">Закрыть</button>
     </div>
   </div>
 </div>
@@ -1431,6 +1456,18 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       curIcon = a;
       document.querySelectorAll('.an').forEach(x => x.classList.remove('on'));
       b.classList.add('on');
+      if (markers[userKey()]) {
+        emojiEditMode = false;
+        updateMineUI();
+        fetch('/geoicon', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({chat: chat, user: userKey(), icon: a})
+        }).then(r => r.json().catch(() => ({})).then(d => {
+          status(r.ok ? 'Эмодзи метки обновлён: ' + a
+                      : '⚠️ ' + (d.error || 'не вышло сменить эмодзи'));
+          load();
+        }));
+      }
     };
     animalsBar.appendChild(b);
   });
@@ -2213,6 +2250,15 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       : 'Режим выключен');
   }
   distBtn.onclick = () => setMode(distMode ? null : 'dist');
+  // клики по панелям над картой не должны превращаться в точки линейки
+  function stopMapClicks(el) {
+    if (!el) return;
+    L.DomEvent.disableClickPropagation(el);
+    L.DomEvent.disableScrollPropagation(el);
+  }
+  ['toolsPanel', 'animals', 'letterBar', 'islandBar'].forEach(id =>
+    stopMapClicks(document.getElementById(id)));
+  document.querySelectorAll('.namebar, .modal, .brand').forEach(stopMapClicks);
   // ПочтаЧата: отдельное окно (моя почта / написать письмо с выбором адресата)
   const mailModal = document.getElementById('mailModal');
   const writeModal = document.getElementById('writeModal');
@@ -2245,6 +2291,25 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     document.getElementById('mailText').value = '';
   };
   document.getElementById('writeCloseBtn').onclick = () => { writeModal.style.display = 'none'; };
+  // смена эмодзи своей метки
+  document.getElementById('emojiBtn').onclick = () => {
+    emojiEditMode = !emojiEditMode;
+    updateMineUI();
+    status(emojiEditMode ? 'Выбери новый эмодзи для своей метки (панель под картой)' : 'Готово');
+  };
+  // мой сундук: какашки, ЗП, подарки, сувениры
+  const chestModal = document.getElementById('chestModal');
+  document.getElementById('chestBtn').onclick = () => {
+    const me = (lastMarkers || []).find(mm => mm.user === userKey());
+    if (!me) { status('🧰 Сундук появится после того, как поставишь метку'); return; }
+    document.getElementById('chestBody').innerHTML =
+      '💩 Какашки: <b>' + (me.poops || 0) + '</b>'
+      + '<br>☄️ ЗвёзднаяПыль: <b>' + (me.zp || 0) + '</b>'
+      + '<br>🎁 Подарки: ' + ((me.gift_pics && me.gift_pics.length) ? me.gift_pics.join(' ') : '<i>пока нет</i>')
+      + '<br>🏝️ Сувениры: ' + ((me.souvenirs && me.souvenirs.length) ? me.souvenirs.join(' ') : '<i>пока нет</i>');
+    chestModal.style.display = 'flex';
+  };
+  document.getElementById('chestCloseBtn').onclick = () => { chestModal.style.display = 'none'; };
   document.getElementById('mailSendBtn').onclick = async () => {
     const sel = document.getElementById('mailTo');
     const textEl = document.getElementById('mailText');
@@ -2267,7 +2332,26 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       status('⚠️ ' + (data.error || 'не отправилось'));
     }
   };
-  document.getElementById('islandBuyBtn').onclick = () => buyIsland();
+  // Остров: есть — переносим к нему; нет — спрашиваем «Купить?» (с проверкой ЗП)
+  const islandBar = document.getElementById('islandBar');
+  document.getElementById('islandYes').onclick = () => { islandBar.style.display = 'none'; buyIsland(); };
+  document.getElementById('islandNo').onclick = () => { islandBar.style.display = 'none'; };
+  document.getElementById('islandBuyBtn').onclick = () => {
+    const myIsl = (lastIslands || []).find(i => (i.owners || [i.owner]).indexOf(userKey()) >= 0);
+    if (myIsl) {
+      map.setView([myIsl.lat, myIsl.lon], Math.max(map.getZoom(), 4));
+      const mk = islandMarkers[myIsl.owner];
+      if (mk) mk.openPopup();
+      return;
+    }
+    const me = (lastMarkers || []).find(mm => mm.user === userKey());
+    const zp = me ? (me.zp || 0) : 0;
+    if (zp < 10) {
+      status('🏝️ Не хватает ЗвёзднойПыли: остров стоит 10 ЗП, у тебя ' + zp + ' 💫');
+      return;
+    }
+    islandBar.style.display = 'flex';
+  };
 
   function tryLetterTarget(m) {
     if (m.user === userKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
@@ -2318,11 +2402,20 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
   // если метка уже поставлена — убираем инструменты постановки (эмодзи, кнопку, имя),
   // остаются только 📏 и ✉️; удаление метки вернёт всё обратно
+  let emojiEditMode = false;
+  function fitNameWidth() {
+    const len = (nameInput.value || '').length;
+    nameInput.style.width = Math.min(Math.max(len * 8 + 44, 90), 240) + 'px';
+  }
   function updateMineUI() {
     const mine = !!markers[userKey()];
-    document.getElementById('animals').style.display = mine ? 'none' : 'flex';
+    document.getElementById('animals').style.display = (!mine || emojiEditMode) ? 'flex' : 'none';
     document.getElementById('saveBtn').style.display = mine ? 'none' : '';
     document.getElementById('delBtn').style.display = mine ? '' : 'none';
+    document.getElementById('emojiBtn').style.display = mine ? '' : 'none';
+    const myM = (lastMarkers || []).find(mm => mm.user === userKey());
+    if (myM) document.getElementById('emojiBtn').textContent = myM.icon || '🐾';
+    fitNameWidth();
     nameInput.disabled = mine;
     nameInput.title = mine ? 'Имя закреплено за твоей меткой. Удали метку (🗑 справа), чтобы изменить.' : '';
   }
@@ -2349,7 +2442,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     const buyIslBtn = document.getElementById('islandBuyBtn');
     if (buyIslBtn) {
       const haveIsl = lastIslands.some(i => (i.owners || [i.owner]).indexOf(userKey()) >= 0);
-      buyIslBtn.style.display = haveIsl ? 'none' : '';
+      buyIslBtn.title = haveIsl ? 'Мой остров' : 'Купить остров (10 ЗП)';
     }
     meteorMarkers.forEach(m => map.removeLayer(m));
     meteorMarkers.length = 0;
@@ -2428,10 +2521,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1331"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1357"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1331 -->
+<!-- build:2026-11-01-1357 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -3859,7 +3952,7 @@ class AppHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         url = urlparse(self.path)
-        if url.path in ("/geomark", "/geodel"):
+        if url.path in ("/geomark", "/geodel", "/geoicon"):
             self._handle_geo_post(url)
             return
         if url.path in ("/geosend", "/georead"):
@@ -3943,6 +4036,16 @@ class AppHandler(BaseHTTPRequestHandler):
                 }
             geo_save_to_github()
             self._respond(200, b"ok")
+        elif url.path == "/geoicon":
+            icon = str(payload.get("icon", ""))[:8]
+            with geo_lock:
+                marker = geo_state.get(chat_id, {}).get(user)
+                if marker is None:
+                    self._json_response(404, {"error": "метки нет"})
+                    return
+                marker["icon"] = icon or "📍"
+                geo_save_to_github()
+            self._json_response(200, {"ok": True})
         else:  # /geodel
             removed = False
             with geo_lock:
