@@ -1194,7 +1194,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1492 -->
+<!-- build:2026-11-01-1493 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1449,7 +1449,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   <div class="papyrus">
     <b>🐬 Сифа — догонялки на касатках</b>
     <ul>
-      <li>Кнопка 🐬 в панели справляет твою касатку в открытую воду: один кораблик на игрока, остаётся навсегда</li>
+      <li>Кнопка 🐬 в панели отправляет твою касатку в открытую воду: одна касатка на игрока, остаётся навсегда</li>
       <li>Курс — стрелками джойстика ▲◀▼▶, ход — кнопкой «Плыть»: 1500 км за 10 секунд, потом 10 секунд перезарядка</li>
       <li>Касатка плавает только по воде — у берега остановится сама</li>
       <li>Сблизься с чужой касаткой ближе 1000 км — передашь ей Сифу и телепортируешься в новую точку</li>
@@ -2551,7 +2551,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   let sifaMe = {}, sifaBoundsRect = null;
   let sifaAreaMode = false, sifaAreaPts = [], sifaAreaMarks = [];
   let sifaPushTimer = null, sifaNeedPush = false;
-  const sifaShips = {};   // чужие кораблики (анонимные)
+  const sifaShips = {};   // чужие касатки (анонимные)
   const SIFA_DIRS = {up: 0, right: 90, down: 180, left: 270};
 
   function sifaOrca() {   // касатка, вид сверху (носом вверх — по курсу)
@@ -2774,7 +2774,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   const sifaPadEl = document.getElementById('sifaPad');
   const sifaCtrlEl = document.getElementById('sifaCtrl');
   sifaBtn.onclick = async () => {
-    if (sifaPadOn) {   // прячем только джойстик — кораблик остаётся навсегда
+    if (sifaPadOn) {   // прячем только джойстик — касатка остаётся навсегда
       sifaPadOn = false;
       sifaPadEl.style.display = 'none';
       sifaCtrlEl.style.display = 'none';
@@ -2789,19 +2789,19 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
         body: JSON.stringify({chat: chat, user: userKey(), name: userName()})
       });
       const d = await r.json().catch(() => ({}));
-      if (!r.ok || d.error) { status('⚠️ ' + (d.error || 'не вышло справить кораблик')); return; }
+      if (!r.ok || d.error) { status('⚠️ ' + (d.error || 'не вышло отправить касатку')); return; }
       sifaPos = {lat: d.lat, lon: d.lon};
       sifaPadOn = true;
       sifaRender(false);
       map.flyTo([d.lat, d.lon], Math.max(map.getZoom(), 4));
       sifaPadEl.style.display = 'grid';
       sifaCtrlEl.style.display = 'flex';
-      status(d.sifa ? '😱 О нет… у тебя СИФА! Избавься: подплыви к чужому кораблику ближе 1000 км'
+      status(d.sifa ? '😱 О нет… у тебя СИФА! Избавься: подплыви к чужой касатке ближе 1000 км'
                     : '🐬 Касатка в океане! Курс — стрелками ▲◀▼▶, ход — кнопкой «Плыть»');
       sifaPoll();
       clearInterval(sifaPollTimer);
       sifaPollTimer = setInterval(sifaPoll, 2500);
-    } catch (err) { status('⚠️ Нет связи с корабликом'); }
+    } catch (err) { status('⚠️ Нет связи с касаткой'); }
   };
   document.getElementById('sifaHideBtn').onclick = () => { if (sifaPadOn) sifaBtn.onclick(); };
   document.getElementById('sifaInfoBtn').onclick = () => {
@@ -3186,10 +3186,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1492"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1493"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1492 -->
+<!-- build:2026-11-01-1493 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
