@@ -1194,7 +1194,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1498 -->
+<!-- build:2026-11-01-1499 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2623,9 +2623,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   }
   function sifaDrawBounds(area) {
     if (sifaBoundsRect) { map.removeLayer(sifaBoundsRect); sifaBoundsRect = null; }
+    // границы и кнопка «задать границы» — только пока активна игра
     const ab = document.getElementById('sifaAreaBtn');
-    if (SIFA_AREA_ADMINS.indexOf(userKey()) >= 0) ab.style.display = area ? 'none' : '';
-    if (!area) return;
+    ab.style.display = (sifaPadOn && SIFA_AREA_ADMINS.indexOf(userKey()) >= 0 && !area) ? '' : 'none';
+    if (!area || !sifaPadOn) return;
     sifaBoundsRect = L.rectangle([[area[0], area[1]], [area[2], area[3]]],
       {className: 'sifa-bounds', interactive: false}).addTo(map);
   }
@@ -2723,15 +2724,14 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       let nLat = sifaPos.lat + step / 111.32 * Math.cos(rad);
       let nLon = sifaPos.lon + step / (111.32 * Math.cos(sifaPos.lat * Math.PI / 180)) * Math.sin(rad);
       nLat = Math.max(-85, Math.min(85, nLat));
+      if (sifaAreaData) {
+        // у границы не останавливаемся и не ругаемся — скользим вдоль неё
+        nLat = Math.max(sifaAreaData[0], Math.min(sifaAreaData[2], nLat));
+        nLon = Math.max(sifaAreaData[1], Math.min(sifaAreaData[3], nLon));
+      }
       if (!sifaIsWater(nLat, nLon)) {
         sifaStopSail(true);
         status('🏖 Берег! Касатка остановилась у суши');
-        return;
-      }
-      if (sifaAreaData && (nLat < sifaAreaData[0] || nLat > sifaAreaData[2]
-          || nLon < sifaAreaData[1] || nLon > sifaAreaData[3])) {
-        sifaStopSail(true);
-        status('🚧 Вы достигли границ зоны игры!');
         return;
       }
       sifaPos = {lat: nLat, lon: nLon};
@@ -2796,6 +2796,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       sifaAreaBtn.style.display = 'none';
       sifaAreaMode = false;
       document.getElementById('sifaAreaBar').style.display = 'none';
+      sifaDrawBounds(null);
       clearInterval(sifaPollTimer); sifaPollTimer = null;
       status('🐬 Джойстик убран — касатка осталась на карте');
       return;
@@ -2811,7 +2812,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       sifaPos = {lat: d.lat, lon: d.lon};
       sifaPadOn = true;
       sifaRender(false);
-      if (SIFA_AREA_ADMINS.indexOf(userKey()) >= 0) sifaAreaBtn.style.display = '';
+      sifaDrawBounds(sifaAreaData);
       map.flyTo([d.lat, d.lon], Math.max(map.getZoom(), 4));
       sifaPadEl.style.display = 'grid';
       sifaCtrlEl.style.display = 'flex';
@@ -3210,10 +3211,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1498"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1499"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1498 -->
+<!-- build:2026-11-01-1499 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
