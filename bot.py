@@ -1124,7 +1124,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1477 -->
+<!-- build:2026-11-01-1480 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2152,8 +2152,8 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     if (islandCard) { map.closePopup(); islandCard.remove(); islandCard = null; }
     const built = isl.buildings || [];
     const spots = {
-      hut: 'left:14%;bottom:38%;', bar: 'right:12%;bottom:34%;',
-      statue: 'left:42%;bottom:56%;', castle: 'right:26%;bottom:50%;',
+      hut: 'left:17%;bottom:24%;', bar: 'right:14%;bottom:21%;',
+      statue: 'left:47%;bottom:33%;', castle: 'right:29%;bottom:35%;',
     };
     let bHtml = '';
     built.forEach(bid => {
@@ -2173,9 +2173,18 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       + '<div style="position:absolute;top:24px;left:50%;transform:translateX(-50%);'
       + 'width:60px;height:60px;border-radius:50%;'
       + 'background:radial-gradient(circle,#fff3c4 0%,#ffd257 55%,rgba(255,180,60,0) 100%)"></div>'
-      + '<div style="position:absolute;left:50%;bottom:38px;transform:translateX(-50%);'
-      + 'font-size:120px;line-height:1;filter:drop-shadow(0 6px 6px rgba(0,0,0,.35))">🏝️</div>'
-      + '<div style="position:absolute;left:20%;bottom:30px;font-size:36px;line-height:1">🌴</div>'
+      + '<div style="position:absolute;left:50%;bottom:40px;transform:translateX(-50%);'
+      + 'width:390px;height:120px;border-radius:50%;'
+      + 'background:radial-gradient(ellipse at center,#f9efc8 0%,#eeda9e 60%,rgba(238,218,158,0) 82%);"></div>'
+      + '<div style="position:absolute;left:50%;bottom:118px;transform:translateX(-50%);'
+      + 'width:240px;height:66px;border-radius:50%;'
+      + 'background:radial-gradient(ellipse at center,#f5e7b8 0%,rgba(245,231,184,0) 75%);"></div>'
+      + '<div style="position:absolute;left:50%;bottom:74px;transform:translateX(-50%);'
+      + 'font-size:96px;line-height:1;filter:drop-shadow(0 6px 6px rgba(0,0,0,.3))">🏝️</div>'
+      + '<div style="position:absolute;left:7%;bottom:23%;font-size:36px;line-height:1;'
+      + 'filter:drop-shadow(0 2px 2px rgba(0,0,0,.35))">🌴</div>'
+      + '<div style="position:absolute;right:7%;bottom:20%;font-size:32px;line-height:1;'
+      + 'filter:drop-shadow(0 2px 2px rgba(0,0,0,.35))">🌴</div>'
       + bHtml
       + '<div style="position:absolute;top:12px;left:0;right:0;text-align:center;color:#4a2c12;'
       + 'font-weight:bold;font-size:19px;text-shadow:0 1px 0 rgba(255,255,255,.6)">'
@@ -2720,10 +2729,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1477"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1480"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1477 -->
+<!-- build:2026-11-01-1480 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
