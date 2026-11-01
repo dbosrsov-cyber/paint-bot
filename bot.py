@@ -1194,7 +1194,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1491 -->
+<!-- build:2026-11-01-1492 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1285,6 +1285,14 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   #sifaCtrl button:active { background:rgba(45,212,191,.5); color:#fff; }
   #sifaFreezeInfo { display:none; padding:6px 10px; font-size:13px; border-radius:12px;
     background:rgba(60,30,40,.88); color:#ffd9e2; border:1px solid rgba(255,120,150,.4); }
+  #sifaAreaBar { position:fixed; right:12px; bottom:400px; z-index:3000; display:none;
+    flex-direction:column; gap:6px; width:168px; padding:8px; border-radius:14px;
+    background:rgba(30,45,60,.92); border:1px solid rgba(125,211,252,.4);
+    backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px);
+    color:#bfe3f7; font-size:14px; text-align:center; }
+  #sifaAreaBar button { padding:7px 6px; font-size:15px; border-radius:12px;
+    background:rgba(30,45,60,.9); color:#bfe3f7; border:1px solid rgba(125,211,252,.4); }
+  #sifaAreaBar button:active { background:rgba(45,212,191,.5); color:#fff; }
   .sifa-bounds { stroke:#7dd3fc; stroke-width:2; stroke-dasharray:8 10;
     fill:rgba(125,211,252,.05); animation:sifaBlink 2.2s ease-in-out infinite; }
   @keyframes sifaBlink { 0%,100% {opacity:.95} 50% {opacity:.2} }
@@ -1431,6 +1439,11 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     <button id="sifaInfoBtn" title="Правила игры «Сифа»" style="flex:1;">ⓘ Правила</button>
     <button id="sifaHideBtn" title="Убрать джойстик (касатка останется на карте)" style="flex:2;">✕ Спрятать</button>
   </div>
+</div>
+<div id="sifaAreaBar">
+  <span>Сохранить границы?</span>
+  <button id="sifaAreaYes">Да</button>
+  <button id="sifaAreaNo">Нет</button>
 </div>
 <div id="sifaInfoModal" class="modal" style="display:none;">
   <div class="papyrus">
@@ -2602,8 +2615,9 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   }
   function sifaDrawBounds(area) {
     if (sifaBoundsRect) { map.removeLayer(sifaBoundsRect); sifaBoundsRect = null; }
+    const ab = document.getElementById('sifaAreaBtn');
+    if (SIFA_AREA_ADMINS.indexOf(userKey()) >= 0) ab.style.display = area ? 'none' : '';
     if (!area) return;
-    document.getElementById('sifaAreaBtn').style.display = 'none';   // границы заданы — кнопка больше не нужна
     sifaBoundsRect = L.rectangle([[area[0], area[1]], [area[2], area[3]]],
       {className: 'sifa-bounds', interactive: false}).addTo(map);
   }
@@ -2728,18 +2742,31 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       status('🚧 Угол ' + sifaAreaPts.length + '/4 — кликни следующий');
       return;
     }
+    status('🚧 Четыре угла готовы — сохранить?');
+    document.getElementById('sifaAreaBar').style.display = 'flex';
+  }
+  function sifaAreaClearPins() {
+    sifaAreaPts = [];
+    sifaAreaMarks.forEach(m => map.removeLayer(m)); sifaAreaMarks = [];
+  }
+  document.getElementById('sifaAreaNo').onclick = () => {   // Нет — задаём заново
+    document.getElementById('sifaAreaBar').style.display = 'none';
+    sifaAreaClearPins();
+    status('🚧 Границы сброшены — кликни УГОЛ 1/4 заново');
+  };
+  document.getElementById('sifaAreaYes').onclick = () => {   // Да — сохраняем
     const pts = sifaAreaPts.slice();
     fetch('/sifaarea', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({chat: chat, user: userKey(), points: pts})
     }).then(r => r.json().catch(() => ({})))
       .then(d => {
-        status(d.error ? '⚠️ ' + d.error : '🚧 Границы Сифы сохранены! Кнопка границ больше не понадобится');
+        document.getElementById('sifaAreaBar').style.display = 'none';
+        if (d.error) { status('⚠️ ' + d.error); return; }
         sifaAreaMode = false;
-        const ab = document.getElementById('sifaAreaBtn');
-        ab.style.background = '#888';
-        if (!d.error) ab.style.display = 'none';
-        sifaAreaMarks.forEach(m => map.removeLayer(m)); sifaAreaMarks = [];
+        document.getElementById('sifaAreaBtn').style.background = '#888';
+        sifaAreaClearPins();
+        status('🚧 Границы Сифы сохранены! Кнопка границ больше не понадобится');
         if (d.area) sifaDrawBounds(d.area);
       }).catch(() => status('⚠️ Границы не сохранились — нет связи'));
   }
@@ -2808,6 +2835,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     sifaAreaMarks.forEach(m => map.removeLayer(m)); sifaAreaMarks = [];
     if (sifaAreaMode) { try { setMode(null); } catch (e) {} }
     sifaAreaBtn.style.background = sifaAreaMode ? '#e05a3a' : '#888';
+    document.getElementById('sifaAreaBar').style.display = 'none';
     status(sifaAreaMode ? '🚧 Кликни по карте УГОЛ 1/4 области игры' : '🚧 Режим границ выключен');
   };
   document.addEventListener('keydown', e => {
@@ -3158,10 +3186,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1491"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1492"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1491 -->
+<!-- build:2026-11-01-1492 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
