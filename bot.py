@@ -1124,7 +1124,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1467 -->
+<!-- build:2026-11-01-1470 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1199,6 +1199,15 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     -webkit-backdrop-filter: blur(12px); border-color: rgba(125,211,252,.18); color:#e8f1f8; }
   /* тонкая строка ника под картой */
   .namebar { padding:2px 10px; }
+  /* окно-справка «на папирусе» */
+  .papyrus { width:100%; max-width:420px; background:#f3e5c0; color:#4a3418;
+    border-radius:6px; padding:18px 20px 14px;
+    font-family:Georgia,'Times New Roman',serif;
+    box-shadow:0 10px 32px var(--shadow), inset 0 0 46px rgba(150,110,50,.4);
+    border:1px solid #c9a86a; }
+  .papyrus b { font-size:16px; letter-spacing:.3px; }
+  .papyrus ul { margin:10px 0 6px; padding-left:18px; font-size:13.5px; line-height:1.65; }
+  .papyrus .btn-cancel { margin-top:8px; }
   /* информационная строка событий под ником — высотой с панель ника */
   .eventbar { min-height:36px; padding:4px 12px; font-size:12px; line-height:1.4;
     color:var(--hint); align-items:center; cursor:pointer; }
@@ -1305,6 +1314,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   <button id="distBtn" title="Измерить расстояние">📏</button>
   <button id="islandBuyBtn" title="Купить остров (10 ЗП)">🏝️</button>
   <button id="chestBtn" title="Мой сундук">🧰</button>
+  <button id="helpBtn" title="Что здесь можно делать">❓</button>
   <button id="personaBtn" title="Действовать как Тест2" style="display:none;">🎭</button>
   <button id="volcanoBtn" title="Вызвать вулкан" style="display:none;">🌋</button>
   <button id="meteorBtn" title="Вызвать метеорит" style="display:none;">☄️</button>
@@ -1346,6 +1356,24 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">
       <button id="mailSendBtn">Отправить</button>
       <button id="writeCloseBtn" class="btn-cancel">Отмена</button>
+    </div>
+  </div>
+</div>
+<div id="helpModal" class="modal" style="display:none;">
+  <div class="papyrus">
+    <b>📜 ГеографияЧата — что здесь можно</b>
+    <ul>
+      <li>📍 Поставить свою метку на карте и выбрать себе животное-аватар</li>
+      <li>✉️ Писать письма другим участникам через «ПочтаЧата»</li>
+      <li>☄️ Собирать ЗвёзднуюПыль из свежих метеоритных воронок</li>
+      <li>🌋 Отправлять Розовые Какашки через Ванильный Вулкан</li>
+      <li>🐳 Дарить подарки с помощью Похотливого Кита</li>
+      <li>🏝️ Покупать остров: строить постройки, приглашать гостей, получать сувениры</li>
+      <li>📏 Измерять расстояния между метками линейкой</li>
+      <li>🧰 Заглядывать в «Мой сундук» — там все твои сокровища</li>
+    </ul>
+    <div style="display:flex;justify-content:flex-end;">
+      <button id="helpCloseBtn" class="btn-cancel">Закрыть</button>
     </div>
   </div>
 </div>
@@ -2287,6 +2315,12 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   document.getElementById('buildCloseBtn').onclick = () => {
     document.getElementById('buildModal').style.display = 'none';
   };
+  document.getElementById('helpBtn').onclick = () => {
+    document.getElementById('helpModal').style.display = 'flex';
+  };
+  document.getElementById('helpCloseBtn').onclick = () => {
+    document.getElementById('helpModal').style.display = 'none';
+  };
   window.islandPoop = async () => {
     const r = await fetch('/islandpoop', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -2624,10 +2658,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1467"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1470"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1467 -->
+<!-- build:2026-11-01-1470 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
