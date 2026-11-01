@@ -1194,7 +1194,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1489 -->
+<!-- build:2026-11-01-1490 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -3085,6 +3085,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   setInterval(load, 60000);  // автообновление; позиции писем считает сервер по времени
 
   map.on('click', e => {
+    if (sifaAreaMode) { sifaPickArea(e.latlng); return; }
     if (distMode) {
       pickPoint({lat: e.latlng.lat, lon: e.latlng.lng, name: 'точка на карте'});
       return;
@@ -3135,10 +3136,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1489"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1490"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1489 -->
+<!-- build:2026-11-01-1490 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -4095,7 +4096,6 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   setInterval(load, 60000);  // автообновление; позиции писем считает сервер по времени
 
   map.on('click', e => {
-    if (sifaAreaMode) { sifaPickArea(e.latlng); return; }
     if (distMode) {
       pickPoint({lat: e.latlng.lat, lon: e.latlng.lng, name: 'точка на карте'});
       return;
