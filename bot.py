@@ -1117,7 +1117,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1446 -->
+<!-- build:2026-11-01-1449 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1798,7 +1798,9 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     const mk = L.marker([p.lat, p.lon], {icon: poopIcon(p)}).addTo(map);
     if (!p.arrived) {
       // до доставки адресат неизвестен никому — даже самому адресату
-      mk.bindPopup('💩 Розовая Какашка в пути… (адресат: *****)');
+      mk.bindPopup(p.i_sent
+        ? '💩 Твоя Розовая Какашка летит к <b>' + escapeHtml(p.to_name) + '</b>…'
+        : '💩 Розовая Какашка в пути… (адресат: *****)');
     } else if (p.mine) {
       mk.bindPopup('💩 Тебе прилетела Розовая Какашка! Поздравляем 🩷😄');
     } else {
@@ -2521,10 +2523,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1446"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1449"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1446 -->
+<!-- build:2026-11-01-1449 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2926,7 +2928,9 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     const mk = L.marker([p.lat, p.lon], {icon: poopIcon(p)}).addTo(map);
     if (!p.arrived) {
       // до доставки адресат неизвестен никому — даже самому адресату
-      mk.bindPopup('💩 Розовая Какашка в пути… (адресат: *****)');
+      mk.bindPopup(p.i_sent
+        ? '💩 Твоя Розовая Какашка летит к <b>' + escapeHtml(p.to_name) + '</b>…'
+        : '💩 Розовая Какашка в пути… (адресат: *****)');
     } else if (p.mine) {
       mk.bindPopup('💩 Тебе прилетела Розовая Какашка! Поздравляем 🩷😄');
     } else {
@@ -3754,6 +3758,7 @@ class AppHandler(BaseHTTPRequestHandler):
                         "arrived": parrived,
                         "mine": viewer_matches(poop["to"], viewer, viewer_name, chat_id),
                         "to_name": poop.get("to_name", ""),
+                        "i_sent": viewer_matches(poop.get("from", ""), viewer, viewer_name, chat_id),
                         "from_lat": poop["from_lat"], "from_lon": poop["from_lon"],
                         "to_lat": poop["to_lat"], "to_lon": poop["to_lon"],
                     })
@@ -4237,6 +4242,7 @@ class AppHandler(BaseHTTPRequestHandler):
             total = haversine_km(v["lat"], v["lon"], dest["lat"], dest["lon"])
             poops_state[pid] = {
                 "id": pid, "chat": chat_id, "to": to_user,
+                "from": user,  # для показа адресата отправителю; в чате автор скрыт
                 "to_name": dest.get("name", to_user),
                 "from_lat": v["lat"], "from_lon": v["lon"],
                 "to_lat": dest["lat"], "to_lon": dest["lon"],
