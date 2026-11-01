@@ -1124,7 +1124,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1471 -->
+<!-- build:2026-11-01-1474 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1375,6 +1375,35 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     </ul>
     <div style="display:flex;justify-content:flex-end;">
       <button id="helpCloseBtn" class="btn-cancel">Закрыть</button>
+    </div>
+  </div>
+</div>
+<div id="actionsModal" class="modal" style="display:none;">
+  <div class="modal-card" style="text-align:center;">
+    <b style="font-size:17px;">🎬 Действия острова</b>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:14px;">
+      <button id="actPoopBtn">💩 Удобрить (+1 опыт)</button>
+      <button id="actInviteBtn">✈️ Пригласить гостя</button>
+    </div>
+    <div id="actHint" style="margin-top:10px;font-size:12px;color:var(--hint);min-height:16px;"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:8px;">
+      <button id="actionsCloseBtn" class="btn-cancel">Закрыть</button>
+    </div>
+  </div>
+</div>
+<div id="islandInfoModal" class="modal" style="display:none;">
+  <div class="modal-card">
+    <b style="font-size:16px;">😎 Гость на острове</b>
+    <div style="margin-top:10px;font-size:14px;line-height:1.7;">
+      Самолёт летит за гостем, привозит его на остров, а после прогулки везёт домой.<br><br>
+      <b>Что даёт визит:</b><br>
+      • тебе — +1 опыт острова (рост уровня)<br>
+      • гостю — ЗвёзднаяПыль и сувенир 🎁<br><br>
+      <i>Самолёт один: пока он летит за гостем, везёт его или гость гуляет на острове,
+      кнопка приглашения неактивна.</i>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px;">
+      <button id="islandInfoCloseBtn" class="btn-cancel">Закрыть</button>
     </div>
   </div>
 </div>
@@ -2074,23 +2103,20 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       + '<br>уровень: <b>' + isl.level + '</b> (' + isl.xp + ' опыта) • гостей побывало: '
       + isl.visits + '<br>постройки: 🌴' + (built.length ? ' ' : ' (пока одна пальма)')
       + built.map(b => ISLAND_BUILDINGS[b] ? ISLAND_BUILDINGS[b][0] : '').join(' ');
-    if (isl.guest) {
-      const legTxt = {
-        to_guest: '✈️ самолёт летит за гостем…',
-        to_island: '✈️ гостя везут на остров…',
-        staying: '😎 гость на острове: <b>' + escapeHtml(isl.guest.name) + '</b>',
-        home: '✈️ гость улетает домой…',
-      };
-      html += '<br>' + (legTxt[isl.guest.leg] || '');
-    }
+    const legTxt = {
+      to_guest: '✈️ самолёт летит за гостем…',
+      to_island: '✈️ гостя везут на остров…',
+      staying: '😎 гость на острове: <b>' + (isl.guest ? escapeHtml(isl.guest.name) : '') + '</b>',
+      home: '✈️ гость улетает домой…',
+    };
     if (isl.mine) {
-      // пока самолёт занят (летит за гостем или везёт его) — приглашение скрыто
-      const planeBusy = isl.guest && (isl.guest.leg === 'to_guest' || isl.guest.leg === 'to_island');
-      html += '<br>'
-        + (planeBusy ? '' : '<button onclick="startIslandInvite(&quot;' + isl.owner + '&quot;)">✈️ Пригласить гостя</button> ')
-        + '<button onclick="islandPoop()">💩 Удобрить (+1 опыт)</button>'
-        + ' <button onclick="openBuildMenu()">🏗 Строительство</button>';
-      html += '<br><i>гость на острове: +1 опыт тебе, гостю — ЗП и сувенир 🎁</i>';
+      // две кнопки одного уровня; ⓘ — справка о выгоде от гостей
+      html += '<br><button onclick="openBuildMenu()">🏗 Строительство</button>'
+        + ' <button onclick="openIslandActions()">🎬 Действия</button>';
+      html += '<br>' + (isl.guest ? (legTxt[isl.guest.leg] || '') : '😎 гостей сейчас нет')
+        + ' <span onclick="openIslandInfo()" style="cursor:pointer;font-size:13px;" title="Что даёт гость">ⓘ</span>';
+    } else if (isl.guest) {
+      html += '<br>' + (legTxt[isl.guest.leg] || '');
     }
     // «Улететь» — для того, кто сейчас гостит на острове, независимо от владения
     // (совладелец тоже может быть гостем — кнопка не должна теряться из-за isl.mine)
@@ -2321,6 +2347,37 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   };
   document.getElementById('helpCloseBtn').onclick = () => {
     document.getElementById('helpModal').style.display = 'none';
+  };
+  // ---------- Действия острова: удобрить / пригласить гостя ----------
+  window.openIslandActions = () => {
+    const myIsl = (lastIslands || []).find(i => (i.owners || [i.owner]).indexOf(userKey()) >= 0);
+    const busy = !!(myIsl && myIsl.guest && myIsl.guest.leg !== 'home');
+    const inv = document.getElementById('actInviteBtn');
+    // не убираем кнопку — делаем неактивной, пока самолёт занят или гость на острове
+    inv.disabled = busy;
+    inv.style.opacity = busy ? '.45' : '1';
+    document.getElementById('actHint').textContent = busy
+      ? 'Самолёт занят: гость уже летит или гуляет на острове' : '';
+    document.getElementById('actionsModal').style.display = 'flex';
+  };
+  document.getElementById('actPoopBtn').onclick = () => {
+    document.getElementById('actionsModal').style.display = 'none';
+    islandPoop();
+  };
+  document.getElementById('actInviteBtn').onclick = () => {
+    if (document.getElementById('actInviteBtn').disabled) return;
+    const myIsl = (lastIslands || []).find(i => (i.owners || [i.owner]).indexOf(userKey()) >= 0);
+    document.getElementById('actionsModal').style.display = 'none';
+    if (myIsl) startIslandInvite(myIsl.owner);
+  };
+  document.getElementById('actionsCloseBtn').onclick = () => {
+    document.getElementById('actionsModal').style.display = 'none';
+  };
+  window.openIslandInfo = () => {
+    document.getElementById('islandInfoModal').style.display = 'flex';
+  };
+  document.getElementById('islandInfoCloseBtn').onclick = () => {
+    document.getElementById('islandInfoModal').style.display = 'none';
   };
   window.islandPoop = async () => {
     const r = await fetch('/islandpoop', {
@@ -2659,10 +2716,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1471"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1474"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1471 -->
+<!-- build:2026-11-01-1474 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
