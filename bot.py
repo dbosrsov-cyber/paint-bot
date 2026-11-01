@@ -1124,7 +1124,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1474 -->
+<!-- build:2026-11-01-1477 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2110,20 +2110,24 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       home: '✈️ гость улетает домой…',
     };
     if (isl.mine) {
-      // две кнопки одного уровня; ⓘ — справка о выгоде от гостей
-      html += '<br><button onclick="openBuildMenu()">🏗 Строительство</button>'
-        + ' <button onclick="openIslandActions()">🎬 Действия</button>';
+      // строка гостя (со справкой ⓘ) — над кнопками; неяркие полоски-разделители
+      const divider = '<hr style="margin:8px 0;border:none;border-top:1px solid rgba(140,160,180,.22);">';
       html += '<br>' + (isl.guest ? (legTxt[isl.guest.leg] || '') : '😎 гостей сейчас нет')
         + ' <span onclick="openIslandInfo()" style="cursor:pointer;font-size:13px;" title="Что даёт гость">ⓘ</span>';
-    } else if (isl.guest) {
-      html += '<br>' + (legTxt[isl.guest.leg] || '');
+      html += divider;
+      html += '<button onclick="openBuildMenu()">🏗 Строительство</button>'
+        + ' <button onclick="openIslandActions()">🎬 Действия</button>';
+      html += divider;
+    } else {
+      if (isl.guest) html += '<br>' + (legTxt[isl.guest.leg] || '');
+      html += '<br>';
     }
     // «Улететь» — для того, кто сейчас гостит на острове, независимо от владения
     // (совладелец тоже может быть гостем — кнопка не должна теряться из-за isl.mine)
     if (isl.guest && isl.guest.user === userKey() && isl.guest.leg === 'staying') {
       html += '<br><button onclick="leaveIsland()">✈️ Улететь (домой)</button>';
     }
-    html += '<br><button onclick="openIslandCard(&quot;' + isl.owner + '&quot;)">🖼 Открытка острова</button>';
+    html += '<div style="text-align:center;"><button onclick="openIslandCard(&quot;' + isl.owner + '&quot;)">🖼 Открытка острова</button></div>';
     mk.bindPopup(html);
     islandMarkers[isl.owner] = mk;
   }
@@ -2716,10 +2720,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1474"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1477"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1474 -->
+<!-- build:2026-11-01-1477 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
