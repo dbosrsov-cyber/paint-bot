@@ -1117,7 +1117,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1357 -->
+<!-- build:2026-11-01-1441 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2521,10 +2521,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1357"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1441"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1357 -->
+<!-- build:2026-11-01-1441 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -4813,7 +4813,6 @@ GAME_MENU = InlineKeyboardMarkup(
     [
         [InlineKeyboardButton("🐂 Быки и коровы", callback_data="game:bulls")],
         [InlineKeyboardButton("🎨 Рисовалка", callback_data="game:paint")],
-        [InlineKeyboardButton("🌍 География чата", callback_data="game:geo")],
         [InlineKeyboardButton("📜 СагаЧата", callback_data="game:saga")],
     ]
 )
@@ -4834,8 +4833,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return  # чужая группа — молчим (предупреждение отправляется при добавлении бота)
     remember_user(update.effective_user)
     menu_rows = [list(row) for row in GAME_MENU.inline_keyboard]
-    if update.effective_user.id == ADMIN_ID:
-        menu_rows.insert(2, [InlineKeyboardButton("🌍✨ ГеографияЧата 2.0 (бета)",
+    if update.effective_chat.id in (GEO2_CHAT_ID, ANON_GROUP_ID):
+        menu_rows.insert(2, [InlineKeyboardButton("🌍✨ ГеографияЧата 2.0",
                                                 callback_data="game:geo2")])
     await update.message.reply_text("🎮 Привет! Выбери игру:",
                                     reply_markup=InlineKeyboardMarkup(menu_rows))
@@ -4904,9 +4903,9 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
                                show_alert=True)
             return
         text = (
-            "🌍✨ ГеографияЧата 2.0 — новая оболочка карты (бета)!\n"
+            "🌍✨ ГеографияЧата 2.0 — переработанный интерфейс карты!\n"
             "Те же метки, письма, подарки и события, что и в Географии чата, "
-            "— но в обновлённом интерфейсе."
+            "— но в новом обновлённом интерфейсе."
         )
         await context.bot.send_message(chat_id, text, reply_markup=geo2_keyboard(chat_id))
         await query.edit_message_text("🌍✨ ГеографияЧата 2.0 — сообщение с кнопкой появилось в чате выше.")
@@ -5004,7 +5003,7 @@ def paint_keyboard(chat_id: int, webapp: bool = True, drawer: str | None = None)
 def geo2_keyboard(chat_id: int) -> InlineKeyboardMarkup:
     """Бета 2.0: кнопка открывает карту (в группах — через браузер)."""
     url = f"{APP_URL}/geo2map?chat={chat_id}"
-    return InlineKeyboardMarkup([[InlineKeyboardButton("🌍✨ Открыть карту 2.0", url=url)]])
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🌍 Открыть карту", url=url)]])
 
 
 def geo_keyboard(chat_id: int, webapp: bool) -> InlineKeyboardMarkup:
