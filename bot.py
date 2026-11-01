@@ -1117,7 +1117,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1458 -->
+<!-- build:2026-11-01-1461 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1168,7 +1168,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     background:var(--accent); color:var(--accent-text); cursor:pointer;
     transition:transform .12s ease, opacity .12s ease; }
   button:active { transform:scale(.95); opacity:.85; }
-  #status { position:fixed; left:50%; bottom:calc(18px + env(safe-area-inset-bottom, 0px));
+  #status { position:fixed; left:50%; bottom:calc(96px + env(safe-area-inset-bottom, 0px));
     transform:translateX(-50%) translateY(10px); max-width:92vw; padding:5px 10px;
     border-radius:10px; background:var(--card); color:var(--text); font-size:12px;
     opacity:0; transition:opacity .25s ease, transform .25s ease; pointer-events:none;
@@ -2540,10 +2540,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1458"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1461"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1458 -->
+<!-- build:2026-11-01-1461 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
