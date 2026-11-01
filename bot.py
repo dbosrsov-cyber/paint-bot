@@ -1194,7 +1194,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1495 -->
+<!-- build:2026-11-01-1496 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1646,12 +1646,20 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     document.getElementById('volcanoBtn').style.display = '';
     document.getElementById('meteorBtn').style.display = '';
   }
+  const PERSONAS = [null, {user: 'test2', name: 'Тест2'}, {user: 'test3', name: 'Тест3'}];
+  const PERSONA_LABEL = ['🎭 Тест2', '🎭 Тест3', '🎭 Sumai'];
+  const PERSONA_BG = ['#8e44ad', '#27ae60', '#e67e22'];
+  const PERSONA_STATUS = [
+    '🎭 Снова ты — Sumai',
+    '🎭 Действуешь как Тест2 (метка у Тюмени)',
+    '🎭 Действуешь как Тест3 (метка в Казахстане)'];
   document.getElementById('personaBtn').onclick = () => {
-    persona = persona ? null : {user: 'test2', name: 'Тест2'};
+    const i = (PERSONAS.findIndex(p => JSON.stringify(p) === JSON.stringify(persona)) + 1) % 3;
+    persona = PERSONAS[i];
     const b = document.getElementById('personaBtn');
-    b.textContent = persona ? '🎭 Снова Sumai' : '🎭 Тест2';
-    b.style.background = persona ? '#27ae60' : '#8e44ad';
-    status(persona ? '🎭 Действуешь как Тест2 (метка у Тюмени)' : '🎭 Снова ты — Sumai');
+    b.textContent = PERSONA_LABEL[i];
+    b.style.background = PERSONA_BG[i];
+    status(PERSONA_STATUS[i]);
     load();
   };
   async function spawnEvent(kind) {
@@ -3193,10 +3201,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1495"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1496"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1495 -->
+<!-- build:2026-11-01-1496 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
