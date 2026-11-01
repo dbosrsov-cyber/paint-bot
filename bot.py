@@ -1194,7 +1194,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1486 -->
+<!-- build:2026-11-01-1487 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2573,6 +2573,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   function sifaDrawBounds(area) {
     if (sifaBoundsRect) { map.removeLayer(sifaBoundsRect); sifaBoundsRect = null; }
     if (!area) return;
+    document.getElementById('sifaAreaBtn').style.display = 'none';   // границы заданы — кнопка больше не нужна
     sifaBoundsRect = L.rectangle([[area[0], area[1]], [area[2], area[3]]],
       {className: 'sifa-bounds', interactive: false}).addTo(map);
   }
@@ -2695,9 +2696,11 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       body: JSON.stringify({chat: chat, user: userKey(), points: pts})
     }).then(r => r.json().catch(() => ({})))
       .then(d => {
-        status(d.error ? '⚠️ ' + d.error : '🚧 Границы Сифы сохранены!');
+        status(d.error ? '⚠️ ' + d.error : '🚧 Границы Сифы сохранены! Кнопка границ больше не понадобится');
         sifaAreaMode = false;
-        document.getElementById('sifaAreaBtn').style.background = '#888';
+        const ab = document.getElementById('sifaAreaBtn');
+        ab.style.background = '#888';
+        if (!d.error) ab.style.display = 'none';
         sifaAreaMarks.forEach(m => map.removeLayer(m)); sifaAreaMarks = [];
         if (d.area) sifaDrawBounds(d.area);
       }).catch(() => status('⚠️ Границы не сохранились — нет связи'));
@@ -2725,7 +2728,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       sifaPos = {lat: d.lat, lon: d.lon};
       sifaPadOn = true;
       sifaRender(false);
-      map.panTo([d.lat, d.lon]);
+      map.flyTo([d.lat, d.lon], Math.max(map.getZoom(), 4));
       sifaPadEl.style.display = 'grid';
       sifaCtrlEl.style.display = 'flex';
       status(d.sifa ? '😱 О нет… у тебя СИФА! Избавься: подплыви к чужому кораблику ближе 1000 км'
@@ -3110,10 +3113,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1486"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1487"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1486 -->
+<!-- build:2026-11-01-1487 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
