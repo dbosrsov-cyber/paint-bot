@@ -585,12 +585,12 @@ sifa_lock = threading.Lock()
 _sifa_last_save = 0.0
 
 
-def sifa_save_to_github() -> None:
+def sifa_save_to_github(force: bool = False) -> None:
     global _sifa_last_save
     if not geo_token():
         return
     now = time.time()
-    if now - _sifa_last_save < SIFA_SAVE_INTERVAL_SEC:
+    if not force and now - _sifa_last_save < SIFA_SAVE_INTERVAL_SEC:
         return
     _sifa_last_save = now
     _save_json_to_github(SIFA_FILE, sifa_state, sifa_lock, "sifa")
@@ -1283,7 +1283,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-02-1515 -->
+<!-- build:2026-11-02-1516 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -3508,10 +3508,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-02-1515"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-02-1516"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-02-1515 -->
+<!-- build:2026-11-02-1516 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -5432,7 +5432,7 @@ class AppHandler(BaseHTTPRequestHandler):
         with sifa_lock:
             entry = _sifa_entry(chat_id)
             entry["area"] = [min(lats), min(lons), max(lats), max(lons)]
-        sifa_save_to_github()
+        sifa_save_to_github(force=True)
         self._json_response(200, {"ok": True, "area": entry["area"]})
 
     def _handle_sifa_motor_post(self) -> None:
