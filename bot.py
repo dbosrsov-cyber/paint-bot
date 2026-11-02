@@ -1208,7 +1208,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1500 -->
+<!-- build:2026-11-01-1501 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2528,6 +2528,11 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     inv.style.opacity = busy ? '.45' : '1';
     document.getElementById('actHint').textContent = busy
       ? 'Самолёт занят: гость уже летит или гуляет на острове' : '';
+    const pToday = (myIsl && myIsl.poop_today) || 0;
+    const pBtn = document.getElementById('actPoopBtn');
+    pBtn.textContent = '💩 Удобрить (+1 опыт) • сегодня ' + pToday + '/5';
+    pBtn.disabled = pToday >= 5;
+    pBtn.style.opacity = pBtn.disabled ? '.45' : '1';
     document.getElementById('actionsModal').style.display = 'flex';
   };
   document.getElementById('actPoopBtn').onclick = () => {
@@ -3245,10 +3250,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1500"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1501"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1500 -->
+<!-- build:2026-11-01-1501 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -4662,6 +4667,9 @@ class AppHandler(BaseHTTPRequestHandler):
                         "guest": (None if cur_guest is None
                                   else {"name": cur_guest["name"], "leg": cur_guest["leg"],
                                         "user": cur_guest["user"]}),
+                        "poop_today": (isl.get("poop_today", 0)
+                                       if isl.get("poop_day") == datetime.datetime.now(
+                                           MSK_TZ).strftime("%Y-%m-%d") else 0),
                         "mine": viewer in owners,
                     })
                 # сувениры гостей — в карточки их меток (видят все) + баланс ЗП каждой метки
