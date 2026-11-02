@@ -1214,7 +1214,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-02-1509 -->
+<!-- build:2026-11-02-1510 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1749,7 +1749,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     let html = '<span style="font-size:22px">' + emoji + '</span> <b>' + escapeHtml(m.name) + '</b><br>'
       + m.lat.toFixed(3) + ', ' + m.lon.toFixed(3);
     // локальное время: по долготе от Москвы; у некоторых меток — своя «родная» зона
-    const TIME_OVERRIDES = {'Андрюха': [-8, 'Нью-Йорк'], 'Ice': [-1, 'Кейптаун']};
+    const TIME_OVERRIDES = {'Андрюха': [-6, 'UTC−3'], 'Ice': [-1, 'UTC+2']};
     const ovr = TIME_OVERRIDES[m.name];
     let tLocal, tzLabel;
     if (ovr) {
@@ -3401,10 +3401,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-02-1509"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-02-1510"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-02-1509 -->
+<!-- build:2026-11-02-1510 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
