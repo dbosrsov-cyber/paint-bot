@@ -1283,7 +1283,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-02-1517 -->
+<!-- build:2026-11-02-1518 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -3508,10 +3508,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-02-1517"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-02-1518"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-02-1517 -->
+<!-- build:2026-11-02-1518 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -5073,7 +5073,8 @@ class AppHandler(BaseHTTPRequestHandler):
             self._handle_subopen_post(url)
             return
         if url.path in ("/islandbuy", "/islandinvite", "/islandleave",
-                        "/islandbuild", "/islandpoop", "/islanddel", "/islandrock"):
+                        "/islandbuild", "/islandpoop", "/islanddel", "/islandrock",
+                        "/islandstorm", "/islandkick"):
             self._handle_island_post(url)
             return
         if url.path != "/save":
