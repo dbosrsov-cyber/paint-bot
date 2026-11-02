@@ -3511,7 +3511,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-02-1520"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-02-1521"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -4593,6 +4593,30 @@ class AppHandler(BaseHTTPRequestHandler):
                 resp = json.load(urllib.request.urlopen(req, timeout=15))
                 out["ok"] = resp.get("ok")
                 out["result"] = resp.get("result", {}).get("message_id")
+            except Exception as e:
+                out["error"] = repr(e)
+            self._json_response(200, out)
+        elif url.path == "/sifaadmin":
+            # служебный (ключ): сдвиг касатки пользователя на N км на восток —
+            # починка «застрявших» касаток без перезапуска сервера
+            if params.get("key", [""])[0] != TGINFO_KEY:
+                self._respond(403, b"forbidden")
+                return
+            chat_id = int(params.get("chat", ["0"])[0])
+            user = params.get("user", [""])[0][:64]
+            km = float(params.get("km", ["0"])[0])
+            out = {"chat": chat_id, "user": user, "km": km}
+            try:
+                with sifa_lock:
+                    ship = (sifa_state.get(chat_id, {}).get("ships") or {}).get(user)
+                    if ship is None:
+                        out["error"] = "ship not found"
+                    else:
+                        dlon = km / (111.32 * math.cos(math.radians(ship["lat"])))
+                        ship["lon"] = max(-180.0, min(180.0, ship["lon"] + dlon))
+                        ship["ts"] = time.time()
+                        sifa_save_to_github(force=True)
+                        out.update({"ok": True, "lat": ship["lat"], "lon": ship["lon"]})
             except Exception as e:
                 out["error"] = repr(e)
             self._json_response(200, out)
