@@ -1208,7 +1208,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-02-1506 -->
+<!-- build:2026-11-02-1507 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -3307,10 +3307,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-02-1506"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-02-1507"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-02-1506 -->
+<!-- build:2026-11-02-1507 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -5119,6 +5119,8 @@ class AppHandler(BaseHTTPRequestHandler):
                         ship["sifa"] = False
                         tlat, tlon = sifa_random_water(area)
                         ship.update({"lat": tlat, "lon": tlon, "ts": now})
+                        # моторV8 гасится: Сифа передана, красный треугольник больше не нужен
+                        ship["motor_until"] = 0
                         teleported = True
                         break
             if ships and not any(s.get("sifa") for s in ships.values()):
@@ -5174,7 +5176,7 @@ class AppHandler(BaseHTTPRequestHandler):
         try:
             tg_send_message(chat_id,
                 "🚤💨 Сифа обозначила себя! Активирован МоторV8 — 10 минут скорость ×3. "
-                "Касатки, разбегайтесь: теперь Сифа сама охотится на вас! 🐬😱")
+                "Касатки, разбегайтесь: Сифа сама охотится на вас! 🐬😱")
         except Exception as e:
             print(f"[paint_bot] sifa motor notify: {e!r}", flush=True)
         self._json_response(200, {"ok": True, "motor_until": ship["motor_until"]})
