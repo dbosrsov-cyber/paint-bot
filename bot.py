@@ -1208,7 +1208,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1502 -->
+<!-- build:2026-11-01-1503 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2343,6 +2343,9 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       + '<div style="position:absolute;right:7%;bottom:20%;font-size:32px;line-height:1;'
       + 'filter:drop-shadow(0 2px 2px rgba(0,0,0,.35))">🌴</div>'
       + bHtml
+      + '<div onclick="openRock(&quot;' + isl.owner + '&quot;)" title="Скала посланий" '
+      + 'style="position:absolute;right:40%;bottom:13%;font-size:28px;line-height:1;cursor:pointer;'
+      + 'filter:drop-shadow(0 2px 2px rgba(0,0,0,.4))">🪨</div>'
       + '<div style="position:absolute;top:12px;left:0;right:0;text-align:center;color:#4a2c12;'
       + 'font-weight:bold;font-size:19px;text-shadow:0 1px 0 rgba(255,255,255,.6)">'
       + escapeHtml(isl.name) + '</div>'
@@ -2357,6 +2360,67 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     document.body.appendChild(islandCard);
   }
   window.openIslandCard = openIslandCard;
+
+  // ---------- Скала посланий: мелом на скале, читают все, пишет гость ----------
+  let rockModal = null;
+  window.openRock = async (owner) => {
+    if (rockModal) { rockModal.remove(); rockModal = null; }
+    let d = {};
+    try {
+      const r = await fetch('/islandrock', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({chat: chat, owner: owner, user: userKey(), name: userName()})
+      });
+      d = await r.json();
+    } catch (e) { status('⚠️ Скала не отвечает'); return; }
+    if (d.error) { status('⚠️ ' + d.error); return; }
+    const chalk = 'font-family:\\'Segoe Print\\',\\'Comic Sans MS\\',cursive;color:#f7f4ea;'
+      + 'text-shadow:0 0 2px rgba(255,255,255,.85),1px 1px 0 rgba(0,0,0,.35);';
+    let lines = '';
+    (d.inscriptions || []).forEach(i => {
+      lines += '<div style="margin:7px 0;font-size:15px;' + chalk + '">✎ <b>'
+        + escapeHtml(i.name) + '</b>: ' + escapeHtml(i.text) + '</div>';
+    });
+    if (!lines) lines = '<div style="' + chalk + 'font-size:14px;opacity:.85">Пока ни одного '
+      + 'послания — гости оставят первое мелом ✎</div>';
+    rockModal = document.createElement('div');
+    rockModal.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;'
+      + 'justify-content:center;z-index:100001;padding:18px;background:rgba(8,18,32,.55);';
+    rockModal.innerHTML = '<div style="position:relative;width:100%;max-width:360px;'
+      + 'border-radius:16px;overflow:hidden;padding:16px 16px 20px;'
+      + 'background:linear-gradient(180deg,#8fd0e8 0%,#4a9fd0 45%,#2f6fb2 100%);'
+      + 'box-shadow:0 16px 50px rgba(0,0,0,.6);">'
+      + '<div style="position:absolute;top:12px;left:0;right:0;text-align:center;color:#fff;'
+      + 'font-size:15px;text-shadow:0 1px 3px rgba(0,0,0,.6)">🪨 Скала посланий</div>'
+      + '<div style="margin-top:34px;'
+      + 'background:linear-gradient(160deg,#9a9aa2 0%,#73737c 55%,#57575f 100%);'
+      + 'border-radius:52% 48% 46% 54%/30% 34% 66% 70%;padding:26px 26px 34px;min-height:190px;'
+      + 'box-shadow:inset 0 6px 18px rgba(255,255,255,.18),inset 0 -10px 24px rgba(0,0,0,.35);">'
+      + lines + '</div>'
+      + (d.can_write
+          ? '<div style="margin-top:14px;text-align:center;">'
+            + '<input id="rockText" maxlength="20" placeholder="Твоё послание (до 20 символов)" '
+            + 'style="width:78%;padding:9px 12px;border-radius:10px;border:none;font-size:14px;">'
+            + '<button id="rockSendBtn" style="margin-top:8px;">✎ Оставить послание</button></div>'
+          : '')
+      + '<button onclick="this.parentNode.parentNode.remove()" '
+      + 'style="position:absolute;top:10px;right:12px;background:rgba(255,255,255,.85);'
+      + 'border:none;border-radius:50%;width:30px;height:30px;font-size:15px;cursor:pointer">✕</button>'
+      + '</div>';
+    document.body.appendChild(rockModal);
+    const sendBtn = document.getElementById('rockSendBtn');
+    if (sendBtn) sendBtn.onclick = async () => {
+      const text = (document.getElementById('rockText').value || '').trim();
+      if (!text) { status('✎ Напиши хотя бы пару букв 🙂'); return; }
+      const r = await fetch('/islandrock', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({chat: chat, owner: owner, user: userKey(), name: userName(), text: text})
+      });
+      const rd = await r.json().catch(() => ({}));
+      if (r.ok) { status('🪨 Послание высечено на скале!'); openRock(owner); }
+      else status('⚠️ ' + (rd.error || 'не вышло'));
+    };
+  };
 
   window.buyIsland = async () => {
     const r = await fetch('/islandbuy', {
@@ -3250,10 +3314,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1502"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1503"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1502 -->
+<!-- build:2026-11-01-1503 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -4756,7 +4820,7 @@ class AppHandler(BaseHTTPRequestHandler):
             self._handle_subopen_post(url)
             return
         if url.path in ("/islandbuy", "/islandinvite", "/islandleave",
-                        "/islandbuild", "/islandpoop", "/islanddel"):
+                        "/islandbuild", "/islandpoop", "/islanddel", "/islandrock"):
             self._handle_island_post(url)
             return
         if url.path != "/save":
@@ -5114,8 +5178,8 @@ class AppHandler(BaseHTTPRequestHandler):
         sifa_save_to_github()
         try:
             tg_send_message(chat_id,
-                "🚤💨 Сифа обозначил себя! Активирован МоторV8 — 10 минут скорость ×3. "
-                "Ловите его, касатки! 🐬")
+                "🚤💨 Сифа обозначила себя! Активирован МоторV8 — 10 минут скорость ×3. "
+                "Касатки, разбегайтесь: теперь Сифа сама охотится на вас! 🐬😱")
         except Exception as e:
             print(f"[paint_bot] sifa motor notify: {e!r}", flush=True)
         self._json_response(200, {"ok": True, "motor_until": ship["motor_until"]})
@@ -5391,6 +5455,8 @@ class AppHandler(BaseHTTPRequestHandler):
             self._island_poop(url)
         elif url.path == "/islanddel":
             self._island_del(url)
+        elif url.path == "/islandrock":
+            self._island_rock(url)
         else:
             self._json_response(404, {"error": "not found"})
 
@@ -5654,6 +5720,57 @@ class AppHandler(BaseHTTPRequestHandler):
         logline(f"200 /islandpoop chat={chat_id} user={user!r} xp={xp}")
         self._json_response(200, {"xp": xp, "level": level, "poops_left": poops_left,
                                   "poop_today": isl["poop_today"], "poop_limit": ISLAND_POOP_PER_DAY})
+
+    def _island_rock(self, url):
+        """Скала посланий: чтение всеми, запись — гостем (одно послание на остров)."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            owner = str(payload.get("owner", ""))[:64]
+            user = str(payload["user"])[:64]
+            text = str(payload.get("text", ""))[:40]
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        if not owner or not user:
+            self._json_response(400, {"error": "bad request"})
+            return
+        with geo_lock:
+            isl = islands_state.get(f"{chat_id}|{owner}")
+            if isl is None:
+                self._json_response(404, {"error": "нет такого острова"})
+                return
+            insc = isl.setdefault("inscriptions", [])
+            already = any(i.get("user") == user for i in insc)
+            if not text:   # чтение
+                marker = geo_state.get(chat_id, {}).get(user)
+                can_write = (user != owner and marker is not None and not already)
+                self._json_response(200, {"inscriptions": insc, "can_write": can_write})
+                return
+            # запись
+            if user == owner:
+                self._json_response(403, {"error": "владелец не пишет на своей скале 🙂"})
+                return
+            marker = geo_state.get(chat_id, {}).get(user)
+            if marker is None:
+                self._json_response(403, {"error": "сначала поставь метку на карте"})
+                return
+            text = text.strip()
+            if not (1 <= len(text) <= 20):
+                self._json_response(400, {"error": "послание — от 1 до 20 символов"})
+                return
+            if already:
+                self._json_response(409, {"error": "у тебя уже есть послание на этой скале"})
+                return
+            if len(insc) >= 60:
+                self._json_response(409, {"error": "скала заполнена — мест больше нет"})
+                return
+            insc.append({"user": user, "name": marker.get("name", user),
+                         "text": text, "ts": time.time()})
+            islands_save_to_github()
+            logline(f"200 /islandrock chat={chat_id} owner={owner!r} user={user!r}")
+        self._json_response(200, {"ok": True, "count": len(insc)})
 
     def log_message(self, format, *args):
         pass  # не спамить в логи
