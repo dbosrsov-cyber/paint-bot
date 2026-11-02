@@ -1283,7 +1283,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-02-1516 -->
+<!-- build:2026-11-02-1517 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -3508,10 +3508,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-02-1516"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-02-1517"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-02-1516 -->
+<!-- build:2026-11-02-1517 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -4532,10 +4532,15 @@ def logline(msg: str) -> None:
 class AppHandler(BaseHTTPRequestHandler):
     """HTTP-часть сервиса: / — проверка живости, /app — холст, /canvas — PNG, /save — приём рисунка."""
 
-    def _respond(self, code, body=b"", ctype="text/plain; charset=utf-8"):
+    def _respond(self, code, body=b"", ctype="text/plain; charset=utf-8", nocache=False):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        if nocache:
+            # Telegram WebView агрессивно кэширует страницу приложения — без этого
+            # старый JS живёт у пользователей после деплоя
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+            self.send_header("Pragma", "no-cache")
         self.end_headers()
         self.wfile.write(body)
 
@@ -4589,20 +4594,20 @@ class AppHandler(BaseHTTPRequestHandler):
                 out["error"] = repr(e)
             self._json_response(200, out)
         elif url.path == "/app":
-            self._respond(200, HTML_PAGE.encode("utf-8"), "text/html; charset=utf-8")
+            self._respond(200, HTML_PAGE.encode("utf-8"), "text/html; charset=utf-8", nocache=True)
         elif url.path == "/canvas":
             chat_id = int(params.get("chat", ["0"])[0])
             state = paint_state.get(chat_id)
             self._respond(200, state["image"] if state else white_png(), "image/png")
         elif url.path == "/geomap":
-            self._respond(200, GEO_HTML_PAGE.encode("utf-8"), "text/html; charset=utf-8")
+            self._respond(200, GEO_HTML_PAGE.encode("utf-8"), "text/html; charset=utf-8", nocache=True)
         elif url.path == "/geo2map":
             # «ГеографияЧата 2.0» — Песочница и «Другое измерение» (остальным 403)
             if int(params.get("chat", ["0"])[0]) not in (GEO2_CHAT_ID, ANON_GROUP_ID):
                 self._respond(403, "beta: allowed chats only".encode("utf-8"),
                               "text/plain; charset=utf-8")
             else:
-                self._respond(200, GEO2_HTML_PAGE.encode("utf-8"), "text/html; charset=utf-8")
+                self._respond(200, GEO2_HTML_PAGE.encode("utf-8"), "text/html; charset=utf-8", nocache=True)
         elif url.path == "/sifastate":
             chat_id = int(params.get("chat", ["0"])[0])
             viewer = params.get("user", [""])[0]
@@ -6491,7 +6496,7 @@ def paint_keyboard(chat_id: int, webapp: bool = True, drawer: str | None = None)
 
 def geo2_keyboard(chat_id: int) -> InlineKeyboardMarkup:
     """Бета 2.0: кнопка открывает карту (в группах — через браузер)."""
-    url = f"{APP_URL}/geo2map?chat={chat_id}"
+    url = f"{APP_URL}/geo2map?chat={chat_id}&v={BUILD_TAG}"
     return InlineKeyboardMarkup([[InlineKeyboardButton("🌍 Открыть карту", url=url)]])
 
 
