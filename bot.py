@@ -437,6 +437,31 @@ def resolve_marker_key(chat_id: int, user: str, name: str) -> str | None:
     return None
 
 
+def _stamp_ship_tid(ship: dict, user: str) -> None:
+    """Запомнить числовой id Telegram на касатке (сохранение — в вызывающем хендлере)."""
+    if str(user).isdigit() and not ship.get("tid"):
+        ship["tid"] = user
+
+
+def resolve_ship_key(ships: dict, user: str, name: str) -> str | None:
+    """Ключ касатки игрока: точно по ключу, по запомненному id (tid), иначе по имени.
+    При совпадении по имени запоминает числовой id — смена ника ничего не сломает."""
+    if user in ships:
+        _stamp_ship_tid(ships[user], user)
+        return user
+    for k, sh in ships.items():
+        if user and str(sh.get("tid", "")) == str(user):
+            return k
+    if name:
+        plain = str(name).lstrip("@")
+        for k, sh in ships.items():
+            sn = str(sh.get("name", ""))
+            if sn and (sn == name or sn == plain or ("@" + sn) == name):
+                _stamp_ship_tid(sh, user)
+                return k
+    return None
+
+
 def meteor_save_to_github() -> None:
     payload = {"meteors": {str(k): v for k, v in meteor_state.items()},
                "stardust": stardust_state,
@@ -1254,7 +1279,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-02-1512 -->
+<!-- build:2026-11-02-1513 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2797,7 +2822,8 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     if (!sifaPos) return;
     fetch('/sifamove', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), lat: sifaPos.lat, lon: sifaPos.lon, heading: sifaHeading})
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName(),
+                            lat: sifaPos.lat, lon: sifaPos.lon, heading: sifaHeading})
     }).then(r => r.json().catch(() => ({})))
       .then(d => {
         if (d.error) { status('⚠️ ' + d.error); return; }
@@ -3069,7 +3095,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   document.getElementById('sifaMotorBtn').onclick = async () => {
     const r = await fetch('/sifamotor', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey()})
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName()})
     });
     const d = await r.json().catch(() => ({}));
     status(d.error ? '⚠️ ' + d.error : '🚤💨 МоторV8 активирован на 10 минут!');
@@ -3441,10 +3467,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-02-1512"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-02-1513"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-02-1512 -->
+<!-- build:2026-11-02-1513 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -4551,6 +4577,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 if entry:
                     area = entry.get("area")
                     logs = entry.get("logs") or []
+                    sk_viewer = resolve_ship_key(entry["ships"], viewer, viewer_name)
                     # плывущие брёвна: одно в случайной водной точке зоны — раз в 3 часа
                     nlt = entry.get("next_log_ts", 0)
                     if area and now >= nlt:
@@ -4562,7 +4589,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     elif not area and not nlt:
                         entry["next_log_ts"] = now + SIFA_LOG_PERIOD_SEC
                     for u, s in list(entry["ships"].items()):
-                        mine = viewer_matches(u, viewer, viewer_name, chat_id)
+                        mine = (u == sk_viewer)
                         if mine:
                             me = {"sifa": bool(s.get("sifa")),
                                   "frozen_until": s.get("frozen_until", 0),
@@ -5232,13 +5259,17 @@ class AppHandler(BaseHTTPRequestHandler):
         with sifa_lock:
             entry = _sifa_entry(chat_id)
             ships = entry["ships"]
-            ship = ships.get(user)
-            if ship is None:
+            name = (str(payload.get("name", ""))[:32]).strip() or user
+            sk = resolve_ship_key(ships, user, name)
+            if sk is None:
                 lat, lon = sifa_random_water(entry.get("area"))
-                name = (str(payload.get("name", ""))[:32]).strip() or user
                 ship = {"lat": lat, "lon": lon, "heading": 0, "ts": time.time(),
                         "name": name, "sifa": False, "frozen_until": 0, "motor_until": 0}
+                if str(user).isdigit():
+                    ship["tid"] = user
                 ships[user] = ship
+            else:
+                ship = ships[sk]
             if ships and not any(s.get("sifa") for s in ships.values()):
                 _rnd.choice(list(ships.values()))["sifa"] = True
         sifa_save_to_github()
@@ -5261,13 +5292,15 @@ class AppHandler(BaseHTTPRequestHandler):
         if not (-85.0 <= lat <= 85.0 and -180.0 <= lon <= 180.0):
             self._json_response(400, {"error": "координаты за пределами карты"})
             return
+        name = str(payload.get("name", ""))[:64]
         now = time.time()
         teleported = False
         wood_picked = 0
         with sifa_lock:
             entry = _sifa_entry(chat_id)
             ships = entry["ships"]
-            ship = ships.get(user)
+            sk = resolve_ship_key(ships, user, name)
+            ship = ships.get(sk) if sk else None
             if ship is None:
                 self._json_response(404, {"error": "касатки ещё нет — нажми 🐬 в панели"})
                 return
@@ -5301,7 +5334,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     entry["logs"] = keep
             if ship.get("sifa"):
                 for ou, os in ships.items():
-                    if ou == user or os.get("sifa"):
+                    if ou == sk or os.get("sifa"):
                         continue
                     if now < os.get("frozen_until", 0):
                         continue
@@ -5321,8 +5354,9 @@ class AppHandler(BaseHTTPRequestHandler):
         wood_total = 0
         if wood_picked:
             with geo_lock:
-                marker = geo_state.get(chat_id, {}).get(user)
-                if marker is not None:
+                mk = resolve_marker_key(chat_id, user, name)
+                if mk is not None:
+                    marker = geo_state[chat_id][mk]
                     marker["wood"] = marker.get("wood", 0) + wood_picked
                     wood_total = marker["wood"]
                     geo_save_to_github()
@@ -5367,7 +5401,9 @@ class AppHandler(BaseHTTPRequestHandler):
         now = time.time()
         with sifa_lock:
             entry = sifa_state.get(chat_id) or {}
-            ship = (entry.get("ships") or {}).get(user)
+            name = str(payload.get("name", ""))[:64]
+            sk = resolve_ship_key(entry.get("ships") or {}, user, name)
+            ship = (entry.get("ships") or {}).get(sk) if sk else None
             if not ship or not ship.get("sifa"):
                 self._json_response(403, {"error": "МоторV8 — только у того, кто держит Сифу"})
                 return
