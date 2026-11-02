@@ -1208,7 +1208,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1501 -->
+<!-- build:2026-11-01-1502 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2310,7 +2310,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     const built = isl.buildings || [];
     const spots = {
       hut: 'left:17%;bottom:24%;', bar: 'right:14%;bottom:21%;',
-      statue: 'left:47%;bottom:33%;', castle: 'right:29%;bottom:35%;',
+      statue: 'left:29%;bottom:35%;', castle: 'right:29%;bottom:35%;',
     };
     let bHtml = '';
     built.forEach(bid => {
@@ -3250,10 +3250,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1501"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1502"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1501 -->
+<!-- build:2026-11-01-1502 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
