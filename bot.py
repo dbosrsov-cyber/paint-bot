@@ -397,6 +397,21 @@ def viewer_matches(recipient: str, viewer: str, name: str, chat_id: int) -> bool
     return bool(marker) and marker.get("name") == name
 
 
+def resolve_marker_key(chat_id: int, user: str, name: str) -> str | None:
+    """Ключ метки пользователя: точно по ключу, иначе по имени — метки часто ставили
+    из браузера (ключ = имя), а ключ Telegram WebApp — числовой id."""
+    markers = geo_state.get(chat_id, {})
+    if user in markers:
+        return user
+    if name:
+        plain = str(name).lstrip("@")
+        for k, m in markers.items():
+            mn = str(m.get("name", ""))
+            if mn and (mn == name or mn == plain or ("@" + mn) == name):
+                return k
+    return None
+
+
 def meteor_save_to_github() -> None:
     payload = {"meteors": {str(k): v for k, v in meteor_state.items()},
                "stardust": stardust_state,
@@ -1214,7 +1229,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-02-1510 -->
+<!-- build:2026-11-02-1511 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2495,7 +2510,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   window.leaveIsland = async () => {
     const r = await fetch('/islandleave', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey()})
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName()})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -2653,7 +2668,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   window.islandStorm = async () => {
     const r = await fetch('/islandstorm', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey()})
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName()})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) status('🌲 +' + (data.got || 3) + ' дерева! В мешке: ' + data.wood + ' 🪵');
@@ -3401,10 +3416,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-02-1510"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-02-1511"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-02-1510 -->
+<!-- build:2026-11-02-1511 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -4867,7 +4882,8 @@ class AppHandler(BaseHTTPRequestHandler):
                                        if isl.get("poop_day") == datetime.datetime.now(
                                            MSK_TZ).strftime("%Y-%m-%d") else 0),
                         "storm_left": max(0, int(storm_left)),
-                        "mine": viewer in owners,
+                        "mine": any(viewer_matches(o, viewer, viewer_name, chat_id)
+                                    for o in owners),
                     })
                 # сувениры гостей — в карточки их меток (видят все) + баланс ЗП каждой метки
                 for m in markers:
@@ -5760,13 +5776,16 @@ class AppHandler(BaseHTTPRequestHandler):
         if not user:
             self._json_response(400, {"error": "bad request"})
             return
+        name = str(payload.get("name", ""))[:64]
         with geo_lock:
             found = None
             for isl in islands_state.values():
                 if isl["chat"] != chat_id:
                     continue
                 g = isl.get("guest")
-                if g and g["user"] == user and g["leg"] == "staying":
+                if (g and g["leg"] == "staying"
+                        and (g["user"] == user
+                             or viewer_matches(g["user"], user, name, chat_id))):
                     found = (isl, g)
                     break
             if found is None:
@@ -5911,20 +5930,22 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._json_response(404, {"error": "нет такого острова"})
                 return
             insc = isl.setdefault("inscriptions", [])
-            already = any(i.get("user") == user for i in insc)
+            name = str(payload.get("name", ""))[:64]
+            mkey = resolve_marker_key(chat_id, user, name)
+            already = any(i.get("user") in (user, mkey) or i.get("uid") == user
+                          for i in insc)
             if not text:   # чтение
-                marker = geo_state.get(chat_id, {}).get(user)
-                can_write = (user != owner and marker is not None and not already)
+                can_write = (mkey is not None and mkey != owner and not already)
                 self._json_response(200, {"inscriptions": insc, "can_write": can_write})
                 return
             # запись
             if user == owner:
                 self._json_response(403, {"error": "владелец не пишет на своей скале 🙂"})
                 return
-            marker = geo_state.get(chat_id, {}).get(user)
-            if marker is None:
+            if mkey is None:
                 self._json_response(403, {"error": "сначала поставь метку на карте"})
                 return
+            marker = geo_state[chat_id][mkey]
             text = text.strip()
             if not (1 <= len(text) <= 20):
                 self._json_response(400, {"error": "послание — от 1 до 20 символов"})
@@ -5935,7 +5956,7 @@ class AppHandler(BaseHTTPRequestHandler):
             if len(insc) >= 60:
                 self._json_response(409, {"error": "скала заполнена — мест больше нет"})
                 return
-            insc.append({"user": user, "name": marker.get("name", user),
+            insc.append({"user": mkey, "uid": user, "name": marker.get("name", user),
                          "text": text, "ts": time.time()})
             islands_save_to_github()
             logline(f"200 /islandrock chat={chat_id} owner={owner!r} user={user!r}")
@@ -5954,6 +5975,8 @@ class AppHandler(BaseHTTPRequestHandler):
         if not user:
             self._json_response(400, {"error": "bad request"})
             return
+        name = str(payload.get("name", ""))[:64]
+        mkey = resolve_marker_key(chat_id, user, name)
         now = time.time()
         with geo_lock:
             isl = island_of(chat_id, user)
@@ -5962,7 +5985,9 @@ class AppHandler(BaseHTTPRequestHandler):
                     if i2["chat"] != chat_id:
                         continue
                     g2 = i2.get("guest")
-                    if g2 and g2["user"] == user and g2["leg"] == "staying":
+                    if (g2 and g2["leg"] == "staying"
+                            and (g2["user"] == user
+                                 or viewer_matches(g2["user"], user, name, chat_id))):
                         isl = i2
                         break
             if isl is None:
@@ -5972,15 +5997,16 @@ class AppHandler(BaseHTTPRequestHandler):
             if not storm or now >= storm.get("active_until", 0):
                 self._json_response(410, {"error": "шторм уже стих — волна унесла дерево"})
                 return
-            if user in storm.get("collected", []):
+            collected = storm.get("collected", [])
+            if user in collected or (mkey and mkey in collected):
                 self._json_response(409, {"error": "ты уже собрал своё дерево с этого шторма"})
                 return
-            marker = geo_state.get(chat_id, {}).get(user)
-            if marker is None:
+            if mkey is None:
                 self._json_response(403, {"error": "сначала поставь метку на карте"})
                 return
+            marker = geo_state[chat_id][mkey]
             marker["wood"] = marker.get("wood", 0) + ISLAND_STORM_WOOD
-            storm.setdefault("collected", []).append(user)
+            storm.setdefault("collected", []).append(mkey)
             wood = marker["wood"]
             islands_save_to_github()
             geo_save_to_github()
