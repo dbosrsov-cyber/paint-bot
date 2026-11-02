@@ -611,6 +611,16 @@ def sifa_load_from_github() -> None:
             sifa_state[int(cid)] = entry
             total += len(entry["ships"])
         print(f"[paint_bot] sifa: загружено {total} кораблей из Git", flush=True)
+    # Разовый фикс 2026-11-02: касатка ПМ застряла на западной границе —
+    # сдвигаем её на 3000 км восточнее (применится один раз, пока lon < -150).
+    try:
+        _pm = sifa_state.get(-1002304715333, {}).get("ships", {}).get("ПМ")
+        if _pm is not None and _pm.get("lon", 0) < -150:
+            _pm["lon"] = max(-180.0, min(180.0, _pm["lon"] + 3000.0 / (111.32 * math.cos(math.radians(_pm["lat"])))))
+            _pm["ts"] = time.time()
+            print(f"[paint_bot] sifa: разовый сдвиг касатки ПМ -> lon {_pm['lon']:.2f}", flush=True)
+    except Exception:
+        pass
 
 
 def submarine_save_to_github() -> None:
@@ -3511,7 +3521,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-02-1521"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-02-1522"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
