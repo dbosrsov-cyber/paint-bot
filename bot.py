@@ -476,6 +476,11 @@ def meteor_load_from_github() -> None:
     if not loaded:
         return
     meteor_state.update({int(cid): m for cid, m in loaded.get("meteors", {}).items()})
+    # воронки больше не храним: чистим сохранённые при загрузке и перезаписываем файл
+    for _m in meteor_state.values():
+        if _m.get("craters"):
+            _m["craters"] = []
+    meteor_save_to_github()
     stardust_state.update(loaded.get("stardust", {}))
     meteor_credits.update(loaded.get("credits", {}))
     apply_startup_credits()
@@ -697,9 +702,7 @@ def meteor_check(chat_id: int):
         changed = True
     cur = m.get("current")
     if cur is not None and now - cur["fall_ts"] >= METEOR_LIFETIME_SEC:
-        # окно сбора закрылось: воронка остаётся на карте навсегда
-        m["craters"].append({"lat": cur["lat"], "lon": cur["lon"],
-                             "fall_ts": cur["fall_ts"], "zp": 1 if cur["taken"] else 0})
+        # окно сбора закрылось: метеорит сразу исчезает с карты (воронки не остаются)
         m["current"] = None
         changed = True
     fell = False
@@ -3508,7 +3511,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-02-1519"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-02-1520"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
