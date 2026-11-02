@@ -1208,7 +1208,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1504 -->
+<!-- build:2026-11-01-1505 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -2710,16 +2710,9 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     const ab = document.getElementById('sifaAreaBtn');
     ab.style.display = (sifaPadOn && SIFA_AREA_ADMINS.indexOf(userKey()) >= 0 && !area) ? '' : 'none';
     if (!area || !sifaPadOn) return;
-    const opt = {className: 'sifa-bounds', interactive: false};
-    if (area[3] > 180) {   // область пересекает меридиан 180° — рисуем двумя прямоугольниками
-      const grp = L.layerGroup([
-        L.rectangle([[area[0], area[1]], [area[2], 180]], opt),
-        L.rectangle([[area[0], -180], [area[2], area[3] - 360]], opt)]);
-      grp.addTo(map);
-      sifaBoundsRect = grp;
-    } else {
-      sifaBoundsRect = L.rectangle([[area[0], area[1]], [area[2], area[3]]], opt).addTo(map);
-    }
+    // одна вертикальная пунктирная линия — западная граница зоны игры
+    sifaBoundsRect = L.polyline([[area[0], area[1]], [area[2], area[1]]],
+      {className: 'sifa-bounds', interactive: false}).addTo(map);
   }
   function sifaFmtLeft(until) {
     let s = Math.max(0, Math.ceil(until - Date.now() / 1000));
@@ -3314,10 +3307,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1504"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1505"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1504 -->
+<!-- build:2026-11-01-1505 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
