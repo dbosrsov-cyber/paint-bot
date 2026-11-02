@@ -385,29 +385,54 @@ def apply_marker_bindings() -> None:
         meteor_save_to_github()
 
 
+def _stamp_tid(marker: dict, viewer: str) -> None:
+    """Запомнить числовой id Telegram на метке — тогда смена ника в Telegram
+    ничего не сломает: метка находится по id. Сохраняет geo.json (вызывать под geo_lock
+    или без него — geo_lock RLock)."""
+    if not str(viewer).isdigit() or marker.get("tid"):
+        return
+    marker["tid"] = viewer
+    geo_save_to_github()
+
+
 def viewer_matches(recipient: str, viewer: str, name: str, chat_id: int) -> bool:
     """Зритель == адресат? Ключ метки может отличаться от ключа Telegram WebApp
-    (метки ставили и из браузера — по имени), поэтому совпадаем также по имени
-    метки-адресата."""
+    (метки ставили и из браузера — по имени), поэтому совпадаем по имени метки
+    и по запомненному числовому id Telegram (tid) — ник может смениться, id — нет."""
     if recipient == viewer:
+        return True
+    marker = geo_state.get(chat_id, {}).get(recipient)
+    if not marker:
+        return False
+    if viewer and str(marker.get("tid", "")) == str(viewer):
         return True
     if not name:
         return False
-    marker = geo_state.get(chat_id, {}).get(recipient)
-    return bool(marker) and marker.get("name") == name
+    if marker.get("name") == name:
+        _stamp_tid(marker, viewer)
+        return True
+    return False
 
 
 def resolve_marker_key(chat_id: int, user: str, name: str) -> str | None:
-    """Ключ метки пользователя: точно по ключу, иначе по имени — метки часто ставили
-    из браузера (ключ = имя), а ключ Telegram WebApp — числовой id."""
+    """Ключ метки пользователя: точно по ключу, по запомненному id Telegram (tid),
+    иначе по имени (метки ставили из браузера — ключ = имя). При совпадении по имени
+    запоминает числовой id на метке — смена ника в Telegram ничего не сломает."""
     markers = geo_state.get(chat_id, {})
     if user in markers:
+        marker = markers[user]
+        if not marker.get("tid"):
+            _stamp_tid(marker, user)
         return user
+    for k, m in markers.items():
+        if user and str(m.get("tid", "")) == str(user):
+            return k
     if name:
         plain = str(name).lstrip("@")
         for k, m in markers.items():
             mn = str(m.get("name", ""))
             if mn and (mn == name or mn == plain or ("@" + mn) == name):
+                _stamp_tid(m, user)
                 return k
     return None
 
@@ -1229,7 +1254,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-02-1511 -->
+<!-- build:2026-11-02-1512 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -3416,10 +3441,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-02-1511"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-02-1512"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-02-1511 -->
+<!-- build:2026-11-02-1512 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
