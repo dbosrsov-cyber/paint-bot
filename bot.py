@@ -1208,7 +1208,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1503 -->
+<!-- build:2026-11-01-1504 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -3314,10 +3314,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-01-1503"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-01-1504"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-01-1503 -->
+<!-- build:2026-11-01-1504 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -4688,9 +4688,11 @@ class AppHandler(BaseHTTPRequestHandler):
                                 try:
                                     tg_send_with_cleanup(
                                         chat_id,
-                                        f"🏝️ {g['name']} приземлился на «{isl['name']}»! "
-                                        f"+{zp_reward} ЗП и сувенир {g['souvenir']} 😄🎉 "
-                                        "Хозяину: гость ждёт — жми «Улететь», когда надоест 🙂",
+                                        f"🏝️ {g['name']} приземлился на «{isl['name']}»!\n"
+                                        f"Гостю: +{zp_reward} ЗП и сувенир {g['souvenir']} 🎁 "
+                                        "Когда нагуляешься — жми «Улететь», а до этого не забудь "
+                                        "оставить послание на скале 🪨✎\n"
+                                        "Хозяину: +1 опыт острова 😎",
                                         ARRIVAL_NOTIFY_TTL_SEC,
                                     )
                                 except Exception as e:
