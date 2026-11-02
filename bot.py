@@ -408,7 +408,9 @@ def viewer_matches(recipient: str, viewer: str, name: str, chat_id: int) -> bool
         return True
     if not name:
         return False
-    if marker.get("name") == name:
+    mn = str(marker.get("name", ""))
+    plain = str(name).lstrip("@")
+    if mn and (mn == name or mn == plain or ("@" + mn) == name):
         _stamp_tid(marker, viewer)
         return True
     return False
@@ -666,13 +668,15 @@ def island_guest_at(chat_id: int, user: str):
     return None
 
 
-def island_of(chat_id: int, user: str):
-    """Остров чата, где user — владелец (основной или совладелец), или None."""
+def island_of(chat_id: int, user: str, name: str = ""):
+    """Остров чата, где user — владелец (основной или совладелец), или None.
+    Мягкий матчинг: ключ владельца, запомненный tid или имя его метки."""
+    mkey = resolve_marker_key(chat_id, user, name) if name else None
     for isl in islands_state.values():
         if isl["chat"] != chat_id or isl.get("banned"):
             continue
         owners = isl.get("owners") or [isl["owner"]]
-        if user in owners:
+        if user in owners or (mkey is not None and mkey in owners):
             return isl
     return None
 
@@ -1279,7 +1283,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-02-1514 -->
+<!-- build:2026-11-02-1515 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1767,7 +1771,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   async function spawnEvent(kind) {
     const r = await fetch('/spawnevent', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), kind: kind})
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), kind: kind})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -2389,7 +2393,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     } else {
       if (isl.guest) html += '<br>' + (legTxt[isl.guest.leg] || '');
       if (isl.guest && isl.guest.user === userKey() && isl.guest.leg === 'staying'
-          && (isl.storm_left || 0) > 0) {
+          && (isl.storm_left || 0) > 0 && !isl.storm_collected) {
         html += '<br><button onclick="islandStorm()">🌲 Собрать дерево (+3)</button>';
       }
       html += '<br>';
@@ -2579,7 +2583,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     if (m.user === userKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
     const r = await fetch('/islandinvite', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), to_user: m.user})
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), to_user: m.user})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -2608,7 +2612,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   window.islandBuild = async (bid) => {
     const r = await fetch('/islandbuild', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), building: bid})
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), building: bid})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -2718,11 +2722,14 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     // шторм: дерево на берегу — активно 15 минут после шторма
     const sBtn = document.getElementById('actStormBtn');
     const stormLeft = (myIsl && myIsl.storm_left) || 0;
-    sBtn.disabled = !stormLeft;
-    sBtn.style.opacity = stormLeft ? '1' : '.45';
-    sBtn.textContent = stormLeft
-      ? '🌲 Собрать дерево (+3) • осталось ' + Math.ceil(stormLeft / 60) + ' мин'
-      : '🌲 Собрать дерево (нет шторма)';
+    const stormDone = !!(myIsl && myIsl.storm_collected);
+    sBtn.disabled = !stormLeft || stormDone;
+    sBtn.style.opacity = (stormLeft && !stormDone) ? '1' : '.45';
+    sBtn.textContent = stormDone
+      ? '🌲 Дерево собрано ✓'
+      : (stormLeft
+        ? '🌲 Собрать дерево (+3) • осталось ' + Math.ceil(stormLeft / 60) + ' мин'
+        : '🌲 Собрать дерево (нет шторма)');
     // выпнуть гостя: активно, если гость торчит на острове дольше суток
     const kBtn = document.getElementById('actKickBtn');
     const gst = myIsl && myIsl.guest;
@@ -2768,7 +2775,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     document.getElementById('actionsModal').style.display = 'none';
     const r = await fetch('/islandkick', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey()})
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName()})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) status('👢 Гость ' + (data.gone ? 'исчез с острова' : 'улетает домой ✈️'));
@@ -3165,7 +3172,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   window.islandPoop = async () => {
     const r = await fetch('/islandpoop', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey()})
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName()})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -3182,7 +3189,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     if (!confirm('Вы точно хотите удалить остров? Это навсегда!')) return;
     const r = await fetch('/islanddel', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey()})
+      body: JSON.stringify({chat: chat, user: userKey(), name: userName()})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -3501,10 +3508,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-02-1514"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-02-1515"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-02-1514 -->
+<!-- build:2026-11-02-1515 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -4947,6 +4954,11 @@ class AppHandler(BaseHTTPRequestHandler):
                         except Exception as e:
                             print(f"[paint_bot] уведомление о шторме не ушло: {e!r}", flush=True)
                     storm_left = (_storm["active_until"] - now) if _storm else 0
+                    _collected = (_storm or {}).get("collected") or []
+                    _vmkey = resolve_marker_key(chat_id, viewer, viewer_name)
+                    _storm_collected = bool(_collected and
+                                            (viewer in _collected
+                                             or (_vmkey and _vmkey in _collected)))
                     owners = isl.get("owners") or [isl["owner"]]
                     onames = []
                     for ow in owners:
@@ -4968,6 +4980,7 @@ class AppHandler(BaseHTTPRequestHandler):
                                        if isl.get("poop_day") == datetime.datetime.now(
                                            MSK_TZ).strftime("%Y-%m-%d") else 0),
                         "storm_left": max(0, int(storm_left)),
+                        "storm_collected": _storm_collected,
                         "mine": any(viewer_matches(o, viewer, viewer_name, chat_id)
                                     for o in owners),
                     })
@@ -5585,6 +5598,7 @@ class AppHandler(BaseHTTPRequestHandler):
             chat_id = int(payload["chat"])
             user = str(payload["user"])[:64]
             kind = str(payload.get("kind", ""))[:16]
+            name = str(payload.get("name", ""))[:64]
         except Exception:
             self._json_response(400, {"error": "bad request"})
             return
@@ -5625,7 +5639,7 @@ class AppHandler(BaseHTTPRequestHandler):
             return
         if kind == "storm":
             with geo_lock:
-                isl = island_of(chat_id, user)
+                isl = island_of(chat_id, user, name)
                 if isl is None:
                     self._json_response(404, {"error": "сначала купи остров в Песочнице"})
                     return
@@ -5768,8 +5782,9 @@ class AppHandler(BaseHTTPRequestHandler):
         if not user:
             self._json_response(400, {"error": "bad request"})
             return
+        name = str(payload.get("name", ""))[:64]
         with geo_lock:
-            isl = island_of(chat_id, user)
+            isl = island_of(chat_id, user, name)
             if isl is None:
                 self._json_response(404, {"error": "у тебя нет острова"})
                 return
@@ -5807,8 +5822,9 @@ class AppHandler(BaseHTTPRequestHandler):
             self._json_response(400, {"error": "bad request"})
             return
         key = f"{chat_id}|{user}"
+        name = str(payload.get("name", ""))[:64]
         with geo_lock:
-            if island_of(chat_id, user) is not None:
+            if island_of(chat_id, user, name) is not None:
                 self._json_response(409, {"error": "у тебя уже есть остров (можешь быть совладельцем)"})
                 return
             if stardust_state.get(key, 0) < ISLAND_COST_ZP:
@@ -5855,8 +5871,9 @@ class AppHandler(BaseHTTPRequestHandler):
         if not user or not to_user or user == to_user:
             self._json_response(400, {"error": "bad request"})
             return
+        name = str(payload.get("name", ""))[:64]
         with geo_lock:
-            isl = island_of(chat_id, user)
+            isl = island_of(chat_id, user, name)
             if isl is None:
                 self._json_response(404, {"error": "сначала купи остров (10 ЗП) — кнопка в твоей метке"})
                 return
@@ -5935,6 +5952,7 @@ class AppHandler(BaseHTTPRequestHandler):
             chat_id = int(payload["chat"])
             user = str(payload["user"])[:64]
             bid = str(payload.get("building", ""))[:16]
+            name = str(payload.get("name", ""))[:64]
         except Exception:
             self._json_response(400, {"error": "bad request"})
             return
@@ -5946,7 +5964,7 @@ class AppHandler(BaseHTTPRequestHandler):
         cost_wood = spec[5] if len(spec) > 5 else 0
         key = f"{chat_id}|{user}"
         with geo_lock:
-            isl = island_of(chat_id, user)
+            isl = island_of(chat_id, user, name)
             if isl is None:
                 self._json_response(404, {"error": "сначала купи остров (10 ЗП)"})
                 return
@@ -6000,8 +6018,9 @@ class AppHandler(BaseHTTPRequestHandler):
             self._json_response(400, {"error": "bad request"})
             return
         key = f"{chat_id}|{user}"
+        name = str(payload.get("name", ""))[:64]
         with geo_lock:
-            isl = island_of(chat_id, user)
+            isl = island_of(chat_id, user, name)
             if isl is None:
                 self._json_response(404, {"error": "сначала купи остров (10 ЗП)"})
                 return
@@ -6109,7 +6128,7 @@ class AppHandler(BaseHTTPRequestHandler):
         mkey = resolve_marker_key(chat_id, user, name)
         now = time.time()
         with geo_lock:
-            isl = island_of(chat_id, user)
+            isl = island_of(chat_id, user, name)
             if isl is None:
                 for i2 in islands_state.values():
                     if i2["chat"] != chat_id:
@@ -6157,8 +6176,9 @@ class AppHandler(BaseHTTPRequestHandler):
             self._json_response(400, {"error": "bad request"})
             return
         now = time.time()
+        name = str(payload.get("name", ""))[:64]
         with geo_lock:
-            isl = island_of(chat_id, user)
+            isl = island_of(chat_id, user, name)
             if isl is None:
                 self._json_response(404, {"error": "у тебя нет острова"})
                 return
