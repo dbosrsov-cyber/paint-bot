@@ -1279,7 +1279,7 @@ HTML_PAGE = """<!DOCTYPE html>
 # === ГеографияЧата 2.0 — новая оболочка (тот же API; бета только для Песочницы) ===
 
 GEO2_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-02-1513 -->
+<!-- build:2026-11-02-1514 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -1501,8 +1501,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   <button id="chestBtn" title="Мой сундук">🧰</button>
   <button id="helpBtn" title="Что здесь можно делать">❓</button>
   <button id="personaBtn" title="Действовать как Тест2" style="display:none;">🎭</button>
-  <button id="volcanoBtn" title="Вызвать вулкан" style="display:none;">🌋</button>
-  <button id="meteorBtn" title="Вызвать метеорит" style="display:none;">☄️</button>
+  <button id="eventsBtn" title="События (только Sumai)" style="display:none;">⚡</button>
   <button id="themeBtn" title="Сменить тему" style="display:none;">🌓</button>
 </div></div>
 <div class="bar" id="animals"></div>
@@ -1598,6 +1597,20 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     </ul>
     <div style="display:flex;justify-content:flex-end;">
       <button id="helpCloseBtn" class="btn-cancel">Закрыть</button>
+    </div>
+  </div>
+</div>
+<div id="eventsModal" class="modal" style="display:none;">
+  <div class="modal-card" style="text-align:center;">
+    <b style="font-size:17px;">⚡ События (тест Песочницы)</b>
+    <div style="display:flex;flex-direction:column;gap:10px;margin-top:14px;">
+      <button id="evtVolcanoBtn">🌋 Вулкан</button>
+      <button id="evtMeteorBtn">☄️ Метеорит</button>
+      <button id="evtStormBtn">🌩 Шторм на мой остров</button>
+      <button id="evtLogBtn">🪵 Бревно в море Сифы</button>
+    </div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px;">
+      <button id="eventsCloseBtn" class="btn-cancel">Закрыть</button>
     </div>
   </div>
 </div>
@@ -1733,8 +1746,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     || nameInput.value.trim() === 'Sumai';
   if (isSumaiBeta && chat === '-1004400745434') {
     document.getElementById('personaBtn').style.display = '';
-    document.getElementById('volcanoBtn').style.display = '';
-    document.getElementById('meteorBtn').style.display = '';
+    document.getElementById('eventsBtn').style.display = '';
   }
   const PERSONAS = [null, {user: 'test2', name: 'Тест2'}, {user: 'test3', name: 'Тест3'}];
   const PERSONA_LABEL = ['🎭 Тест2', '🎭 Тест3', '🎭 Sumai'];
@@ -1759,14 +1771,36 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
-      status(kind === 'volcano' ? '🌋 Вулкан извергается — ищи на карте!' : '☄️ Метеорит упал — спеши собрать ЗП!');
+      const EVT_STATUS = {
+        volcano: '🌋 Вулкан извергается — ищи на карте!',
+        meteor: '☄️ Метеорит упал — спеши собрать ЗП!',
+        storm: '🌩 Шторм на твоём острове — 15 минут на сбор дерева!',
+        log: '🪵 Бревно появилось в море Сифы — ищи на карте!'
+      };
+      status(EVT_STATUS[kind] || '⚡ Событие вызвано');
       load();
     } else {
       status('⚠️ ' + (data.error || 'не вышло вызвать событие'));
     }
   }
-  document.getElementById('volcanoBtn').onclick = () => spawnEvent('volcano');
-  document.getElementById('meteorBtn').onclick = () => spawnEvent('meteor');
+  document.getElementById('eventsBtn').onclick = () => {
+    document.getElementById('eventsModal').style.display = 'flex';
+  };
+  document.getElementById('eventsCloseBtn').onclick = () => {
+    document.getElementById('eventsModal').style.display = 'none';
+  };
+  document.getElementById('evtVolcanoBtn').onclick = () => {
+    document.getElementById('eventsModal').style.display = 'none'; spawnEvent('volcano');
+  };
+  document.getElementById('evtMeteorBtn').onclick = () => {
+    document.getElementById('eventsModal').style.display = 'none'; spawnEvent('meteor');
+  };
+  document.getElementById('evtStormBtn').onclick = () => {
+    document.getElementById('eventsModal').style.display = 'none'; spawnEvent('storm');
+  };
+  document.getElementById('evtLogBtn').onclick = () => {
+    document.getElementById('eventsModal').style.display = 'none'; spawnEvent('log');
+  };
 
   let pending = null;
   const markers = {};  // user_key -> L.marker
@@ -3467,10 +3501,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-02-1513"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-02-1514"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
-<!-- build:2026-11-02-1513 -->
+<!-- build:2026-11-02-1514 -->
 <html lang="ru">
 <head>
 <meta charset="utf-8">
@@ -5589,7 +5623,30 @@ class AppHandler(BaseHTTPRequestHandler):
             logline(f"200 /spawnevent meteor chat={chat_id} user={user!r} ({lat:.2f},{lon:.2f})")
             self._json_response(200, {"ok": True, "lat": lat, "lon": lon})
             return
-        self._json_response(400, {"error": "kind: volcano|meteor"})
+        if kind == "storm":
+            with geo_lock:
+                isl = island_of(chat_id, user)
+                if isl is None:
+                    self._json_response(404, {"error": "сначала купи остров в Песочнице"})
+                    return
+                isl["storm"] = {"active_until": now + ISLAND_STORM_LIVE_SEC,
+                                "collected": []}
+                isl["next_storm_ts"] = now + ISLAND_STORM_PERIOD_SEC
+                islands_save_to_github()
+            logline(f"200 /spawnevent storm chat={chat_id} user={user!r}")
+            self._json_response(200, {"ok": True})
+            return
+        if kind == "log":
+            with sifa_lock:
+                entry = _sifa_entry(chat_id)
+                lat, lon = sifa_random_water(entry.get("area"))
+                logs = entry.get("logs") or []
+                entry["logs"] = logs + [{"lat": round(lat, 6), "lon": round(lon, 6)}]
+                sifa_save_to_github()
+            logline(f"200 /spawnevent log chat={chat_id} user={user!r} ({lat:.2f},{lon:.2f})")
+            self._json_response(200, {"ok": True, "lat": lat, "lon": lon})
+            return
+        self._json_response(400, {"error": "kind: volcano|meteor|storm|log"})
 
     def _handle_subgift_post(self, url):
         """Отправка подарка: пользователь целится меткой адресата — от кита поплывёт подарок."""
@@ -5993,15 +6050,27 @@ class AppHandler(BaseHTTPRequestHandler):
             insc = isl.setdefault("inscriptions", [])
             name = str(payload.get("name", ""))[:64]
             mkey = resolve_marker_key(chat_id, user, name)
+            # скала — только для владельца и гостя, который СЕЙЧАС на острове
+            g = isl.get("guest")
+            is_guest = bool(g and g["leg"] == "staying"
+                            and (g["user"] == user
+                                 or (mkey is not None and g["user"] == mkey)
+                                 or viewer_matches(g["user"], user, name, chat_id)))
+            is_owner = (mkey is not None and mkey == owner)
+            if not is_owner and not is_guest:
+                self._json_response(403, {"error": "послания на скале видят только владелец "
+                                                "и гость, который сейчас на острове 🪨"})
+                return
             already = any(i.get("user") in (user, mkey) or i.get("uid") == user
                           for i in insc)
             if not text:   # чтение
-                can_write = (mkey is not None and mkey != owner and not already)
+                can_write = (is_guest and mkey != owner and not already)
                 self._json_response(200, {"inscriptions": insc, "can_write": can_write})
                 return
-            # запись
-            if user == owner:
-                self._json_response(403, {"error": "владелец не пишет на своей скале 🙂"})
+            # запись — только гость на острове (владелец на своей скале не пишет)
+            if not is_guest:
+                self._json_response(403, {"error": "писать может только гость, "
+                                                "который сейчас на острове"})
                 return
             if mkey is None:
                 self._json_response(403, {"error": "сначала поставь метку на карте"})
