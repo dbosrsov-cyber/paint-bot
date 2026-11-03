@@ -262,6 +262,41 @@ def letters_load_from_github() -> None:
         print(f"[paint_bot] letters: загружено {len(loaded)} писем из Git", flush=True)
 
 
+TGIDS_FILE = "tgids.json"
+tgids_state = {}   # {chat_id(str): {tg_user_id(str): {"name": first_name, "uname": username, "ts": int}}}
+
+
+def tgids_save_to_github() -> None:
+    _save_json_to_github(TGIDS_FILE, tgids_state, geo_lock, "tgids")
+
+
+def tgids_load_from_github() -> None:
+    loaded = _load_json_from_github(TGIDS_FILE, "tgids")
+    if loaded:
+        tgids_state.update(loaded)
+        total = sum(len(v) for v in tgids_state.values())
+        print(f"[paint_bot] tgids: загружено {total} записей", flush=True)
+
+
+_tgids_last_save = 0.0
+
+
+def record_tgid(chat_id: int, user) -> None:
+    """Запомнить Telegram ID автора сообщения — нужно для привязки ID к меткам на карте."""
+    global _tgids_last_save
+    if user is None or not chat_id:
+        return
+    ent = tgids_state.setdefault(str(chat_id), {}).setdefault(str(user.id), {})
+    changed = (ent.get("name") != (user.first_name or "")
+               or ent.get("uname") != (user.username or ""))
+    ent["name"] = user.first_name or ""
+    ent["uname"] = user.username or ""
+    ent["ts"] = int(time.time())
+    if changed and time.time() - _tgids_last_save > 60:
+        _tgids_last_save = time.time()
+        tgids_save_to_github()
+
+
 def volcano_save_to_github() -> None:
     payload = {"volcanoes": {str(k): v for k, v in volcano_state.items()},
                "poops": poops_state}
@@ -3521,7 +3556,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-02-1522"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-03-1523"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -7133,6 +7168,7 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not chat_allowed(update.effective_chat):
         return
     remember_user(update.effective_user)
+    record_tgid(update.message.chat_id, update.effective_user)
     text = update.message.text or ""
     if text.lower().startswith(SAGA_PREFIX + " "):
         await on_saga_chapter(update, context)
@@ -7397,6 +7433,7 @@ def main() -> None:
     submarine_load_from_github()
     islands_load_from_github()
     sifa_load_from_github()
+    tgids_load_from_github()
     apply_marker_bindings()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
