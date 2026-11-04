@@ -1495,7 +1495,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     background:rgba(30,45,60,.85); color:#bfe3f7; border:1px solid rgba(125,211,252,.3);
     backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
   #sifaPad button:active { background:rgba(45,212,191,.5); color:#fff; }
-  #sifaCtrl { position:fixed; right:12px; bottom:100px; z-index:3000; display:none;
+  #sifaCtrl { position:fixed; right:12px; bottom:196px; z-index:3000; display:none;
     flex-direction:column; gap:6px; width:168px; }
   #sifaCtrl button { padding:9px 6px; font-size:15px; border-radius:14px;
     background:rgba(30,45,60,.88); color:#bfe3f7; border:1px solid rgba(125,211,252,.35);
@@ -3638,7 +3638,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-04-1525"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-04-1526"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
