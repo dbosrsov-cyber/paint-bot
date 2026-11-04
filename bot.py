@@ -661,6 +661,31 @@ def apply_free_ships_main() -> None:
     meteor_save_to_github()
 
 
+def apply_restore_wrecks() -> None:
+    """Разовая выдача: вернуть на карту два потопленных ранее Галеона
+    (Sumai — на 10000 км западнее точки боя; Андрюха — где погиб)."""
+    tag = "restore_wrecks_2026-11-04"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    chat = -1002304715333
+    base_lat, base_lon = -53.60186060396411, 65.87886000454296   # точка боя Sumai
+    dlon = 10000.0 / (111.32 * max(math.cos(math.radians(base_lat)), 0.1))
+    wrecks_state[f"{chat}|Sumai|1793821487"] = {
+        "chat": chat, "user": "Sumai", "name": "Sumai",
+        "lat": base_lat, "lon": round(base_lon - dlon, 6),
+        "sunk": True, "sunk_ts": 1793821487, "wins": 0,
+    }
+    wrecks_state[f"{chat}|Андрюха|1793825400"] = {
+        "chat": chat, "user": "Андрюха", "name": "Андрюха",
+        "lat": -40.4945325413781, "lon": 130.78125000000003,
+        "sunk": True, "sunk_ts": 1793825400, "wins": 0,
+    }
+    wrecks_save_to_github()
+    meteor_save_to_github()
+    logline("wrecks restored: Sumai (10000 km west), Андрюха (place of death)")
+
+
 def apply_startup_credits() -> None:
     for chat_id, user, amount, tag in STARTUP_CREDITS:
         if meteor_credits.get(tag):
@@ -798,6 +823,23 @@ def ships_load_from_github() -> None:
     if loaded:
         ships_state.update(loaded)
         print(f"[paint_bot] ships: загружено {len(loaded)} кораблей", flush=True)
+
+
+# Мемориальные рифы: потопленные корабли, снятые с учёта при перестройке.
+# Живут отдельно от боевых кораблей — на карте видны всем, в игре не участвуют.
+WRECKS_FILE = "wrecks.json"
+wrecks_state = {}
+
+
+def wrecks_save_to_github() -> None:
+    _save_json_to_github(WRECKS_FILE, wrecks_state, geo_lock, "wrecks")
+
+
+def wrecks_load_from_github() -> None:
+    loaded = _load_json_from_github(WRECKS_FILE, "wrecks")
+    if loaded:
+        wrecks_state.update(loaded)
+        print(f"[paint_bot] wrecks: загружено {len(loaded)} рифов", flush=True)
 
 
 def ship_in_duel(chat_id: int, user: str):
@@ -4269,7 +4311,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-04-1540"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-04-1541"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -5610,6 +5652,19 @@ class AppHandler(BaseHTTPRequestHandler):
                     })
                 if changed:
                     ships_save_to_github()
+                # мемориальные рифы: показываем всем, в боях не участвуют
+                for wkey, wr in wrecks_state.items():
+                    if wr.get("chat") != chat_id:
+                        continue
+                    ships_out.append({
+                        "user": wr.get("user", wkey), "name": wr.get("name", ""),
+                        "lat": round(wr["lat"], 6), "lon": round(wr["lon"], 6),
+                        "sunk": True, "moving": False,
+                        "mine": viewer_matches(wr.get("user", ""), viewer, viewer_name, chat_id),
+                        "boarding": False, "in_duel": False, "wins": wr.get("wins", 0),
+                        "built": (geo_state.get(chat_id, {}).get(wr.get("user", "")) or {}).get("ships_built", 0),
+                        "lost": (geo_state.get(chat_id, {}).get(wr.get("user", "")) or {}).get("ships_lost", 0),
+                    })
                 # ---------- Ванильный Вулкан ----------
                 v, _spawned_now = volcano_get_active(chat_id)
                 volcano_out = None
@@ -6702,6 +6757,10 @@ class AppHandler(BaseHTTPRequestHandler):
             if old is not None and not old.get("sunk"):
                 self._json_response(409, {"error": "у тебя уже есть корабль — он один. Потопи его в бою 😈"})
                 return
+            if old is not None and old.get("sunk"):
+                # тонувший корабль уходит «мемориальным рифом» — на карте остаётся
+                wkey = f"{chat_id}|{mkey}|{int(old.get('sunk_ts', time.time()))}"
+                wrecks_state[wkey] = dict(old)
             marker["wood"] = marker.get("wood", 0) - SHIP_COST_WOOD
             marker["ships_built"] = marker.get("ships_built", 0) + 1
             ships_state[ship_key(chat_id, mkey)] = {
@@ -6713,6 +6772,7 @@ class AppHandler(BaseHTTPRequestHandler):
             }
             ships_save_to_github()
             geo_save_to_github()
+            wrecks_save_to_github()
         try:
             tg_send_with_cleanup(
                 chat_id,
@@ -8435,6 +8495,7 @@ def main() -> None:
     islands_load_from_github()
     sifa_load_from_github()
     ships_load_from_github()
+    wrecks_load_from_github()
     tgids_load_from_github()
     apply_marker_bindings()
     apply_tid_bindings()
@@ -8442,6 +8503,7 @@ def main() -> None:
     apply_sandbox_island_levels()
     apply_ship_teleport_sumai()
     apply_free_ships_main()
+    apply_restore_wrecks()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
