@@ -2910,23 +2910,11 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       html += divider;
       html += '<button onclick="openBuildMenu()">🏗 Строительство</button>'
         + ' <button onclick="openIslandActions()">🎬 Действия</button>';
-      // блок Галеона: постройка на верфи, отправка в плавание, абордаж
-      const myShip = (lastShips || []).find(s => s.mine);
-      if (myShip && !myShip.sunk) {
-        html += '<br>⛵ Галеон: <b>' + (myShip.moving ? 'в пути ⚓' : 'на якоре') + '</b>'
-          + ' <button onclick="shipNavStart()">🧭 Отправить</button>';
-        if (myShip.in_duel) {
-          html += '<br><i>⚔️ абордаж идёт — бой в отдельном окне!</i>';
-        } else if (myShip.boarding) {
-          html += ' <button onclick="shipBoard()" style="background:#c0392b;">⚔️ Абордаж!</button>';
-        }
-      } else {
-        if (myShip && myShip.sunk) {
-          html += '<br>⛵ Твой Галеон покоится на дне океана… 🪦<br>';
-        }
-        if (built.indexOf('shipyard') >= 0) {
-          html += '<button onclick="shipBuild()">⛵ Построить Галеон (1 🌲)</button>';
-        }
+      html += divider;
+      // постройка Галеона — у владельца с верфью, у кого ещё нет живого корабля
+      const myShipLive = (lastShips || []).some(s => s.mine && !s.sunk);
+      if (built.indexOf('shipyard') >= 0 && !myShipLive) {
+        html += '<button onclick="shipBuild()">⛵ Построить Галеон (1 🌲)</button>';
       }
       html += divider;
     } else {
@@ -3035,8 +3023,14 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       html += '<br>🏆 побед в морских боях: <b>' + (s.wins || 0) + '</b>'
         + ' • ⚓ капитан: построил ' + (s.built || 0) + ', потерял ' + (s.lost || 0);
     }
-    if (s.mine && !s.sunk && s.boarding && !s.in_duel) {
-      html += '<br><button onclick="shipBoard()" style="background:#c0392b;">⚔️ Абордаж!</button>';
+    if (s.mine && !s.sunk) {
+      if (s.in_duel) {
+        html += '<br>⚔️ абордаж идёт — бой в отдельном окне!';
+      } else if (s.boarding) {
+        html += '<br><button onclick="shipBoard()" style="background:#c0392b;">⚔️ Абордаж!</button>';
+      } else {
+        html += '<br><button onclick="shipNavStart()">🧭 Отправить</button>';
+      }
     }
     mk.bindPopup(html);
     shipMarkers[s.user] = mk;
@@ -4311,7 +4305,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-04-1542"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-04-1543"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
