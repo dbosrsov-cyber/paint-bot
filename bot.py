@@ -621,6 +621,7 @@ def apply_ship_teleport_sumai() -> None:
         sh["lon"] = round(sh["lon"] - dlon, 6)
         sh["to_lat"] = sh["to_lon"] = None
         sh["nav_from_lat"] = sh["nav_from_lon"] = None
+        sh["sunk_ts"] = time.time()   # «могила» видна ещё 5 минут на новом месте
         ships_save_to_github()
         logline(f"ship Sumai teleported west 5000 km -> lon {sh['lon']}")
     meteor_save_to_github()
@@ -4081,7 +4082,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-04-1534"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-04-1535"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
