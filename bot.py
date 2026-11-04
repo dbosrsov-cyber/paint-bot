@@ -770,7 +770,7 @@ def sifa_random_water(area):
 
 
 # ---------- Корабли (Галеоны): верфь, плавание, абордаж и КНБ ----------
-SHIP_COST_WOOD = 10            # постройка Галеона на верфи
+SHIP_COST_WOOD = 1             # постройка Галеона на верфи (временно дешево для тестов)
 SHIP_SPEED_KM_PER_MIN = 5000.0 # скорость корабля
 SHIP_BOARD_KM = 2000.0         # сближение на эту дистанцию → доступен Абордаж
 SHIP_PICK_SEC = 5              # окно выбора в КНБ (после готовности обоих)
@@ -2925,7 +2925,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
           html += '<br>⛵ Твой Галеон покоится на дне океана… 🪦<br>';
         }
         if (built.indexOf('shipyard') >= 0) {
-          html += '<button onclick="shipBuild()">⛵ Построить Галеон (10 🌲)</button>';
+          html += '<button onclick="shipBuild()">⛵ Построить Галеон (1 🌲)</button>';
         }
       }
       html += divider;
@@ -4022,7 +4022,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   document.getElementById('shipBtn').onclick = () => {
     const s = (lastShips || []).find(x => x.mine && !x.sunk)
       || (lastShips || []).find(x => x.mine);
-    if (!s) { status('⛵ У тебя пока нет Галеона — построй на верфи ⚓ (10 🌲)'); return; }
+    if (!s) { status('⛵ У тебя пока нет Галеона — построй на верфи ⚓ (1 🌲)'); return; }
     map.setView([s.lat, s.lon], Math.max(map.getZoom(), 5));
     const mk = shipMarkers[s.user];
     if (mk) setTimeout(() => mk.openPopup(), 350);
@@ -4311,7 +4311,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-04-1541"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-04-1542"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -6731,7 +6731,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 str(payload.get("name", ""))[:64], payload)
 
     def _ship_build(self):
-        """Построить Галеон на верфи: 10 дерева, один корабль у игрока (живой)."""
+        """Построить Галеон на верфи: 1 дерево (временно), один корабль у игрока (живой)."""
         try:
             chat_id, user, name, _ = self._ship_payload()
         except Exception:
