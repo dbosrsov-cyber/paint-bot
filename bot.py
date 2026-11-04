@@ -786,12 +786,15 @@ def _finish_duel(d: dict) -> None:
     winner = "a" if d["wins"]["a"] > d["wins"]["b"] else "b"
     loser = "b" if winner == "a" else "a"
     lsh = ships_state.get(ship_key(d["chat"], d[loser]))
+    wsh = ships_state.get(ship_key(d["chat"], d[winner]))
     phrase = random.choice(SHIP_SINK_PHRASES)
     if lsh is not None:
         lsh["sunk"] = True
         lsh["sunk_ts"] = time.time()
         lsh["to_lat"] = lsh["to_lon"] = None
         lsh["nav_from_lat"] = lsh["nav_from_lon"] = None
+    if wsh is not None:
+        wsh["wins"] = wsh.get("wins", 0) + 1   # статистика живёт на корабле — с ним тонет
     d["phase"] = "finished"
     d["finished_ts"] = time.time()
     d["loser_side"], d["winner_side"] = loser, winner
@@ -1854,6 +1857,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   <button id="letterBtn" title="ПочтаЧата">✉️</button>
   <button id="distBtn" title="Измерить расстояние">📏</button>
   <button id="sifaBtn" title="Сифа — догонялки на касатках">🐬</button>
+  <button id="shipBtn" title="Мой Галеон — найти на карте" style="display:none;">⛵</button>
   <button id="sifaAreaBtn" title="Задать границы игры «Сифа» (кликни 4 угла)" style="display:none;">🚧</button>
   <button id="islandBuyBtn" title="Купить остров (10 ЗП)">🏝️</button>
   <button id="chestBtn" title="Мой сундук">🧰</button>
@@ -2868,6 +2872,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
         + '<br>потоплен… кораллы уже обживают палубу'
       : '<span style="font-size:22px">⛵</span> <b>Галеон капитана ' + escapeHtml(s.name) + '</b>'
         + '<br>⚓ ' + (s.moving ? 'в пути' : 'на якоре');
+    if (s.wins) html += '<br>🏆 побед в морских боях: <b>' + s.wins + '</b>';
     if (s.mine && !s.sunk && s.boarding && !s.in_duel) {
       html += '<br><button onclick="shipBoard()" style="background:#c0392b;">⚔️ Абордаж!</button>';
     }
@@ -3768,6 +3773,15 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       : 'Режим выключен');
   }
   distBtn.onclick = () => setMode(distMode ? null : 'dist');
+  // ⛵ фокус на своём Галеоне
+  document.getElementById('shipBtn').onclick = () => {
+    const s = (lastShips || []).find(x => x.mine && !x.sunk)
+      || (lastShips || []).find(x => x.mine);
+    if (!s) { status('⛵ У тебя пока нет Галеона — построй на верфи ⚓ (10 🌲)'); return; }
+    map.setView([s.lat, s.lon], Math.max(map.getZoom(), 5));
+    const mk = shipMarkers[s.user];
+    if (mk) setTimeout(() => mk.openPopup(), 350);
+  };
   // клики по панелям над картой не должны превращаться в точки линейки
   function stopMapClicks(el) {
     if (!el) return;
@@ -3966,6 +3980,8 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     Object.values(shipMarkers).forEach(m => map.removeLayer(m));
     Object.keys(shipMarkers).forEach(k => delete shipMarkers[k]);
     lastShips = data.ships || [];
+    const shipBtnEl = document.getElementById('shipBtn');
+    if (shipBtnEl) shipBtnEl.style.display = lastShips.some(s => s.mine) ? '' : 'none';
     meteorMarkers.forEach(m => map.removeLayer(m));
     meteorMarkers.length = 0;
     (data.markers || []).forEach(renderMarker);
@@ -4047,7 +4063,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-04-1532"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-04-1533"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -5357,6 +5373,7 @@ class AppHandler(BaseHTTPRequestHandler):
                         "lat": round(sh["lat"], 6), "lon": round(sh["lon"], 6),
                         "sunk": bool(sh.get("sunk")), "moving": sh.get("to_lat") is not None,
                         "mine": mine, "boarding": boarding, "in_duel": d is not None,
+                        "wins": sh.get("wins", 0),
                     })
                 if changed:
                     ships_save_to_github()
@@ -6457,7 +6474,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 "lat": isl["lat"], "lon": isl["lon"],
                 "to_lat": None, "to_lon": None,
                 "nav_from_lat": None, "nav_from_lon": None, "nav_ts": 0,
-                "sunk": False, "sunk_ts": 0,
+                "sunk": False, "sunk_ts": 0, "wins": 0,
             }
             ships_save_to_github()
             geo_save_to_github()
