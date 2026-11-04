@@ -4031,7 +4031,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-04-1529"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-04-1530"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -6518,6 +6518,16 @@ class AppHandler(BaseHTTPRequestHandler):
                     }
                     ship_duels[d["id"]] = d
                     logline(f"ship duel start chat={chat_id} {d['a_name']} vs {d['b_name']}")
+                    try:
+                        tg_send_with_cleanup(
+                            chat_id,
+                            f"⚔️ АБОРДАЖ! Капитан {d['a_name']} взял на абордаж капитана "
+                            f"{d['b_name']}! Морская волчица готовит зубы, а кто-то из них "
+                            f"очень скоро кормит рыб… 🦈",
+                            600,
+                        )
+                    except Exception as e:
+                        print(f"[paint_bot] уведомление об абордаже не ушло: {e!r}", flush=True)
             duel_tick(d, time.time())
         self._json_response(200, public_duel(d, me["user"]))
 
