@@ -4031,7 +4031,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-04-1528"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-04-1529"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -6439,6 +6439,15 @@ class AppHandler(BaseHTTPRequestHandler):
             }
             ships_save_to_github()
             geo_save_to_github()
+        try:
+            tg_send_with_cleanup(
+                chat_id,
+                f"⛵ С верфи острова «{isl.get('name', '?')}» спущен на воду Галеон "
+                f"капитана {marker.get('name', mkey)}! Море теперь не безопасно… 🏴‍☠️",
+                600,
+            )
+        except Exception as e:
+            print(f"[paint_bot] уведомление о спуске галеона не ушло: {e!r}", flush=True)
         logline(f"200 /shipbuild chat={chat_id} user={mkey!r}")
         self._json_response(200, {"ok": True})
 
