@@ -815,11 +815,15 @@ def _finish_duel(d: dict) -> None:
         lsh["nav_from_lat"] = lsh["nav_from_lon"] = None
     if wsh is not None:
         wsh["wins"] = wsh.get("wins", 0) + 1   # статистика живёт на корабле — с ним тонет
+    lmarker = geo_state.get(d["chat"], {}).get(d[loser])
+    if lmarker is not None:
+        lmarker["ships_lost"] = lmarker.get("ships_lost", 0) + 1   # а это навсегда у капитана
     d["phase"] = "finished"
     d["finished_ts"] = time.time()
     d["loser_side"], d["winner_side"] = loser, winner
     d["sink_phrase"] = phrase
     ships_save_to_github()
+    geo_save_to_github()
     try:
         tg_send_with_cleanup(
             d["chat"],
@@ -2892,7 +2896,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
         + '<br>потоплен… кораллы уже обживают палубу'
       : '<span style="font-size:22px">⛵</span> <b>Галеон капитана ' + escapeHtml(s.name) + '</b>'
         + '<br>⚓ ' + (s.moving ? 'в пути' : 'на якоре');
-    if (s.wins) html += '<br>🏆 побед в морских боях: <b>' + s.wins + '</b>';
+    if (s.wins || s.built || s.lost) {
+      html += '<br>🏆 побед в морских боях: <b>' + (s.wins || 0) + '</b>'
+        + ' • ⚓ капитан: построил ' + (s.built || 0) + ', потерял ' + (s.lost || 0);
+    }
     if (s.mine && !s.sunk && s.boarding && !s.in_duel) {
       html += '<br><button onclick="shipBoard()" style="background:#c0392b;">⚔️ Абордаж!</button>';
     }
@@ -4083,7 +4090,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-04-1537"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-04-1538"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -5388,6 +5395,8 @@ class AppHandler(BaseHTTPRequestHandler):
                         "sunk": bool(sh.get("sunk")), "moving": sh.get("to_lat") is not None,
                         "mine": mine, "boarding": boarding, "in_duel": d is not None,
                         "wins": sh.get("wins", 0),
+                        "built": (geo_state.get(chat_id, {}).get(sh["user"]) or {}).get("ships_built", 0),
+                        "lost": (geo_state.get(chat_id, {}).get(sh["user"]) or {}).get("ships_lost", 0),
                     })
                 if changed:
                     ships_save_to_github()
@@ -6483,6 +6492,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._json_response(409, {"error": "у тебя уже есть корабль — он один. Потопи его в бою 😈"})
                 return
             marker["wood"] = marker.get("wood", 0) - SHIP_COST_WOOD
+            marker["ships_built"] = marker.get("ships_built", 0) + 1
             ships_state[ship_key(chat_id, mkey)] = {
                 "chat": chat_id, "user": mkey, "name": marker.get("name", mkey),
                 "lat": isl["lat"], "lon": isl["lon"],
