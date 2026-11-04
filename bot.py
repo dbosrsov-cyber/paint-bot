@@ -3638,7 +3638,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-04-1524"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-04-1525"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -5342,12 +5342,16 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             with geo_lock:
                 markers = geo_state.get(chat_id, {})
-                frm, to = markers.get(user), markers.get(to_user)
-                if frm is None or to is None:
+                # мягкий матчинг: ключ метки может быть именем (браузер) или числовым id (TG)
+                frm_key = resolve_marker_key(chat_id, user, name)
+                frm = markers.get(frm_key) if frm_key else None
+                to_key = to_user if to_user in markers else resolve_marker_key(chat_id, to_user, "")
+                to = markers.get(to_key) if to_key else None
+                if frm is None or to is None or frm_key == to_key:
                     self._json_response(404, {"error": "нет метки у отправителя или адресата"})
                     return
                 # гость на острове не принимает почту
-                if island_guest_at(chat_id, to_user) is not None:
+                if island_guest_at(chat_id, to_key) is not None:
                     self._json_response(409, {"error": "Адресат в отъезде."})
                     return
                 # блокирует отправку только письмо, реально летящее к этому адресату;
@@ -5355,7 +5359,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 # первая же доставка вечно блокировала бы пару)
                 matched = 0
                 for letter in letters_state.values():
-                    if letter["chat"] != chat_id or letter["from"] != user or letter["to"] != to_user:
+                    if letter["chat"] != chat_id or letter["from"] != frm_key or letter["to"] != to_key:
                         continue
                     matched += 1
                     # диагностика: считаем встроенной математикой и логируем сырые данные
@@ -5382,8 +5386,8 @@ class AppHandler(BaseHTTPRequestHandler):
                 lid = uuid.uuid4().hex[:10]
                 total = haversine_km(frm["lat"], frm["lon"], to["lat"], to["lon"])
                 letters_state[lid] = {
-                    "id": lid, "chat": chat_id, "from": user, "from_name": name,
-                    "to": to_user, "text": text,
+                    "id": lid, "chat": chat_id, "from": frm_key, "from_name": name,
+                    "to": to_key, "text": text,
                     "from_lat": frm["lat"], "from_lon": frm["lon"],
                     "to_lat": to["lat"], "to_lon": to["lon"],
                     "start_ts": time.time(), "arrived": False,
