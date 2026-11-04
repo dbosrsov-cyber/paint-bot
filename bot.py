@@ -607,6 +607,24 @@ def apply_sandbox_island_levels() -> None:
         islands_save_to_github()
     meteor_save_to_github()
 
+
+def apply_ship_teleport_sumai() -> None:
+    """Разовая телепортация: потопленный Галеон Sumai на 5000 км западнее
+    (убрать наложение на корабль ПМ после боя)."""
+    tag = "ship_sumai_west5000_2026-11-04"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    sh = ships_state.get(ship_key(-1002304715333, "Sumai"))
+    if sh is not None and sh.get("sunk"):
+        dlon = 5000.0 / (111.32 * max(math.cos(math.radians(sh["lat"])), 0.1))
+        sh["lon"] = round(sh["lon"] - dlon, 6)
+        sh["to_lat"] = sh["to_lon"] = None
+        sh["nav_from_lat"] = sh["nav_from_lon"] = None
+        ships_save_to_github()
+        logline(f"ship Sumai teleported west 5000 km -> lon {sh['lon']}")
+    meteor_save_to_github()
+
     for chat_id, user, amount, tag in STARTUP_CREDITS:
         if meteor_credits.get(tag):
             continue
@@ -4063,7 +4081,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-04-1533"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-04-1534"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -8203,6 +8221,7 @@ def main() -> None:
     apply_tid_bindings()
     apply_sandbox_grants()
     apply_sandbox_island_levels()
+    apply_ship_teleport_sumai()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
