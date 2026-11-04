@@ -866,6 +866,27 @@ def _rps_winner(pa, pb):
     return "a" if RPS_BEATS[pa] == pb else "b"
 
 
+def spectator_duel(d: dict) -> dict:
+    """Нейтральный вид дуэли для зрителя: чужие ходы в раунде скрыты,
+    итоги прошлых раундов и финал — открыты."""
+    out = {
+        "id": d["id"], "phase": d["phase"], "round": d["round"],
+        "a_name": d["a_name"], "b_name": d["b_name"],
+        "wins_a": d["wins"]["a"], "wins_b": d["wins"]["b"],
+        "a_ready": d["a"] in d["ready"], "b_ready": d["b"] in d["ready"],
+        "a_picked": d["pa"] is not None, "b_picked": d["pb"] is not None,
+        "pick_left": max(0, int(d.get("pick_deadline", 0) - time.time())),
+    }
+    if d.get("last"):
+        out["last"] = {"round": d["last"]["round"],
+                       "pa": d["last"]["pa"], "pb": d["last"]["pb"],
+                       "winner": d["last"]["winner"]}
+    if d["phase"] == "finished":
+        out["loser_name"] = d[d["loser_side"] + "_name"]
+        out["sink_phrase"] = d["sink_phrase"]
+    return out
+
+
 def _finish_duel(d: dict) -> None:
     winner = "a" if d["wins"]["a"] > d["wins"]["b"] else "b"
     loser = "b" if winner == "a" else "a"
@@ -1836,6 +1857,12 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   .papyrus .btn-cancel { margin-top:8px; }
   /* абордаж: дуэль КНБ на папирусе */
   #shipDuelModal .papyrus { max-width:360px; }
+  #shipWatchModal .papyrus { max-width:360px; }
+  /* иконка сражения над сцепленными кораблями */
+  .battle-mk { font-size:30px; line-height:1; cursor:pointer;
+    filter:drop-shadow(0 0 6px rgba(224,90,58,.9)) drop-shadow(0 2px 2px rgba(0,0,0,.6));
+    animation:battlePulse 1s ease-in-out infinite; }
+  @keyframes battlePulse { 0%,100% {transform:scale(1)} 50% {transform:scale(1.35)} }
   .rpsBtn { border-radius:14px; border:2px solid #c9a86a; background:#fdf6e0; color:#4a3418;
     cursor:pointer; font-family:Georgia,serif; min-width:82px; padding:10px 8px; line-height:1.25; }
   .rpsBtn:active { background:#f3e5c0; }
@@ -1975,6 +2002,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   </div>
 </div>
 <div id="shipDuelModal" class="modal" style="display:none;"></div>
+<div id="shipWatchModal" class="modal" style="display:none;"></div>
 <div id="sifaAreaBar">
   <span>Сохранить границы?</span>
   <button id="sifaAreaYes">Да</button>
@@ -2256,6 +2284,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   let pending = null;
   const markers = {};  // user_key -> L.marker
   const shipMarkers = {};  // user_key -> L.marker галеона
+  const battleMarkers = {};  // duel_id -> L.marker сражения
   let lastShips = [];      // последние корабли с сервера
   let shipNavMode = false; // режим выбора точки назначения галеона
 
@@ -3108,6 +3137,89 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     if (d.phase === 'finished' && shipDuelSeen[d.id]) return;  // финал уже показали и закрыли
     openShipDuel(d);
   };
+
+  // ---------- Зрительский режим: иконка сражения и болельщики ----------
+  function renderBattle(b) {
+    const mk = L.marker([b.lat, b.lon], {icon: L.divIcon({
+      html: '<div class="battle-mk">⚔️</div>',
+      className: 'emoji-marker', iconSize: [36, 36], iconAnchor: [18, 18]})}).addTo(map);
+    mk.on('click', () => openShipWatch(b.id, b.a, b.b));
+    battleMarkers[b.id] = mk;
+  }
+  let watchCur = null, watchPoll = null;
+  const RPS_EMOJI_W = {r: '🪨', s: '✂️', p: '📜', null: '⏳', undefined: '⏳'};
+  function rpsE(x) { return RPS_EMOJI_W[x] || '⏳'; }
+  function renderShipWatch(d) {
+    const el = document.getElementById('shipWatchModal');
+    if (!el) return;
+    const score = 'Раунд ' + d.round + ' • счёт ' + d.wins_a + ':' + d.wins_b + ' (до 3 побед)';
+    let body = '';
+    if (d.phase === 'ready') {
+      body = '<div style="font-size:15px;margin:10px 0;line-height:1.7;">Команды готовятся к абордажу…<br>'
+        + escapeHtml(d.a_name) + ': ' + (d.a_ready ? '✅ готов' : '⏳ ждём') + '<br>'
+        + escapeHtml(d.b_name) + ': ' + (d.b_ready ? '✅ готов' : '⏳ ждём') + '</div>';
+    } else if (d.phase === 'pick') {
+      body = '<div style="font-size:15px;margin:6px 0;"><b>' + score + '</b><br>⏱ на ход: '
+        + d.pick_left + ' сек</div>'
+        + (d.last ? watchLastHtml(d) : '')
+        + '<div style="font-size:15px;margin:10px 0;line-height:1.8;">'
+        + escapeHtml(d.a_name) + ': ' + (d.a_picked ? '⚔️ выбор сделан' : '🤔 думает…') + '<br>'
+        + escapeHtml(d.b_name) + ': ' + (d.b_picked ? '⚔️ выбор сделан' : '🤔 думает…') + '</div>';
+    } else if (d.phase === 'roundend') {
+      body = '<div style="font-size:15px;margin:6px 0;"><b>' + score + '</b></div>' + watchLastHtml(d)
+        + '<div style="margin:10px 0;font-size:14px;">⚓ Следующий раунд — считанные секунды…</div>';
+    } else if (d.phase === 'finished') {
+      body = '<img src="/shipimg?sunk=1" style="width:100%;max-width:300px;display:block;'
+        + 'margin:0 auto;border-radius:10px;">'
+        + '<div style="font-size:16px;margin:10px 0 4px;"><b>Корабль «' + escapeHtml(d.loser_name)
+        + '» был потоплен!</b></div>'
+        + '<div style="font-size:14px;color:#7a4a12;margin-bottom:8px;">'
+        + escapeHtml(d.sink_phrase || '') + '</div>'
+        + '<div style="text-align:center;margin-top:6px;"><button id="watchCloseBtn" '
+        + 'style="background:#2ea6ff;padding:10px 24px;font-size:15px;">Закрыть</button></div>';
+    }
+    el.innerHTML = '<div class="papyrus" style="text-align:center;"><b style="font-size:17px;">'
+      + '⚔️ Морское сражение</b><br><span style="font-size:14px;">'
+      + escapeHtml(d.a_name) + ' ⚔️ ' + escapeHtml(d.b_name) + '</span>' + body + '</div>';
+    const cb = document.getElementById('watchCloseBtn');
+    if (cb) cb.onclick = () => closeShipWatch();
+  }
+  function watchLastHtml(d) {
+    if (!d.last) return '';
+    const wname = d.last.winner === 'a' ? d.a_name : (d.last.winner === 'b' ? d.b_name : null);
+    const res = wname ? '🎉 раунд за ' + escapeHtml(wname) : '🤝 ничья в раунде';
+    return '<div style="font-size:14px;margin:8px 0;background:rgba(255,255,255,.35);'
+      + 'border-radius:10px;padding:8px;">Раунд ' + d.last.round + ': ' + rpsE(d.last.pa)
+      + ' против ' + rpsE(d.last.pb) + '<br><b>' + res + '</b></div>';
+  }
+  function openShipWatch(id, aName, bName) {
+    watchCur = id;
+    const el = document.getElementById('shipWatchModal');
+    if (!el) return;
+    el.style.display = 'flex';
+    renderShipWatch({phase: 'ready', round: 1, wins_a: 0, wins_b: 0,
+                     a_name: aName, b_name: bName, a_ready: false, b_ready: false,
+                     a_picked: false, b_picked: false, pick_left: 0});
+    if (watchPoll) clearInterval(watchPoll);
+    watchPoll = setInterval(pollShipWatch, 1500);
+    pollShipWatch();
+  }
+  function closeShipWatch() {
+    if (watchPoll) { clearInterval(watchPoll); watchPoll = null; }
+    watchCur = null;
+    const el = document.getElementById('shipWatchModal');
+    if (el) el.style.display = 'none';
+  }
+  async function pollShipWatch() {
+    if (!watchCur) return;
+    try {
+      const r = await fetch('/shipwatch?chat=' + chat + '&duel=' + encodeURIComponent(watchCur)
+        + '&t=' + Date.now());
+      const d = await r.json();
+      if (!d || !d.phase) { closeShipWatch(); return; }
+      renderShipWatch(d);
+    } catch (e) { /* сеть молчит — следующий тик */ }
+  }
 
   // ---------- Скала посланий: мелом на скале, читают все, пишет гость ----------
   let rockModal = null;
@@ -4070,6 +4182,8 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     }
     Object.values(shipMarkers).forEach(m => map.removeLayer(m));
     Object.keys(shipMarkers).forEach(k => delete shipMarkers[k]);
+    Object.values(battleMarkers).forEach(m => map.removeLayer(m));
+    Object.keys(battleMarkers).forEach(k => delete battleMarkers[k]);
     lastShips = data.ships || [];
     const shipBtnEl = document.getElementById('shipBtn');
     if (shipBtnEl) shipBtnEl.style.display = lastShips.some(s => s.mine) ? '' : 'none';
@@ -4087,6 +4201,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     if (data.submarine) renderSubmarine(data.submarine);
     else if (submarineMarker) { map.removeLayer(submarineMarker); submarineMarker = null; }
     (data.ships || []).forEach(renderShip);
+    (data.ship_battles || []).forEach(renderBattle);
     if (data.ship_duel) handleShipDuel(data.ship_duel);
     renderMailbox(data.markers);
     updateMineUI();
@@ -4154,7 +4269,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-04-1539"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-04-1540"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -5284,6 +5399,19 @@ class AppHandler(BaseHTTPRequestHandler):
                     if dv is not None:
                         out = public_duel(dv, me["user"])
             self._json_response(200, out)
+        elif url.path == "/shipwatch":
+            # зрительский вид дуэли КНБ (иконка сражения на карте)
+            chat_id = int(params.get("chat", ["0"])[0])
+            did = params.get("duel", [""])[0][:96]
+            out = {}
+            with geo_lock:
+                d = ship_duels.get(did)
+                if d is not None and d["chat"] == chat_id:
+                    duel_tick(d, time.time())
+                    if not (d["phase"] == "finished"
+                            and time.time() - d.get("finished_ts", 0) > SHIP_DUEL_KEEP_SEC):
+                        out = spectator_duel(d)
+            self._json_response(200, out)
         elif url.path == "/app":
             self._respond(200, HTML_PAGE.encode("utf-8"), "text/html; charset=utf-8", nocache=True)
         elif url.path == "/canvas":
@@ -5458,6 +5586,27 @@ class AppHandler(BaseHTTPRequestHandler):
                         "wins": sh.get("wins", 0),
                         "built": (geo_state.get(chat_id, {}).get(sh["user"]) or {}).get("ships_built", 0),
                         "lost": (geo_state.get(chat_id, {}).get(sh["user"]) or {}).get("ships_lost", 0),
+                    })
+                # активные абордажи — точки «сражения» между сцепленными кораблями
+                battles_out = []
+                seen_duels = set()
+                for key, sh in chat_ships:
+                    bd = ship_in_duel(chat_id, sh["user"])
+                    if bd is None or bd["id"] in seen_duels:
+                        continue
+                    seen_duels.add(bd["id"])
+                    duel_tick(bd, now)
+                    if ship_in_duel(chat_id, sh["user"]) is None:
+                        continue   # дуэль отменилась по таймауту ожидания
+                    sa = ships_state.get(ship_key(chat_id, bd["a"]))
+                    sb = ships_state.get(ship_key(chat_id, bd["b"]))
+                    if sa is None or sb is None:
+                        continue
+                    battles_out.append({
+                        "id": bd["id"],
+                        "lat": round((sa["lat"] + sb["lat"]) / 2, 6),
+                        "lon": round((sa["lon"] + sb["lon"]) / 2, 6),
+                        "a": bd["a_name"], "b": bd["b_name"],
                     })
                 if changed:
                     ships_save_to_github()
@@ -5737,7 +5886,8 @@ class AppHandler(BaseHTTPRequestHandler):
                             "meteors": meteors_out, "stardust": stardust_balance(chat_id, viewer, viewer_name),
                             "submarine": submarine_out, "gifts": gifts_out,
                             "islands": islands_out, "planes": planes_out,
-                            "ships": ships_out, "ship_duel": duel_out},
+                            "ships": ships_out, "ship_duel": duel_out,
+                            "ship_battles": battles_out},
                            ensure_ascii=False).encode("utf-8"),
                 "application/json; charset=utf-8",
             )
