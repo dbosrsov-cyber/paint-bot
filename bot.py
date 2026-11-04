@@ -610,22 +610,58 @@ def apply_sandbox_island_levels() -> None:
 
 
 def apply_ship_teleport_sumai() -> None:
-    """Разовая телепортация: потопленный Галеон Sumai на 5000 км западнее
-    (убрать наложение на корабль ПМ после боя)."""
-    tag = "ship_sumai_west5000_2026-11-04"
+    """Разовая телепортация: потопленный Галеон Sumai ровно на 10000 км западнее
+    точки боя (убрать наложение на корабль ПМ). Координаты абсолютные."""
+    tag = "ship_sumai_west10000_abs_2026-11-04"
     if meteor_credits.get(tag):
         return
     meteor_credits[tag] = True
     sh = ships_state.get(ship_key(-1002304715333, "Sumai"))
     if sh is not None and sh.get("sunk"):
-        dlon = 5000.0 / (111.32 * max(math.cos(math.radians(sh["lat"])), 0.1))
-        sh["lon"] = round(sh["lon"] - dlon, 6)
+        base_lat, base_lon = -53.60186060396411, 65.87886000454296   # точка боя
+        dlon = 10000.0 / (111.32 * max(math.cos(math.radians(base_lat)), 0.1))
+        sh["lat"], sh["lon"] = base_lat, round(base_lon - dlon, 6)
         sh["to_lat"] = sh["to_lon"] = None
         sh["nav_from_lat"] = sh["nav_from_lon"] = None
         ships_save_to_github()
-        logline(f"ship Sumai teleported west 5000 km -> lon {sh['lon']}")
+        logline(f"ship Sumai wreck moved west 10000 km -> lon {sh['lon']}")
     meteor_save_to_github()
 
+
+def apply_free_ships_main() -> None:
+    """Разовая выдача: каждому владельцу острова в «Другом измерении» — по Галеону,
+    если живого корабля сейчас нет (потопленный не считается)."""
+    tag = "free_ships_main_2026-11-04"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    given = 0
+    for isl in islands_state.values():
+        if isl.get("chat") != -1002304715333 or isl.get("banned"):
+            continue
+        owners = isl.get("owners") or [isl.get("owner")]
+        if not owners:
+            continue
+        mkey = owners[0]
+        old = ships_state.get(ship_key(-1002304715333, mkey))
+        if old is not None and not old.get("sunk"):
+            continue   # живой корабль уже есть
+        ships_state[ship_key(-1002304715333, mkey)] = {
+            "chat": -1002304715333, "user": mkey,
+            "name": isl.get("owner_name") or mkey,
+            "lat": isl["lat"], "lon": isl["lon"],
+            "to_lat": None, "to_lon": None,
+            "nav_from_lat": None, "nav_from_lon": None, "nav_ts": 0,
+            "sunk": False, "sunk_ts": 0, "wins": 0,
+        }
+        given += 1
+        logline(f"free ship given to {mkey}")
+    if given:
+        ships_save_to_github()
+    meteor_save_to_github()
+
+
+def apply_startup_credits() -> None:
     for chat_id, user, amount, tag in STARTUP_CREDITS:
         if meteor_credits.get(tag):
             continue
@@ -765,10 +801,38 @@ def ships_load_from_github() -> None:
 
 
 def ship_in_duel(chat_id: int, user: str):
+    """Активная дуэль (ready/pick/roundend). Завершённые сюда не входят —
+    корабль свободен сразу после боя, даже пока финальный экран ещё показывается."""
     for d in ship_duels.values():
-        if d["chat"] == chat_id and user in (d["a"], d["b"]):
+        if d["chat"] == chat_id and user in (d["a"], d["b"]) and d["phase"] != "finished":
             return d
     return None
+
+
+def duel_view_for(chat_id: int, user: str, now: float):
+    """Дуэль для показа игроку: активная или завершённая в окне показа финала."""
+    d = ship_in_duel(chat_id, user)
+    if d is not None:
+        duel_tick(d, now)
+        return ship_in_duel(chat_id, user) or finished_duel_for(chat_id, user, now)
+    return finished_duel_for(chat_id, user, now)
+
+
+def finished_duel_for(chat_id: int, user: str, now: float):
+    for dd in ship_duels.values():
+        if (dd["chat"] == chat_id and user in (dd["a"], dd["b"])
+                and dd["phase"] == "finished"
+                and now - dd.get("finished_ts", 0) <= SHIP_DUEL_KEEP_SEC):
+            return dd
+    return None
+
+
+def duel_cleanup(now: float) -> None:
+    """Выбросить завершённые дуэли, которые уже показаны."""
+    for did in [k for k, dd in ship_duels.items()
+                if dd["phase"] == "finished"
+                and now - dd.get("finished_ts", 0) > SHIP_DUEL_KEEP_SEC]:
+        ship_duels.pop(did, None)
 
 
 def ship_progress(sh: dict) -> bool:
@@ -4090,7 +4154,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-04-1538"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-04-1539"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -5214,11 +5278,11 @@ class AppHandler(BaseHTTPRequestHandler):
             out = {}
             with geo_lock:
                 me = ship_of(chat_id, user, name)
-                d = ship_in_duel(chat_id, me["user"]) if me else None
-                if d is not None:
-                    duel_tick(d, time.time())
-                    if ship_in_duel(chat_id, me["user"]) is not None:
-                        out = public_duel(d, me["user"])
+                if me:
+                    duel_cleanup(time.time())
+                    dv = duel_view_for(chat_id, me["user"], time.time())
+                    if dv is not None:
+                        out = public_duel(dv, me["user"])
             self._json_response(200, out)
         elif url.path == "/app":
             self._respond(200, HTML_PAGE.encode("utf-8"), "text/html; charset=utf-8", nocache=True)
@@ -5364,6 +5428,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 ships_out = []
                 duel_out = None
                 now = time.time()
+                duel_cleanup(now)
                 chat_ships = [(k, s) for k, s in ships_state.items()
                               if s.get("chat") == chat_id]
                 for key, sh in chat_ships:
@@ -5381,14 +5446,10 @@ class AppHandler(BaseHTTPRequestHandler):
                                 boarding = True
                                 break
                     d = ship_in_duel(chat_id, sh["user"])
-                    if mine and d is not None:
-                        duel_tick(d, now)
-                        if ship_in_duel(chat_id, sh["user"]) is None:
-                            d = None   # дуэль отменилась по таймауту ожидания
-                        else:
-                            duel_out = public_duel(d, sh["user"])
-                            if d["phase"] == "finished" and now - d["finished_ts"] > SHIP_DUEL_KEEP_SEC:
-                                duel_out = None   # запись уже выкинута, экран показали
+                    if mine:
+                        dv = duel_view_for(chat_id, sh["user"], now)
+                        if dv is not None:
+                            duel_out = public_duel(dv, sh["user"])
                     ships_out.append({
                         "user": sh["user"], "name": sh.get("name", ""),
                         "lat": round(sh["lat"], 6), "lon": round(sh["lon"], 6),
@@ -6569,6 +6630,8 @@ class AppHandler(BaseHTTPRequestHandler):
                     return
                 pair = "|".join(sorted([me["user"], rival["user"]]))
                 d = ship_duels.get(f"{chat_id}|{pair}")
+                if d is not None and d["phase"] == "finished":
+                    d = None   # прошлый бой окончен — этот абордаж начинает новую дуэль
                 if d is None:
                     d = {
                         "id": f"{chat_id}|{pair}", "chat": chat_id,
@@ -8228,6 +8291,7 @@ def main() -> None:
     apply_sandbox_grants()
     apply_sandbox_island_levels()
     apply_ship_teleport_sumai()
+    apply_free_ships_main()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
