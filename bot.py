@@ -365,6 +365,43 @@ MARKER_TG_BINDINGS = [
     (-1002304715333, "Вита", "58334278"),
 ]
 
+# Привязка числового id Telegram к метке БЕЗ переименования ключа:
+# ключи меток трогать нельзя — фронтенд сравнивает userKey() напрямую.
+# Сервер узнаёт игрока по tid (см. resolve_marker_key / viewer_matches).
+# Собрано из tgids.json 2026-11-04, подтверждено Sumai. Apollo — ждём его сообщения.
+TID_BINDINGS = [
+    (-1002304715333, "Gaya", "8634767211"),
+    (-1002304715333, "Ice", "712405567"),
+    (-1002304715333, "Leon", "7889362443"),
+    (-1002304715333, "Sofifa", "179490526"),
+    (-1002304715333, "Sumai", "8668538137"),
+    (-1002304715333, "anon", "1872544611"),
+    (-1002304715333, "Андрюха", "8584582199"),
+    (-1002304715333, "Мари", "8922818457"),
+    (-1002304715333, "ПМ", "769828689"),
+    (-1002304715333, "Снежанна", "1687254754"),
+    (-1002304715333, "Татев", "7771949205"),
+    (-1002304715333, "Юлия", "1217843099"),
+]
+
+
+def apply_tid_bindings() -> None:
+    """Проставить tid на метки по подтверждённому списку (вызывается при старте)."""
+    applied = 0
+    for chat_id, marker_key, tid in TID_BINDINGS:
+        marker = geo_state.get(chat_id, {}).get(marker_key)
+        if marker is None:
+            print(f"[paint_bot] tid_bind: метка {marker_key!r} не найдена (чат {chat_id})", flush=True)
+            continue
+        if str(marker.get("tid", "")) == str(tid):
+            continue
+        marker["tid"] = str(tid)
+        applied += 1
+        print(f"[paint_bot] tid_bind: {marker_key!r} -> tid {tid}", flush=True)
+    if applied:
+        geo_save_to_github()
+        print(f"[paint_bot] tid_bind: применено привязок {applied}", flush=True)
+
 
 def apply_marker_bindings() -> None:
     for chat_id, old_key, new_key in MARKER_TG_BINDINGS:
@@ -733,6 +770,51 @@ def island_of(chat_id: int, user: str, name: str = ""):
 
 def stardust_get(chat_id: int, user: str) -> int:
     return stardust_state.get(f"{chat_id}|{user}", 0)
+
+
+def stardust_keys(chat_id: int, user: str, name: str = "") -> list:
+    """Ключи баланса ЗП пользователя: по переданному ключу + по метке (tid/имя) —
+    чтобы браузерная игра (ключ = имя) и Telegram (ключ = числовой id) делили один баланс."""
+    keys = [f"{chat_id}|{user}"]
+    try:
+        mkey = resolve_marker_key(chat_id, user, name)
+    except Exception:
+        mkey = None
+    if mkey:
+        alt = f"{chat_id}|{mkey}"
+        if alt not in keys:
+            keys.append(alt)
+    return keys
+
+
+def stardust_balance(chat_id: int, user: str, name: str = "") -> int:
+    return sum(stardust_state.get(k, 0) for k in stardust_keys(chat_id, user, name))
+
+
+def stardust_earn(chat_id: int, user: str, amount: int, name: str = "") -> int:
+    """Начислить ЗП на канонический баланс (ключ метки). Вернуть новый баланс."""
+    keys = stardust_keys(chat_id, user, name)
+    key = keys[-1]
+    stardust_state[key] = stardust_state.get(key, 0) + amount
+    return stardust_state[key]
+
+
+def stardust_spend(chat_id: int, user: str, amount: int, name: str = ""):
+    """Списать ЗП (сначала с переданного ключа, затем с ключа метки).
+    Вернуть остаток баланса или None, если не хватает."""
+    keys = stardust_keys(chat_id, user, name)
+    if sum(stardust_state.get(k, 0) for k in keys) < amount:
+        return None
+    left = amount
+    for k in keys:
+        have = stardust_state.get(k, 0)
+        take = min(have, left)
+        if take:
+            stardust_state[k] = have - take
+            left -= take
+        if not left:
+            break
+    return sum(stardust_state.get(k, 0) for k in keys)
 
 
 def meteor_check(chat_id: int):
@@ -3556,7 +3638,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-03-1523"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-04-1524"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -4967,8 +5049,7 @@ class AppHandler(BaseHTTPRequestHandler):
                                 isl["visits"] = isl.get("visits", 0) + 1
                                 isl["xp"] = isl.get("xp", 0) + 1
                                 zp_reward = 2 if "bar" in isl.get("buildings", []) else 1
-                                skey = f"{chat_id}|{g['user']}"
-                                stardust_state[skey] = stardust_state.get(skey, 0) + zp_reward
+                                stardust_earn(chat_id, g["user"], zp_reward)
                                 g["souvenir"] = random.choice(SOUVENIR_PICS)
                                 gmarker = geo_state.get(chat_id, {}).get(g["user"])
                                 if gmarker is not None:
@@ -5066,7 +5147,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     src = geo_state.get(chat_id, {}).get(m["user"])
                     if src and src.get("souvenirs"):
                         m["souvenirs"] = src["souvenirs"]
-                    m["zp"] = stardust_get(chat_id, m["user"])
+                    m["zp"] = stardust_balance(chat_id, m["user"])
             if changed:
                 geo_save_to_github()
                 letters_save_to_github()
@@ -5078,7 +5159,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 200,
                 json.dumps({"markers": markers, "letters": letters_out,
                             "volcano": volcano_out, "poops": poops_out,
-                            "meteors": meteors_out, "stardust": stardust_get(chat_id, viewer),
+                            "meteors": meteors_out, "stardust": stardust_balance(chat_id, viewer, viewer_name),
                             "submarine": submarine_out, "gifts": gifts_out,
                             "islands": islands_out, "planes": planes_out},
                            ensure_ascii=False).encode("utf-8"),
@@ -5208,7 +5289,8 @@ class AppHandler(BaseHTTPRequestHandler):
         elif url.path == "/geoicon":
             icon = str(payload.get("icon", ""))[:8]
             with geo_lock:
-                marker = geo_state.get(chat_id, {}).get(user)
+                mkey = resolve_marker_key(chat_id, user, str(payload.get("name", ""))[:64])
+                marker = geo_state.get(chat_id, {}).get(mkey) if mkey else None
                 if marker is None:
                     self._json_response(404, {"error": "метки нет"})
                     return
@@ -5623,9 +5705,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._json_response(403, {"error": "ты в отъезде на острове — метеорит подождёт 🏝️"})
                 return
             cur["taken"] = True
-            key = f"{chat_id}|{user}"
-            stardust_state[key] = stardust_state.get(key, 0) + 1
-            balance = stardust_state[key]
+            balance = stardust_earn(chat_id, user, 1)
             meteor_save_to_github()
         logline(f"200 /meteor chat={chat_id} user={user!r} balance={balance}")
         self._json_response(200, {"balance": balance})
@@ -5645,7 +5725,7 @@ class AppHandler(BaseHTTPRequestHandler):
             self._json_response(400, {"error": "bad request"})
             return
         key = f"{chat_id}|{user}"
-        if stardust_state.get(key, 0) < 1:
+        if stardust_balance(chat_id, user) < 1:
             self._json_response(403, {"error": "Нет Звездной Пыли для ускорения"})
             return
         with geo_lock:
@@ -5657,8 +5737,7 @@ class AppHandler(BaseHTTPRequestHandler):
             if arrived:
                 self._json_response(409, {"error": "письмо уже доставлено — ускорять нечего"})
                 return
-            stardust_state[key] -= 1
-            balance = stardust_state[key]
+            balance = stardust_spend(chat_id, user, 1)
             # мгновенное продвижение на 1000 км по траектории: сдвиг start_ts так,
             # чтобы пройденная дистанция выросла ровно на LETTER_BOOST_KM (стакается)
             speed = letter_speed_km_per_min(letter)
@@ -5905,7 +5984,7 @@ class AppHandler(BaseHTTPRequestHandler):
             if island_of(chat_id, user, name) is not None:
                 self._json_response(409, {"error": "у тебя уже есть остров (можешь быть совладельцем)"})
                 return
-            if stardust_state.get(key, 0) < ISLAND_COST_ZP:
+            if stardust_balance(chat_id, user, name) < ISLAND_COST_ZP:
                 self._json_response(403, {"error": f"нужно {ISLAND_COST_ZP} ЗП — собирай с метеоритов ☄️"})
                 return
             lat, lon = random_ocean_point()
@@ -5918,8 +5997,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 "created_ts": time.time(), "guest": None,
                 "owners": [user],
             }
-            stardust_state[key] -= ISLAND_COST_ZP
-            balance = stardust_state[key]
+            balance = stardust_spend(chat_id, user, ISLAND_COST_ZP, name)
             islands_save_to_github()
             meteor_save_to_github()
         logline(f"200 /islandbuy chat={chat_id} user={user!r} island={isl_name!r} balance={balance}")
@@ -6053,10 +6131,11 @@ class AppHandler(BaseHTTPRequestHandler):
             if lvl < need_level:
                 self._json_response(403, {"error": f"нужен {need_level} уровень острова (сейчас {lvl})"})
                 return
-            if stardust_state.get(key, 0) < cost_zp:
-                self._json_response(403, {"error": f"нужно {cost_zp} ЗП (баланс {stardust_state.get(key, 0)})"})
+            if stardust_balance(chat_id, user, name) < cost_zp:
+                self._json_response(403, {"error": f"нужно {cost_zp} ЗП (баланс {stardust_balance(chat_id, user, name)})"})
                 return
-            marker = geo_state.get(chat_id, {}).get(user)
+            mkey = resolve_marker_key(chat_id, user, name)
+            marker = geo_state.get(chat_id, {}).get(mkey) if mkey else None
             if cost_wood:
                 have_w = (marker or {}).get("wood", 0)
                 if have_w < cost_wood:
@@ -6067,7 +6146,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 if have < cost_poop:
                     self._json_response(403, {"error": f"нужно {cost_poop} розовых какашек (есть {have})"})
                     return
-            stardust_state[key] -= cost_zp
+            balance = stardust_spend(chat_id, user, cost_zp, name)
             if cost_poop and marker is not None:
                 marker["poops"] = marker.get("poops", 0) - cost_poop
             if cost_wood and marker is not None:
@@ -6076,7 +6155,6 @@ class AppHandler(BaseHTTPRequestHandler):
             islands_save_to_github()
             meteor_save_to_github()
             geo_save_to_github()
-            balance = stardust_state[key]
             level = island_level(isl)
         logline(f"200 /islandbuild chat={chat_id} user={user!r} building={bid} balance={balance}")
         self._json_response(200, {"balance": balance, "buildings": isl["buildings"],
@@ -6102,7 +6180,8 @@ class AppHandler(BaseHTTPRequestHandler):
             if isl is None:
                 self._json_response(404, {"error": "сначала купи остров (10 ЗП)"})
                 return
-            marker = geo_state.get(chat_id, {}).get(user)
+            marker_key = resolve_marker_key(chat_id, user, name)
+            marker = geo_state.get(chat_id, {}).get(marker_key) if marker_key else None
             have = (marker or {}).get("poops", 0)
             if have < 1:
                 self._json_response(403, {"error": "нет розовых какашек — лови из вулкана 🌋"})
@@ -7435,6 +7514,7 @@ def main() -> None:
     sifa_load_from_github()
     tgids_load_from_github()
     apply_marker_bindings()
+    apply_tid_bindings()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
