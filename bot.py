@@ -591,7 +591,22 @@ def apply_sandbox_grants() -> None:
     meteor_save_to_github()
 
 
-def apply_startup_credits() -> None:
+def apply_sandbox_island_levels() -> None:
+    """Разовая выдача: всем островам Песочницы — 10 уровень."""
+    tag = "sandbox_islands_lvl10_2026-11-04"
+    if meteor_credits.get(tag):
+        return
+    changed = False
+    for isl in islands_state.values():
+        if isl.get("chat") == -1004400745434 and isl.get("level") != 10:
+            isl["level"] = 10
+            changed = True
+            logline(f"sandbox island lvl10: {isl.get('name', isl.get('owner'))}")
+    meteor_credits[tag] = True
+    if changed:
+        islands_save_to_github()
+    meteor_save_to_github()
+
     for chat_id, user, amount, tag in STARTUP_CREDITS:
         if meteor_credits.get(tag):
             continue
@@ -4031,7 +4046,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-04-1530"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-04-1531"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -8163,6 +8178,7 @@ def main() -> None:
     apply_marker_bindings()
     apply_tid_bindings()
     apply_sandbox_grants()
+    apply_sandbox_island_levels()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
