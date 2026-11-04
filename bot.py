@@ -592,16 +592,17 @@ def apply_sandbox_grants() -> None:
 
 
 def apply_sandbox_island_levels() -> None:
-    """Разовая выдача: всем островам Песочницы — 10 уровень."""
-    tag = "sandbox_islands_lvl10_2026-11-04"
+    """Разовая выдача: всем островам Песочницы — 10 уровень (xp=27, уровень=1+xp//3)."""
+    tag = "sandbox_islands_lvl10_xp_2026-11-04"
     if meteor_credits.get(tag):
         return
     changed = False
     for isl in islands_state.values():
-        if isl.get("chat") == -1004400745434 and isl.get("level") != 10:
-            isl["level"] = 10
+        if isl.get("chat") == -1004400745434 and isl.get("xp", 0) < 27:
+            isl["xp"] = 27
+            isl.pop("level", None)   # поля level в данных нет — уровень считается из xp
             changed = True
-            logline(f"sandbox island lvl10: {isl.get('name', isl.get('owner'))}")
+            logline(f"sandbox island xp->27: {isl.get('name', isl.get('owner'))}")
     meteor_credits[tag] = True
     if changed:
         islands_save_to_github()
@@ -4082,7 +4083,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-04-1536"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-04-1537"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
