@@ -2502,14 +2502,14 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     return _origFetch(url, opts);
   };
   if (!tgUser) {
-    // прямой заход в браузере — игра доступна только из под Телеграм
+    // прямой заход в браузере — только ошибка запуска, никаких подсказок
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(16,28,44,.94);'
-      + 'display:flex;align-items:center;justify-content:center;text-align:center;'
+      + 'display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;'
       + 'color:#fff;font-size:19px;line-height:1.8;padding:24px;';
-    ov.innerHTML = '<div>🗺️<br>Запустите, пожалуйста, игру из под Телеграм —<br>'
-      + 'кнопкой меню бота в чате.<br>'
-      + '<small style="opacity:.7">В браузере карта доступна только для просмотра.</small></div>';
+    ov.innerHTML = '<div style="width:96px;height:96px;border-radius:50%;background:#c0392b;'
+      + 'display:flex;align-items:center;justify-content:center;font-size:52px;margin-bottom:20px;">🧱</div>'
+      + '<div>Ошибка запуска. Обратитесь к Администратору игры.</div>';
     document.body.appendChild(ov);
   }
   // ===== бета Песочницы: персона Тест2 и ручной спавн событий (только Sumai) =====
@@ -4602,7 +4602,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-05-1562"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-05-1563"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
