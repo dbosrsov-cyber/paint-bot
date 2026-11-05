@@ -709,8 +709,7 @@ def apply_sumai_wreck_east6000() -> None:
         logline(f"wreck Sumai east 6000 km -> lon {wr['lon']}")
     meteor_save_to_github()
 
-
-
+def apply_ship_teleport_sumai() -> None:
     """Разовая телепортация: потопленный Галеон Sumai ровно на 10000 км западнее
     точки боя (убрать наложение на корабль ПМ). Координаты абсолютные."""
     tag = "ship_sumai_west10000_abs_2026-11-04"
@@ -4605,7 +4604,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-06-1572"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-06-1573"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
