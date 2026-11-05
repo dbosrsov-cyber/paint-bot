@@ -4592,7 +4592,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-05-1565"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-05-1566"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -7849,13 +7849,27 @@ async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(f"Твой ID Telegram: {update.effective_user.id}")
 
 
-async def dm_game_button(context: ContextTypes.DEFAULT_TYPE, user_id: int, text: str, keyboard) -> bool:
-    """Кнопки WebApp Telegram разрешает только в личке — в группах шлём кнопку в ЛС игроку."""
+async def dm_game_button(context: ContextTypes.DEFAULT_TYPE, user_id: int, text: str, keyboard):
+    """Кнопки WebApp Telegram разрешает только в личке — в группах шлём кнопку в ЛС игроку.
+    Возвращает (доставлено, причина_отказа) — причину пишем в лог и показываем в чате."""
     try:
         await context.bot.send_message(user_id, text, reply_markup=keyboard)
-        return True
-    except Exception:
-        return False
+        return True, None
+    except Exception as e:
+        print(f"[paint_bot] ЛС не ушло пользователю {user_id}: {e!r}", flush=True)
+        return False, e
+
+
+def dm_fail_reason(e) -> str:
+    """Короткая русская расшифровка причины отказа доставки в ЛС."""
+    s = str(e)
+    if "blocked" in s:
+        return "бот у тебя в заблокированных"
+    if "deactivated" in s:
+        return "аккаунт неактивен"
+    if "initiate" in s:
+        return "нет переписки с ботом — нажми /startsum в личке"
+    return "сбой доставки"
 
 
 async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -7897,11 +7911,14 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         state["msg_id"] = msg.message_id
         hint = ("🎨 Общий лист твоего чата!\nРисуем по очереди — каждый добавляет штрих. "
                 "Жми «Открыть холст» 👇")
-        if await dm_game_button(context, query.from_user.id, hint,
-                                paint_keyboard(chat_id, webapp=True, drawer=state["drawer"])):
+        dm_ok, dm_err = await dm_game_button(
+            context, query.from_user.id, hint,
+            paint_keyboard(chat_id, webapp=True, drawer=state["drawer"]))
+        if dm_ok:
             await query.edit_message_text("🎨 Лист в чате выше, а кнопка «Открыть холст» — у тебя в личке 👌")
         else:
-            await query.edit_message_text("🎨 Лист в чате выше. Чтобы рисовать, сначала запусти меня в личке: /startsum")
+            await query.edit_message_text("🎨 Лист в чате выше. Не смог написать в личку: "
+                                          + dm_fail_reason(dm_err) + ". Сначала /startsum")
         return
 
     if game_key == "geo":
@@ -7915,10 +7932,14 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         if is_private:
             await context.bot.send_message(chat_id, text, reply_markup=geo_keyboard(chat_id, True))
             await query.edit_message_text("🌍 Карта запущена — жми «Открыть карту» выше.")
-        elif await dm_game_button(context, query.from_user.id, text, geo_keyboard(chat_id, False)):
+            return
+        dm_ok, dm_err = await dm_game_button(context, query.from_user.id, text,
+                                             geo_keyboard(chat_id, False))
+        if dm_ok:
             await query.edit_message_text("🌍 Карта запущена — кнопка «Открыть карту» ушла тебе в личку 👌")
         else:
-            await query.edit_message_text("🌍 Не смог написать тебе в личку. Сначала запусти меня: /startsum")
+            await query.edit_message_text("🌍 Не смог написать в личку: "
+                                          + dm_fail_reason(dm_err) + ". Сначала /startsum")
         return
 
     if game_key == "geo2":
@@ -7934,10 +7955,14 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         if query.message.chat.type == "private":
             await context.bot.send_message(chat_id, text, reply_markup=geo2_keyboard(chat_id))
             await query.edit_message_text("🌍✨ Жми «Открыть карту» выше.")
-        elif await dm_game_button(context, query.from_user.id, text, geo2_keyboard(chat_id)):
+            return
+        dm_ok, dm_err = await dm_game_button(context, query.from_user.id, text,
+                                             geo2_keyboard(chat_id))
+        if dm_ok:
             await context.bot.send_message(chat_id, "🌍✨ Кнопка «Открыть карту» ушла тебе в личку 👌")
         else:
-            await context.bot.send_message(chat_id, "🌍✨ Не смог написать тебе в личку. Сначала запусти меня: /startsum")
+            await context.bot.send_message(chat_id, "🌍✨ Не смог написать в личку: "
+                                          + dm_fail_reason(dm_err) + ". Сначала /startsum")
         return
 
     if game_key == "saga":
