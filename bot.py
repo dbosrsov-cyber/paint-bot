@@ -4576,7 +4576,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-05-1555"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-05-1556"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -7871,8 +7871,6 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             "Метки общие для этого чата и не видны в других чатах."
             + (f"\nСейчас меток: {count}." if count else "")
         )
-        if not is_private:
-            text += "\n(в группах кнопка открывает карту в браузере)"
         await context.bot.send_message(chat_id, text, reply_markup=geo_keyboard(chat_id, is_private))
         await query.edit_message_text("🌍 Карта запущена — сообщение с кнопкой появилось в чате выше.")
         return
@@ -7973,25 +7971,20 @@ def paint_keyboard(chat_id: int, webapp: bool = True, drawer: str | None = None)
     if drawer:
         # пока кто-то рисует — кнопка не открывает холст, а сообщает, кто рисует
         btn = InlineKeyboardButton(f"🖌 Рисует {drawer}...", callback_data="paint_wait")
-    elif webapp:
-        btn = InlineKeyboardButton("🖌 Открыть холст", web_app=WebAppInfo(url=url))
     else:
-        btn = InlineKeyboardButton("🖌 Открыть холст (браузер)", url=url)
+        btn = InlineKeyboardButton("🖌 Открыть холст", web_app=WebAppInfo(url=url))
     return InlineKeyboardMarkup([[btn]])
 
 
 def geo2_keyboard(chat_id: int) -> InlineKeyboardMarkup:
-    """Бета 2.0: кнопка открывает карту (в группах — через браузер)."""
+    """Бета 2.0: кнопка открывает карту как WebApp внутри Telegram."""
     url = f"{APP_URL}/geo2map?chat={chat_id}&v={BUILD_TAG}"
-    return InlineKeyboardMarkup([[InlineKeyboardButton("🌍 Открыть карту", url=url)]])
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🌍 Открыть карту", web_app=WebAppInfo(url=url))]])
 
 
 def geo_keyboard(chat_id: int, webapp: bool) -> InlineKeyboardMarkup:
     url = f"{APP_URL}/geomap?chat={chat_id}"
-    if webapp:
-        btn = InlineKeyboardButton("🌍 Открыть карту", web_app=WebAppInfo(url=url))
-    else:
-        btn = InlineKeyboardButton("🌍 Открыть карту (браузер)", url=url)
+    btn = InlineKeyboardButton("🌍 Открыть карту", web_app=WebAppInfo(url=url))
     return InlineKeyboardMarkup([[btn]])
 
 
