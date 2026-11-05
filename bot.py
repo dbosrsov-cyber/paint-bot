@@ -3261,7 +3261,9 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   // ---------- Корабли (Галеоны): маркеры, постройка, плавание, абордаж ----------
   function shipIcon(sunk) {
     return L.icon({iconUrl: '/shipimg' + (sunk ? '?sunk=1' : ''),
-      iconSize: [56, 56], iconAnchor: [28, 28], popupAnchor: [0, -26]});
+      iconSize: sunk ? [28, 28] : [56, 56],
+      iconAnchor: sunk ? [14, 14] : [28, 28],
+      popupAnchor: [0, -26]});
   }
   function renderShip(s) {
     const mk = L.marker([s.lat, s.lon], {icon: shipIcon(s.sunk)}).addTo(map);
@@ -4592,7 +4594,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-05-1566"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-05-1567"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
