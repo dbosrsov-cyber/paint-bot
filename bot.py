@@ -4592,7 +4592,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-05-1564"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-05-1565"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -7935,9 +7935,9 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             await context.bot.send_message(chat_id, text, reply_markup=geo2_keyboard(chat_id))
             await query.edit_message_text("🌍✨ Жми «Открыть карту» выше.")
         elif await dm_game_button(context, query.from_user.id, text, geo2_keyboard(chat_id)):
-            await query.edit_message_text("🌍✨ Кнопка «Открыть карту» ушла тебе в личку 👌")
+            await context.bot.send_message(chat_id, "🌍✨ Кнопка «Открыть карту» ушла тебе в личку 👌")
         else:
-            await query.edit_message_text("🌍✨ Не смог написать тебе в личку. Сначала запусти меня: /startsum")
+            await context.bot.send_message(chat_id, "🌍✨ Не смог написать тебе в личку. Сначала запусти меня: /startsum")
         return
 
     if game_key == "saga":
