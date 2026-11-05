@@ -3087,10 +3087,11 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     if (s.mine && !s.sunk) {
       if (s.in_duel) {
         html += '<br>⚔️ абордаж идёт — бой в отдельном окне!';
-      } else if (s.boarding) {
-        html += '<br><button onclick="shipBoard()" style="background:#c0392b;">⚔️ Абордаж!</button>';
       } else {
         html += '<br><button onclick="shipNavStart()">🧭 Отправить</button>';
+        if (s.boarding) {
+          html += ' <button onclick="shipBoard()" style="background:#c0392b;">⚔️ Абордаж!</button>';
+        }
       }
     }
     mk.bindPopup(html);
@@ -4366,7 +4367,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-05-1547"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-05-1548"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
