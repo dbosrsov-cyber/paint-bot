@@ -4576,7 +4576,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-05-1557"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-05-1558"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -7827,6 +7827,15 @@ async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(f"Твой ID Telegram: {update.effective_user.id}")
 
 
+async def dm_game_button(context: ContextTypes.DEFAULT_TYPE, user_id: int, text: str, keyboard) -> bool:
+    """Кнопки WebApp Telegram разрешает только в личке — в группах шлём кнопку в ЛС игроку."""
+    try:
+        await context.bot.send_message(user_id, text, reply_markup=keyboard)
+        return True
+    except Exception:
+        return False
+
+
 async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Выбор игры в меню: запускает игру с меткой типа; старую игру игрока завершает."""
     if not chat_allowed(update.effective_chat):
@@ -7851,16 +7860,26 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         state = paint_state.setdefault(chat_id, new_paint_state())
         state["webapp"] = is_private
         caption = "🎨 Общий лист группы! Рисуем по очереди — каждый добавляет штрих."
-        if not is_private:
-            caption += "\n(в группах Telegram кнопка открывает холст в браузере)"
-        msg = await context.bot.send_photo(
-            chat_id,
-            photo=io.BytesIO(state["image"]),
-            caption=caption,
-            reply_markup=paint_keyboard(chat_id, webapp=is_private, drawer=state["drawer"]),
-        )
+        if is_private:
+            msg = await context.bot.send_photo(
+                chat_id,
+                photo=io.BytesIO(state["image"]),
+                caption=caption,
+                reply_markup=paint_keyboard(chat_id, webapp=True, drawer=state["drawer"]),
+            )
+            state["msg_id"] = msg.message_id
+            await query.edit_message_text("🎨 Рисовалка запущена! Лист выше — жми «Открыть холст».")
+            return
+        # в группе лист остаётся в чате, а кнопку WebApp шлём в личку (в группах она запрещена)
+        msg = await context.bot.send_photo(chat_id, photo=io.BytesIO(state["image"]), caption=caption)
         state["msg_id"] = msg.message_id
-        await query.edit_message_text("🎨 Рисовалка запущена! Лист появился в чате выше — жми «Открыть холст».")
+        hint = ("🎨 Общий лист твоего чата!\nРисуем по очереди — каждый добавляет штрих. "
+                "Жми «Открыть холст» 👇")
+        if await dm_game_button(context, query.from_user.id, hint,
+                                paint_keyboard(chat_id, webapp=True, drawer=state["drawer"])):
+            await query.edit_message_text("🎨 Лист в чате выше, а кнопка «Открыть холст» — у тебя в личке 👌")
+        else:
+            await query.edit_message_text("🎨 Лист в чате выше. Чтобы рисовать, сначала запусти меня в личке: /startsum")
         return
 
     if game_key == "geo":
@@ -7871,8 +7890,13 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             "Метки общие для этого чата и не видны в других чатах."
             + (f"\nСейчас меток: {count}." if count else "")
         )
-        await context.bot.send_message(chat_id, text, reply_markup=geo_keyboard(chat_id, is_private))
-        await query.edit_message_text("🌍 Карта запущена — сообщение с кнопкой появилось в чате выше.")
+        if is_private:
+            await context.bot.send_message(chat_id, text, reply_markup=geo_keyboard(chat_id, True))
+            await query.edit_message_text("🌍 Карта запущена — жми «Открыть карту» выше.")
+        elif await dm_game_button(context, query.from_user.id, text, geo_keyboard(chat_id, False)):
+            await query.edit_message_text("🌍 Карта запущена — кнопка «Открыть карту» ушла тебе в личку 👌")
+        else:
+            await query.edit_message_text("🌍 Не смог написать тебе в личку. Сначала запусти меня: /startsum")
         return
 
     if game_key == "geo2":
@@ -7885,8 +7909,13 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             "Те же метки, письма, подарки и события, что и в Географии чата, "
             "— но в новом обновлённом интерфейсе."
         )
-        await context.bot.send_message(chat_id, text, reply_markup=geo2_keyboard(chat_id))
-        await query.edit_message_text("🌍✨ ГеографияЧата 2.0 — сообщение с кнопкой появилось в чате выше.")
+        if query.message.chat.type == "private":
+            await context.bot.send_message(chat_id, text, reply_markup=geo2_keyboard(chat_id))
+            await query.edit_message_text("🌍✨ Жми «Открыть карту» выше.")
+        elif await dm_game_button(context, query.from_user.id, text, geo2_keyboard(chat_id)):
+            await query.edit_message_text("🌍✨ Кнопка «Открыть карту» ушла тебе в личку 👌")
+        else:
+            await query.edit_message_text("🌍✨ Не смог написать тебе в личку. Сначала запусти меня: /startsum")
         return
 
     if game_key == "saga":
@@ -7966,14 +7995,16 @@ async def on_saga_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await saga_publish(context.bot, chat_id)
 
 
-def paint_keyboard(chat_id: int, webapp: bool = True, drawer: str | None = None) -> InlineKeyboardMarkup:
+def paint_keyboard(chat_id: int, webapp: bool = True, drawer: str | None = None) -> InlineKeyboardMarkup | None:
+    """Кнопка холста. WebApp-кнопки разрешены только в личке: для групп (webapp=False)
+    клавиатура не возвращается — кнопку игроку шлём в ЛС (dm_game_button)."""
     url = f"{APP_URL}/app?chat={chat_id}"
     if drawer:
         # пока кто-то рисует — кнопка не открывает холст, а сообщает, кто рисует
-        btn = InlineKeyboardButton(f"🖌 Рисует {drawer}...", callback_data="paint_wait")
-    else:
-        btn = InlineKeyboardButton("🖌 Открыть холст", web_app=WebAppInfo(url=url))
-    return InlineKeyboardMarkup([[btn]])
+        return InlineKeyboardMarkup([[InlineKeyboardButton(f"🖌 Рисует {drawer}...", callback_data="paint_wait")]])
+    if not webapp:
+        return None
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🖌 Открыть холст", web_app=WebAppInfo(url=url))]])
 
 
 def geo2_keyboard(chat_id: int) -> InlineKeyboardMarkup:
