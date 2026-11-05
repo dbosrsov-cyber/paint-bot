@@ -4611,7 +4611,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-06-1570"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-06-1571"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -6425,10 +6425,19 @@ class AppHandler(BaseHTTPRequestHandler):
             with geo_lock:
                 chat_markers = geo_state.setdefault(chat_id, {})
                 old = chat_markers.get(user, {})
+                # новым меткам сразу ставим tid (ключ = id Telegram) и сохраняем
+                # накопленное (какашки, дерево, сувениры, статистика кораблей) —
+                # иначе повторная постановка метки всё обнуляла
+                tid = old.get("tid") or (str(user) if str(user).isdigit() else None)
                 chat_markers[user] = {
                     "user": user, "name": name, "icon": icon,
                     "lat": round(lat, 6), "lon": round(lon, 6),
                     "got": old.get("got", 0), "read": old.get("read", 0),
+                    "poops": old.get("poops", 0), "wood": old.get("wood", 0),
+                    "souvenirs": old.get("souvenirs", []),
+                    "ships_built": old.get("ships_built", 0),
+                    "ships_lost": old.get("ships_lost", 0),
+                    "tid": tid,
                 }
             geo_save_to_github()
             self._respond(200, b"ok")
