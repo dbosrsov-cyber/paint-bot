@@ -838,6 +838,7 @@ SHIP_PICK_SEC = 5              # окно выбора в КНБ (после г�
 SHIP_PICK_GRACE_SEC = 3        # сетевая грация к окну выбора
 SHIP_ROUNDEND_SEC = 4          # пауза «раунд окончен» перед следующим раундом
 SHIP_READY_TIMEOUT = 180       # дуэль отменяется, если оба не нажали «Готов»
+SHIP_CPU_AFTER_SEC = 180       # неявившийся капитан заменяется командой (компьютером)
 SHIP_DUEL_KEEP_SEC = 600       # финальный экран дуэли хранится столько после боя
 # потопленные корабли с карты не исчезают: висят «мемориальными рифами»,
 # пока капитан не спустит на воду новый Галеон (запись перезаписывается)
@@ -975,6 +976,7 @@ def spectator_duel(d: dict) -> dict:
     out = {
         "id": d["id"], "phase": d["phase"], "round": d["round"],
         "a_name": d["a_name"], "b_name": d["b_name"],
+        "cpu_name": d[d["cpu"] + "_name"] if d.get("cpu") else None,
         "wins_a": d["wins"]["a"], "wins_b": d["wins"]["b"],
         "a_ready": d["a"] in d["ready"], "b_ready": d["b"] in d["ready"],
         "a_picked": d["pa"] is not None, "b_picked": d["pb"] is not None,
@@ -1012,10 +1014,15 @@ def _finish_duel(d: dict) -> None:
     d["sink_phrase"] = phrase
     ships_save_to_github()
     geo_save_to_github()
+    if d.get("cpu"):
+        note = (f"Капитан {d[d['cpu'] + '_name']} не явился на абордаж — "
+                f"команда билась сама, без единой капитанской пощады! ")
+    else:
+        note = ""
     try:
         tg_send_with_cleanup(
             d["chat"],
-            f"⚔️ АБОРДАЖ ОКОНЧЕН! Корабль «{d[loser + '_name']}» был потоплен — {phrase} "
+            f"⚔️ АБОРДАЖ ОКОНЧЕН! {note}Корабль «{d[loser + '_name']}» был потоплен — {phrase} "
             f"Победил капитан {d[winner + '_name']} 🏆",
             600,
         )
@@ -1023,15 +1030,32 @@ def _finish_duel(d: dict) -> None:
         print(f"[paint_bot] уведомление о потоплении не ушло: {e!r}", flush=True)
 
 
+def _duel_enter_pick(d: dict, now: float) -> None:
+    d["phase"] = "pick"
+    d["pick_deadline"] = now + SHIP_PICK_SEC + SHIP_PICK_GRACE_SEC
+    if d.get("cpu"):
+        # команда (компьютер) думает над ходом пару секунд — по-человечески
+        d["cpu_pick_at"] = now + random.uniform(1.5, 4.5)
+
+
 def duel_tick(d: dict, now: float) -> None:
     """Лениво продвинуть дуэль КНБ (вызывается из /geodata и /shipduel)."""
     if d["phase"] == "ready":
         if len(d["ready"]) >= 2:
-            d["phase"] = "pick"
-            d["pick_deadline"] = now + SHIP_PICK_SEC + SHIP_PICK_GRACE_SEC
-        elif now - d["ts"] > SHIP_READY_TIMEOUT:
+            _duel_enter_pick(d, now)
+        elif len(d["ready"]) == 1 and now - d["ts"] > SHIP_CPU_AFTER_SEC:
+            # второй капитан не явился за 3 минуты — вместо него дерётся его команда
+            human = d["a"] if d["a"] in d["ready"] else d["b"]
+            d["cpu"] = "b" if human == d["a"] else "a"   # сторона капитана
+            d["ready"] = [d["a"], d["b"]]
+            logline(f"ship duel: капитан {d[d['cpu'] + '_name']} не явился — играет команда")
+            _duel_enter_pick(d, now)
+        elif not d["ready"] and now - d["ts"] > SHIP_READY_TIMEOUT:
             ship_duels.pop(d["id"], None)
     elif d["phase"] == "pick":
+        cpu_side = d.get("cpu")
+        if cpu_side and d["p" + cpu_side] is None and now >= d.get("cpu_pick_at", 0):
+            d["p" + cpu_side] = random.choice(["r", "s", "p"])
         if (d["pa"] and d["pb"]) or now > d["pick_deadline"]:
             w = _rps_winner(d["pa"], d["pb"])
             if w:
@@ -1046,8 +1070,7 @@ def duel_tick(d: dict, now: float) -> None:
                 _finish_duel(d)
             else:
                 d["round"] += 1
-                d["phase"] = "pick"
-                d["pick_deadline"] = now + SHIP_PICK_SEC + SHIP_PICK_GRACE_SEC
+                _duel_enter_pick(d, now)
     elif d["phase"] == "finished":
         if now - d["finished_ts"] > SHIP_DUEL_KEEP_SEC:
             ship_duels.pop(d["id"], None)
@@ -1060,6 +1083,7 @@ def public_duel(d: dict, user: str) -> dict:
     out = {
         "id": d["id"], "phase": d["phase"], "round": d["round"],
         "my_side": side,
+        "cpu_opp": d.get("cpu") == other,
         "opp_name": d[other + "_name"], "my_name": d[side + "_name"],
         "wins_me": d["wins"][side], "wins_opp": d["wins"][other],
         "ready_me": user in d["ready"], "ready_opp": d[other] in d["ready"],
@@ -3139,6 +3163,11 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   function renderShipDuel(d) {
     const el = document.getElementById('shipDuelModal');
     if (!el) return;
+    const cpuNote = d.cpu_opp
+      ? '<div style="font-size:13px;color:#7a4a12;background:rgba(255,255,255,.4);'
+        + 'border-radius:8px;padding:5px;margin:4px 0;">🤖 Капитан не явился на абордаж — '
+        + 'за него дерётся его команда!</div>'
+      : '';
     const score = 'Раунд ' + d.round + ' • счёт ' + d.wins_me + ':' + d.wins_opp
       + ' (до 3 побед, ты vs ' + escapeHtml(d.opp_name) + ')';
     let body = '';
@@ -3150,8 +3179,12 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
         + (d.ready_me ? '<div style="font-size:14px;">ждём соперника…</div>'
           : '<button id="duelReadyBtn" style="background:#c0392b;font-size:16px;'
             + 'padding:10px 22px;">⚔️ Готов!</button>');
+      if (!d.cpu_opp) {
+        body += '<div style="font-size:13px;opacity:.75;margin-top:6px;">⏱ не явится за 3 минуты '
+          + '— за него дерётся его команда 🤖</div>';
+      }
     } else if (d.phase === 'pick') {
-      body = '<div style="font-size:15px;margin:6px 0;"><b>' + score + '</b><br>⏱ на ход: '
+      body = cpuNote + '<div style="font-size:15px;margin:6px 0;"><b>' + score + '</b><br>⏱ на ход: '
         + d.pick_left + ' сек</div>'
         + lastRoundHtml(d)
         + (d.my_pick
@@ -3163,7 +3196,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
               + '<button class="rpsBtn" data-pick="p">📜<br><span style="font-size:12px;">Бумага</span></button></div>')
         + (d.opp_picked ? '<div style="font-size:13px;opacity:.8;">соперник уже выбрал…</div>' : '');
     } else if (d.phase === 'roundend') {
-      body = '<div style="font-size:15px;margin:6px 0;"><b>' + score + '</b></div>'
+      body = cpuNote + '<div style="font-size:15px;margin:6px 0;"><b>' + score + '</b></div>'
         + lastRoundHtml(d)
         + '<div style="margin:10px 0;font-size:14px;">⚓ Следующий раунд — считанные секунды…</div>';
     } else if (d.phase === 'finished') {
@@ -3174,8 +3207,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
         + '<div style="font-size:14px;color:#7a4a12;margin-bottom:8px;">'
         + escapeHtml(d.sink_phrase || '') + '</div>'
         + '<div style="font-size:15px;margin:6px 0;">' + (d.i_won
-          ? '🏆 Ты победил! Плыви дальше, капитан!'
-          : '💀 Твой Галеон ушёл ко дну… новый строится на верфи ⚓') + '</div>'
+          ? (d.cpu_opp ? '🏆 Ты победил! Команда без капитана сдалась — плыви дальше!'
+            : '🏆 Ты победил! Плыви дальше, капитан!')
+          : (d.cpu_opp ? '💀 Твой Галеон ушёл ко дну… от команды без капитана! Новый строится на верфи ⚓'
+            : '💀 Твой Галеон ушёл ко дну… новый строится на верфи ⚓')) + '</div>'
         + '<div style="text-align:center;margin-top:6px;"><button id="duelCloseBtn" '
         + 'style="background:#2ea6ff;padding:10px 24px;font-size:15px;">Закрыть</button></div>';
     }
@@ -3250,6 +3285,11 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   function renderShipWatch(d) {
     const el = document.getElementById('shipWatchModal');
     if (!el) return;
+    const cpuNote = d.cpu_name
+      ? '<div style="font-size:13px;color:#7a4a12;background:rgba(255,255,255,.4);'
+        + 'border-radius:8px;padding:5px;margin:4px 0;">🤖 Капитан ' + escapeHtml(d.cpu_name)
+        + ' не явился на абордаж — за него дерётся его команда!</div>'
+      : '';
     const score = 'Раунд ' + d.round + ' • счёт ' + d.wins_a + ':' + d.wins_b + ' (до 3 побед)';
     let body = '';
     if (d.phase === 'ready') {
@@ -3257,14 +3297,14 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
         + escapeHtml(d.a_name) + ': ' + (d.a_ready ? '✅ готов' : '⏳ ждём') + '<br>'
         + escapeHtml(d.b_name) + ': ' + (d.b_ready ? '✅ готов' : '⏳ ждём') + '</div>';
     } else if (d.phase === 'pick') {
-      body = '<div style="font-size:15px;margin:6px 0;"><b>' + score + '</b><br>⏱ на ход: '
+      body = cpuNote + '<div style="font-size:15px;margin:6px 0;"><b>' + score + '</b><br>⏱ на ход: '
         + d.pick_left + ' сек</div>'
         + (d.last ? watchLastHtml(d) : '')
         + '<div style="font-size:15px;margin:10px 0;line-height:1.8;">'
         + escapeHtml(d.a_name) + ': ' + (d.a_picked ? '⚔️ выбор сделан' : '🤔 думает…') + '<br>'
         + escapeHtml(d.b_name) + ': ' + (d.b_picked ? '⚔️ выбор сделан' : '🤔 думает…') + '</div>';
     } else if (d.phase === 'roundend') {
-      body = '<div style="font-size:15px;margin:6px 0;"><b>' + score + '</b></div>' + watchLastHtml(d)
+      body = cpuNote + '<div style="font-size:15px;margin:6px 0;"><b>' + score + '</b></div>' + watchLastHtml(d)
         + '<div style="margin:10px 0;font-size:14px;">⚓ Следующий раунд — считанные секунды…</div>';
     } else if (d.phase === 'finished') {
       body = '<img src="/shipimg?sunk=1" style="width:100%;max-width:300px;display:block;'
@@ -4366,7 +4406,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-05-1549"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-05-1550"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -6882,6 +6922,10 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._json_response(404, {"error": "у тебя нет корабля"})
                 return
             d = ship_in_duel(chat_id, me["user"])
+            if d is not None and d.get("cpu") and d[d["cpu"]] == me["user"]:
+                # неявившийся капитан пытается вернуться — его место уже заняла команда
+                self._json_response(409, {"error": "поздно! твоя команда уже дерётся без тебя 🤖"})
+                return
             if d is None:
                 rival = None
                 for k2, sh2 in ships_state.items():
