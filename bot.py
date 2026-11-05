@@ -692,8 +692,23 @@ def apply_sandbox_island_levels() -> None:
         islands_save_to_github()
     meteor_save_to_github()
 
+def apply_sumai_wreck_east6000() -> None:
+    """Разовая телепортация: крайний левый (западный) мемориальный риф Sumai
+    на 6000 км восточнее текущей точки."""
+    tag = "sumai_wreck_east6000_2026-11-05"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    wr = wrecks_state.get("-1002304715333|Sumai|1793821487")
+    if wr is not None:
+        dlon = 6000.0 / (111.32 * max(math.cos(math.radians(wr["lat"])), 0.1))
+        wr["lon"] = round(wr["lon"] + dlon, 6)
+        wrecks_save_to_github()
+        logline(f"wreck Sumai east 6000 km -> lon {wr['lon']}")
+    meteor_save_to_github()
 
-def apply_ship_teleport_sumai() -> None:
+
+
     """Разовая телепортация: потопленный Галеон Sumai ровно на 10000 км западнее
     точки боя (убрать наложение на корабль ПМ). Координаты абсолютные."""
     tag = "ship_sumai_west10000_abs_2026-11-04"
@@ -4594,7 +4609,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-05-1567"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-05-1568"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -8929,6 +8944,7 @@ def main() -> None:
     apply_sandbox_grants()
     apply_sandbox_island_levels()
     apply_ship_teleport_sumai()
+    apply_sumai_wreck_east6000()
     apply_free_ships_main()
     apply_restore_wrecks()
     apply_fix_mari_pm_duel()
