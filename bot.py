@@ -3566,8 +3566,8 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       lines += '<div style="margin:7px 0;font-size:15px;' + chalk + '">✎ <b>'
         + escapeHtml(i.name) + '</b>: ' + escapeHtml(i.text) + '</div>';
     });
-    if (!lines) lines = '<div style="' + chalk + 'font-size:14px;opacity:.85">Пока ни одного '
-      + 'послания — гости оставят первое мелом ✎</div>';
+    if (!lines) lines = '<div style="' + chalk + 'font-size:17px;font-style:italic;'
+      + 'text-align:center;padding:70px 0 0;">пусто...</div>';
     rockModal = document.createElement('div');
     rockModal.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;'
       + 'justify-content:center;z-index:100001;padding:18px;background:rgba(8,18,32,.55);';
@@ -4604,7 +4604,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-06-1573"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-06-1574"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
