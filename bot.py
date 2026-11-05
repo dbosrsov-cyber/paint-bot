@@ -46,6 +46,46 @@ def tg_init_data_valid(init_data: str) -> bool:
     except Exception:
         return False
 
+
+def tg_user_id_from_init_data(init_data: str):
+    try:
+        pairs = dict(parse_qsl(init_data, keep_blank_values=True))
+        return (json.loads(pairs.get("user", "")) or {}).get("id")
+    except Exception:
+        return None
+
+
+_tg_admins_cache = {}    # chat_id -> (ts, {uid,...})
+TG_ADMINS_TTL = 300      # список админов кэшируется на 5 минут
+
+
+def tg_chat_admin_allowed(chat_id: int, init_data: str) -> bool:
+    """Полный функционал игры — только админам группы именно этого чата."""
+    if not BOT_TOKEN or BOT_TOKEN == "fake":
+        return True                       # тестовый контур — проверка отключена
+    uid = tg_user_id_from_init_data(init_data)
+    if not uid:
+        return False
+    now = time.time()
+    hit = _tg_admins_cache.get(chat_id)
+    if hit and now - hit[0] < TG_ADMINS_TTL:
+        return uid in hit[1]
+    admins = None
+    try:
+        req = urllib.request.Request(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/getChatAdministrators?chat_id={chat_id}")
+        result = json.load(urllib.request.urlopen(req, timeout=15)).get("result", [])
+        admins = {m["user"]["id"] for m in result
+                  if m.get("status") in ("creator", "administrator")
+                  and (m.get("user") or {}).get("id")}
+    except Exception as e:
+        print(f"[paint_bot] getChatAdministrators chat={chat_id} ошибка: {e!r}", flush=True)
+        if hit:                           # сбой Bot API — держим прошлый список
+            return uid in hit[1]
+        admins = set()
+    _tg_admins_cache[chat_id] = (now, admins)
+    return uid in admins
+
 CHALLENGE_TTL_SECONDS = 120  # срок жизни вызова на дуэль
 APP_URL = "https://paint-bot.onrender.com"  # публичный адрес этого сервиса (для WebApp)
 
@@ -1866,10 +1906,8 @@ HTML_PAGE = """<!DOCTYPE html>
   // все POST-запросы подписываем initData Telegram — сервер принимает действия только из TG
   const _origFetch = window.fetch.bind(window);
   window.fetch = (url, opts) => {
-    if (opts && String(opts.method || 'GET').toUpperCase() === 'POST') {
-      opts = Object.assign({}, opts, {headers: Object.assign({}, opts.headers,
-        {'X-TG-Init-Data': tg.initData || ''})});
-    }
+    opts = Object.assign({}, opts, {headers: Object.assign({}, opts && opts.headers,
+      {'X-TG-Init-Data': tg.initData || ''})});
     return _origFetch(url, opts);
   };
 
@@ -2434,10 +2472,8 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   // все POST-запросы подписываем initData Telegram — сервер принимает действия только из TG
   const _origFetch = window.fetch.bind(window);
   window.fetch = (url, opts) => {
-    if (opts && String(opts.method || 'GET').toUpperCase() === 'POST') {
-      opts = Object.assign({}, opts, {headers: Object.assign({}, opts.headers,
-        {'X-TG-Init-Data': tg.initData || ''})});
-    }
+    opts = Object.assign({}, opts, {headers: Object.assign({}, opts && opts.headers,
+      {'X-TG-Init-Data': tg.initData || ''})});
     return _origFetch(url, opts);
   };
   if (!tgUser) {
@@ -4410,6 +4446,16 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   async function load() {
     const r = await fetch('/geodata?chat=' + chat + '&user=' + encodeURIComponent(userKey()) + '&name=' + encodeURIComponent(userName()) + '&t=' + Date.now());
     const data = await r.json();
+    if (data.viewer_admin === false && !document.getElementById('adminOv')) {
+      const ov = document.createElement('div');
+      ov.id = 'adminOv';
+      ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(16,28,44,.94);'
+        + 'display:flex;align-items:center;justify-content:center;text-align:center;'
+        + 'color:#fff;font-size:19px;line-height:1.8;padding:24px;';
+      ov.innerHTML = '<div>🛡️<br>Полный функционал игры доступен только админам '
+        + 'этой группы.<br><small style="opacity:.7">Карта — для просмотра.</small></div>';
+      document.body.appendChild(ov);
+    }
     Object.values(markers).forEach(m => map.removeLayer(m));
     Object.keys(markers).forEach(k => delete markers[k]);
     Object.values(letterMarkers).forEach(m => map.removeLayer(m));
@@ -4454,6 +4500,16 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     (data.ships || []).forEach(renderShip);
     (data.ship_battles || []).forEach(renderBattle);
     if (data.ship_duel) handleShipDuel(data.ship_duel);
+    if (data.viewer_admin === false && !document.getElementById('adminOv')) {
+      const ov = document.createElement('div');
+      ov.id = 'adminOv';
+      ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(16,28,44,.94);'
+        + 'display:flex;align-items:center;justify-content:center;text-align:center;'
+        + 'color:#fff;font-size:19px;line-height:1.8;padding:24px;';
+      ov.innerHTML = '<div>🛡️<br>Полный функционал игры доступен только админам '
+        + 'этой группы.<br><small style="opacity:.7">Карта — для просмотра.</small></div>';
+      document.body.appendChild(ov);
+    }
     renderMailbox(data.markers);
     updateMineUI();
     // прибывших писем на карте нет (их показывает ящик на метке) — считаем только в пути
@@ -4520,7 +4576,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-05-1554"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-05-1555"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -4587,10 +4643,8 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   // все POST-запросы подписываем initData Telegram — сервер принимает действия только из TG
   const _origFetch = window.fetch.bind(window);
   window.fetch = (url, opts) => {
-    if (opts && String(opts.method || 'GET').toUpperCase() === 'POST') {
-      opts = Object.assign({}, opts, {headers: Object.assign({}, opts.headers,
-        {'X-TG-Init-Data': tg.initData || ''})});
-    }
+    opts = Object.assign({}, opts, {headers: Object.assign({}, opts && opts.headers,
+      {'X-TG-Init-Data': tg.initData || ''})});
     return _origFetch(url, opts);
   };
   if (!tgUser) {
@@ -5458,6 +5512,16 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   async function load() {
     const r = await fetch('/geodata?chat=' + chat + '&user=' + encodeURIComponent(userKey()) + '&name=' + encodeURIComponent(userName()) + '&t=' + Date.now());
     const data = await r.json();
+    if (data.viewer_admin === false && !document.getElementById('adminOv')) {
+      const ov = document.createElement('div');
+      ov.id = 'adminOv';
+      ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(16,28,44,.94);'
+        + 'display:flex;align-items:center;justify-content:center;text-align:center;'
+        + 'color:#fff;font-size:19px;line-height:1.8;padding:24px;';
+      ov.innerHTML = '<div>🛡️<br>Полный функционал игры доступен только админам '
+        + 'этой группы.<br><small style="opacity:.7">Карта — для просмотра.</small></div>';
+      document.body.appendChild(ov);
+    }
     Object.values(markers).forEach(m => map.removeLayer(m));
     Object.keys(markers).forEach(k => delete markers[k]);
     Object.values(letterMarkers).forEach(m => map.removeLayer(m));
@@ -6177,7 +6241,9 @@ class AppHandler(BaseHTTPRequestHandler):
                             "submarine": submarine_out, "gifts": gifts_out,
                             "islands": islands_out, "planes": planes_out,
                             "ships": ships_out, "ship_duel": duel_out,
-                            "ship_battles": battles_out},
+                            "ship_battles": battles_out,
+                            "viewer_admin": tg_chat_admin_allowed(
+                                chat_id, self.headers.get("X-TG-Init-Data", ""))},
                            ensure_ascii=False).encode("utf-8"),
                 "application/json; charset=utf-8",
             )
@@ -6201,11 +6267,28 @@ class AppHandler(BaseHTTPRequestHandler):
             self._respond(404, b"not found")
 
     def do_POST(self):
+        init_data = self.headers.get("X-TG-Init-Data", "")
         # каждое действие — только из Telegram: проверяем подпись WebApp (initData)
-        if not tg_init_data_valid(self.headers.get("X-TG-Init-Data", "")):
+        if not tg_init_data_valid(init_data):
             self._json_response(403, {"error": "только из Telegram"})
             return
         url = urlparse(self.path)
+        # тело читаем один раз здесь; хендлеры получат его через подменённый rfile
+        length = int(self.headers.get("Content-Length") or 0)
+        raw = self.rfile.read(length) if length else b""
+        self.rfile = io.BytesIO(raw)
+        # полный функционал — только админам группы этого чата
+        try:
+            body = json.loads(raw.decode("utf-8")) if raw else {}
+        except Exception:
+            body = {}
+        try:
+            chat_id = int(body.get("chat") or parse_qs(url.query).get("chat", ["0"])[0])
+        except Exception:
+            chat_id = 0
+        if not tg_chat_admin_allowed(chat_id, init_data):
+            self._json_response(403, {"error": "играть могут только админы этой группы 🤷"})
+            return
         if url.path in ("/geomark", "/geodel", "/geoicon"):
             self._handle_geo_post(url)
             return
