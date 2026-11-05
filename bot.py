@@ -3223,15 +3223,19 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     if (islandCard) { map.closePopup(); islandCard.remove(); islandCard = null; }
     const built = isl.buildings || [];
     const spots = {
-      hut: 'left:17%;bottom:24%;', bar: 'right:14%;bottom:21%;',
-      statue: 'left:29%;bottom:35%;', castle: 'right:29%;bottom:35%;',
+      hut: 'left:16%;bottom:23%;width:19%;',
+      bar: 'right:13%;bottom:17%;width:22%;',
+      statue: 'left:30%;bottom:30%;width:11%;',
+      castle: 'left:42%;bottom:30%;width:24%;',
+      shipyard: 'left:1%;bottom:4%;width:27%;',
     };
     let bHtml = '';
     built.forEach(bid => {
       if (ISLAND_BUILDINGS[bid] && spots[bid]) {
-        bHtml += '<div style="position:absolute;' + spots[bid]
-          + 'font-size:34px;filter:drop-shadow(0 2px 2px rgba(0,0,0,.45))">'
-          + ISLAND_BUILDINGS[bid][0] + '</div>';
+        bHtml += '<img src="/islandimg?p=' + bid + '" draggable="false" alt="" '
+          + 'style="position:absolute;' + spots[bid]
+          + 'filter:drop-shadow(0 3px 4px rgba(0,0,0,.4))" '
+          + 'onerror="this.style.display=&quot;none&quot;">';
       }
     });
     islandCard = document.createElement('div');
@@ -3241,27 +3245,17 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       + 'border-radius:14px;overflow:hidden;'
       + 'background:linear-gradient(180deg,#ff9a56 0%,#ffcf8f 32%,#7ec8e3 33%,#2f6fb2 100%);'
       + 'box-shadow:0 16px 50px rgba(0,0,0,.6);font-family:Georgia,serif">'
-      + '<div style="position:absolute;top:24px;left:50%;transform:translateX(-50%);'
-      + 'width:60px;height:60px;border-radius:50%;'
-      + 'background:radial-gradient(circle,#fff3c4 0%,#ffd257 55%,rgba(255,180,60,0) 100%)"></div>'
-      + '<div style="position:absolute;left:50%;bottom:40px;transform:translateX(-50%);'
-      + 'width:390px;height:120px;border-radius:50%;'
-      + 'background:radial-gradient(ellipse at center,#f9efc8 0%,#eeda9e 60%,rgba(238,218,158,0) 82%);"></div>'
-      + '<div style="position:absolute;left:50%;bottom:118px;transform:translateX(-50%);'
-      + 'width:240px;height:66px;border-radius:50%;'
-      + 'background:radial-gradient(ellipse at center,#f5e7b8 0%,rgba(245,231,184,0) 75%);"></div>'
-      + '<div style="position:absolute;left:50%;bottom:74px;transform:translateX(-50%);'
-      + 'font-size:96px;line-height:1;filter:drop-shadow(0 6px 6px rgba(0,0,0,.3))">🏝️</div>'
-      + '<div style="position:absolute;left:7%;bottom:23%;font-size:36px;line-height:1;'
-      + 'filter:drop-shadow(0 2px 2px rgba(0,0,0,.35))">🌴</div>'
-      + '<div style="position:absolute;right:7%;bottom:20%;font-size:32px;line-height:1;'
-      + 'filter:drop-shadow(0 2px 2px rgba(0,0,0,.35))">🌴</div>'
+      + '<div style="position:absolute;inset:0;display:flex;align-items:center;'
+      + 'justify-content:center;font-size:120px;line-height:1;">🏝️</div>'
+      + '<img src="/islandimg?p=base" draggable="false" alt="" '
+      + 'style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;" '
+      + 'onerror="this.style.display=&quot;none&quot;">'
       + bHtml
       + '<div onclick="openRock(&quot;' + isl.owner + '&quot;)" title="Скала посланий" '
-      + 'style="position:absolute;right:40%;bottom:13%;font-size:28px;line-height:1;cursor:pointer;'
+      + 'style="position:absolute;right:41%;bottom:10%;font-size:26px;line-height:1;cursor:pointer;'
       + 'filter:drop-shadow(0 2px 2px rgba(0,0,0,.4))">🪨</div>'
-      + '<div style="position:absolute;top:12px;left:0;right:0;text-align:center;color:#4a2c12;'
-      + 'font-weight:bold;font-size:19px;text-shadow:0 1px 0 rgba(255,255,255,.6)">'
+      + '<div style="position:absolute;top:10px;left:0;right:0;text-align:center;color:#fff;'
+      + 'font-weight:bold;font-size:19px;text-shadow:0 1px 4px rgba(0,0,0,.8)">'
       + escapeHtml(isl.name) + '</div>'
       + '<div style="position:absolute;bottom:8px;left:0;right:0;text-align:center;color:#fff;'
       + 'font-size:13px;text-shadow:0 1px 3px rgba(0,0,0,.7)">уровень ' + isl.level
@@ -4611,7 +4605,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-06-1571"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-06-1572"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -5757,6 +5751,25 @@ class AppHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 out["error"] = repr(e)
             self._json_response(200, out)
+        elif url.path == "/islandimg":
+            # арт острова и сооружений (файлы в репозитории рядом с bot.py)
+            p = params.get("p", [""])[0]
+            fn = {"base": ("island_base.jpg", "image/jpeg"),
+                  "hut": ("island_hut.png", "image/png"),
+                  "bar": ("island_bar.png", "image/png"),
+                  "statue": ("island_statue.png", "image/png"),
+                  "castle": ("island_castle.png", "image/png"),
+                  "shipyard": ("island_shipyard.png", "image/png")}.get(p)
+            if not fn:
+                self._respond(404, b"no image")
+                return
+            try:
+                fpath = os.path.join(os.path.dirname(os.path.abspath(__file__)), fn[0])
+                with open(fpath, "rb") as f:
+                    data = f.read()
+                self._respond(200, data, fn[1])
+            except Exception:
+                self._respond(404, b"no image")
         elif url.path == "/shipimg":
             # картинки кораблей (встроены в код base64) — маркеры галеонов на карте
             data = GALLEON_SUNK_B64 if params.get("sunk") else GALLEON_B64
