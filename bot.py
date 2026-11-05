@@ -981,7 +981,7 @@ def duel_tick(d: dict, now: float) -> None:
             d["roundend_ts"] = now
     elif d["phase"] == "roundend":
         if now - d["roundend_ts"] > SHIP_ROUNDEND_SEC:
-            if d["round"] >= 3 and d["wins"]["a"] != d["wins"]["b"]:
+            if d["wins"]["a"] >= 3 or d["wins"]["b"] >= 3:
                 _finish_duel(d)
             else:
                 d["round"] += 1
@@ -4305,7 +4305,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-04-1543"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-05-1544"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
