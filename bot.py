@@ -686,6 +686,38 @@ def apply_restore_wrecks() -> None:
     logline("wrecks restored: Sumai (10000 km west), Андрюха (place of death)")
 
 
+def apply_fix_mari_pm_duel() -> None:
+    """Разовый откат некорректного абордажа Мари vs ПМ (баг «3 раунда вместо 3 побед»):
+    у Мари убрать лишнюю победу (3→2), у ПМ обнулить потерю корабля,
+    убрать риф потопленного корабля ПМ с карты."""
+    tag = "fix_mari_pm_duel_2026-11-05"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    chat = -1002304715333
+    changed = False
+    sh = ships_state.get(ship_key(chat, "Мари"))
+    if sh is not None and sh.get("wins", 0) == 3:
+        sh["wins"] = 2
+        changed = True
+        logline("fix duel: Мари wins 3->2")
+    pm = geo_state.get(chat, {}).get("ПМ")
+    if pm is not None and pm.get("ships_lost"):
+        pm["ships_lost"] = 0
+        changed = True
+        logline("fix duel: ПМ ships_lost -> 0")
+    wreck_key = f"{chat}|ПМ|1793872934"
+    if wreck_key in wrecks_state:
+        wrecks_state.pop(wreck_key, None)
+        changed = True
+        logline("fix duel: риф ПМ убран с карты")
+    if changed:
+        ships_save_to_github()
+        geo_save_to_github()
+        wrecks_save_to_github()
+    meteor_save_to_github()
+
+
 def apply_startup_credits() -> None:
     for chat_id, user, amount, tag in STARTUP_CREDITS:
         if meteor_credits.get(tag):
@@ -4305,7 +4337,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-05-1544"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-05-1545"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -8498,6 +8530,7 @@ def main() -> None:
     apply_ship_teleport_sumai()
     apply_free_ships_main()
     apply_restore_wrecks()
+    apply_fix_mari_pm_duel()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
