@@ -850,7 +850,7 @@ GALLEON_SUNK_B64 = "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABccqhmAAEAAElEQVR42ux9
 SHIPS_FILE = "ships.json"
 ships_state = {}   # f"{chat}|{user}" -> {"chat","user","name","lat","lon","to_lat","to_lon",
                    #  "nav_from_lat","nav_from_lon","nav_ts","sunk","sunk_ts"}
-ship_duels = {}    # duel_id -> дуэль КНБ (в памяти; после рестарта корабли просто разблокируются)
+ship_duels = {}    # duel_id -> дуэль КНБ; хранится в ship_duels.json — бой переживает рестарт
 
 SHIP_SINK_PHRASES = [
     "крабы уже разбирают меню 🦀",
@@ -885,6 +885,21 @@ def ships_load_from_github() -> None:
     if loaded:
         ships_state.update(loaded)
         print(f"[paint_bot] ships: загружено {len(loaded)} кораблей", flush=True)
+
+
+DUELS_FILE = "ship_duels.json"
+
+
+def duels_save_to_github() -> None:
+    """Активные и недавно завершённые дуэли — чтобы рестарт сервера не сбрасывал бой."""
+    _save_json_to_github(DUELS_FILE, ship_duels, geo_lock, "duels")
+
+
+def duels_load_from_github() -> None:
+    loaded = _load_json_from_github(DUELS_FILE, "duels")
+    if loaded:
+        ship_duels.update(loaded)
+        print(f"[paint_bot] duels: загружено {len(loaded)} дуэлей", flush=True)
 
 
 # Мемориальные рифы: потопленные корабли, снятые с учёта при перестройке.
@@ -934,10 +949,13 @@ def finished_duel_for(chat_id: int, user: str, now: float):
 
 def duel_cleanup(now: float) -> None:
     """Выбросить завершённые дуэли, которые уже показаны."""
-    for did in [k for k, dd in ship_duels.items()
-                if dd["phase"] == "finished"
-                and now - dd.get("finished_ts", 0) > SHIP_DUEL_KEEP_SEC]:
+    stale = [k for k, dd in ship_duels.items()
+             if dd["phase"] == "finished"
+             and now - dd.get("finished_ts", 0) > SHIP_DUEL_KEEP_SEC]
+    for did in stale:
         ship_duels.pop(did, None)
+    if stale:
+        duels_save_to_github()
 
 
 def ship_progress(sh: dict) -> bool:
@@ -1014,6 +1032,7 @@ def _finish_duel(d: dict) -> None:
     d["sink_phrase"] = phrase
     ships_save_to_github()
     geo_save_to_github()
+    duels_save_to_github()
     if d.get("cpu"):
         note = (f"Капитан {d[d['cpu'] + '_name']} не явился на абордаж — "
                 f"команда билась сама, без единой капитанской пощады! ")
@@ -1049,9 +1068,11 @@ def duel_tick(d: dict, now: float) -> None:
             d["cpu"] = "b" if human == d["a"] else "a"   # сторона капитана
             d["ready"] = [d["a"], d["b"]]
             logline(f"ship duel: капитан {d[d['cpu'] + '_name']} не явился — играет команда")
+            duels_save_to_github()
             _duel_enter_pick(d, now)
         elif not d["ready"] and now - d["ts"] > SHIP_READY_TIMEOUT:
             ship_duels.pop(d["id"], None)
+            duels_save_to_github()
     elif d["phase"] == "pick":
         cpu_side = d.get("cpu")
         if cpu_side and d["p" + cpu_side] is None and now >= d.get("cpu_pick_at", 0):
@@ -1082,6 +1103,7 @@ def duel_tick(d: dict, now: float) -> None:
     elif d["phase"] == "finished":
         if now - d["finished_ts"] > SHIP_DUEL_KEEP_SEC:
             ship_duels.pop(d["id"], None)
+            duels_save_to_github()
 
 
 def public_duel(d: dict, user: str) -> dict:
@@ -4426,7 +4448,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-05-1552"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-05-1553"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -6975,6 +6997,7 @@ class AppHandler(BaseHTTPRequestHandler):
                         "pa": None, "pb": None, "last": None,
                     }
                     ship_duels[d["id"]] = d
+                    duels_save_to_github()
                     logline(f"ship duel start chat={chat_id} {d['a_name']} vs {d['b_name']}")
                     try:
                         tg_send_with_cleanup(
@@ -7008,6 +7031,7 @@ class AppHandler(BaseHTTPRequestHandler):
                         break
             if d is not None and me["user"] not in d.setdefault("seen_by", []):
                 d["seen_by"].append(me["user"])
+                duels_save_to_github()
         self._json_response(200, {"ok": True})
 
     def _ship_ready(self):
@@ -8639,6 +8663,7 @@ def main() -> None:
     sifa_load_from_github()
     ships_load_from_github()
     wrecks_load_from_github()
+    duels_load_from_github()
     tgids_load_from_github()
     apply_marker_bindings()
     apply_tid_bindings()
