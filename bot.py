@@ -427,7 +427,7 @@ MARKER_TG_BINDINGS = [
 ]
 
 # Привязка числового id Telegram к метке БЕЗ переименования ключа:
-# ключи меток трогать нельзя — фронтенд сравнивает userKey() напрямую.
+# ключи меток трогать нельзя — фронтенд сравнивает myKey() напрямую.
 # Сервер узнаёт игрока по tid (см. resolve_marker_key / viewer_matches).
 # Собрано из tgids.json 2026-11-04, подтверждено Sumai. Apollo — ждём его сообщения.
 TID_BINDINGS = [
@@ -464,6 +464,27 @@ def apply_tid_bindings() -> None:
     if applied:
         geo_save_to_github()
         print(f"[paint_bot] tid_bind: применено привязок {applied}", flush=True)
+
+
+def apply_remove_tid_dup_markers() -> None:
+    """Удалить метки-двойники: ключ-метки = числовой tid, который уже есть у ДРУГОЙ
+    метки этого чата (клиент когда-то поставил метку по ключу-тиду, не будучи узнан).
+    Метки типа Виты (key == tid и дубля нет) не трогаем."""
+    removed = 0
+    for cid, markers in list(geo_state.items()):
+        tid2key = {}
+        for k, m in markers.items():
+            t = str(m.get("tid") or "")
+            if t:
+                tid2key.setdefault(t, k)
+        for k in list(markers.keys()):
+            if str(k).isdigit() and str(k) in tid2key and tid2key[str(k)] != k:
+                del markers[k]
+                removed += 1
+                print(f"[paint_bot] dup-метка удалена: chat={cid} key={k} (канон: {tid2key[str(k)]})", flush=True)
+    if removed:
+        geo_save_to_github()
+        print(f"[paint_bot] удалено дублей-меток: {removed}", flush=True)
 
 
 def apply_marker_bindings() -> None:
@@ -2471,6 +2492,8 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   let persona = null;  // бета: Sumai действует на карте как Тест2
   const userKey = () => persona ? persona.user : realUserKey();
   const userName = () => persona ? persona.name : realUserName();
+  let serverMe = null;  // ключ моей метки, как его определил сервер по tid Telegram
+  const myKey = () => serverMe || userKey();
   // все POST-запросы подписываем initData Telegram — сервер принимает действия только из TG
   const _origFetch = window.fetch.bind(window);
   window.fetch = (url, opts) => {
@@ -2516,7 +2539,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   async function spawnEvent(kind) {
     const r = await fetch('/spawnevent', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), kind: kind})
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName(), kind: kind})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -2571,12 +2594,12 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       curIcon = a;
       document.querySelectorAll('.an').forEach(x => x.classList.remove('on'));
       b.classList.add('on');
-      if (markers[userKey()]) {
+      if (markers[myKey()]) {
         emojiEditMode = false;
         updateMineUI();
         fetch('/geoicon', {
           method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({chat: chat, user: userKey(), icon: a})
+          body: JSON.stringify({chat: chat, user: myKey(), icon: a})
         }).then(r => r.json().catch(() => ({})).then(d => {
           status(r.ok ? 'Эмодзи метки обновлён: ' + a
                       : '⚠️ ' + (d.error || 'не вышло сменить эмодзи'));
@@ -2615,16 +2638,16 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     const hh = String(tLocal.getUTCHours()).padStart(2, '0');
     const mm = String(tLocal.getUTCMinutes()).padStart(2, '0');
     html += '<br>🕒 ' + hh + ':' + mm + ' (' + tzLabel + ')';
-    if (m.poops && m.user !== userKey()) html += '<br>💩 розовых какашек: ' + m.poops;
+    if (m.poops && m.user !== myKey()) html += '<br>💩 розовых какашек: ' + m.poops;
     if (m.gift_pics && m.gift_pics.length) html += '<br>🎁 подарки: ' + m.gift_pics.join(' ');
     if (m.souvenirs && m.souvenirs.length) html += '<br>🏝️ сувениры: ' + m.souvenirs.join(' ');
-    if (m.user === userKey()) {
+    if (m.user === myKey()) {
       const got = m.got || 0, read = m.read || 0;
       html += '<br><i>📮 письма — в Почтовом Ящике рядом с меткой</i>'
         + '<br>📬 получено ' + got + ' • прочитано ' + read + ' • непрочитано ' + (got - read)
         + '<br><br>☄️ моя ЗвезднаяПыль: <b>' + (m.zp || 0) + '</b>'
         + '<br>💩 мои Какашки: <b>' + (m.poops || 0) + '</b>';
-      const myIsl = (lastIslands || []).find(i => (i.owners || [i.owner]).indexOf(userKey()) >= 0);
+      const myIsl = (lastIslands || []).find(i => (i.owners || [i.owner]).indexOf(myKey()) >= 0);
       if (myIsl) {
         html += '<br>🏝️ мой остров: <b>' + escapeHtml(myIsl.name) + '</b> (уровень '
           + myIsl.level + ') — ищи 🏝️ на карте';
@@ -2676,7 +2699,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   async function readLetter(id) {
     const r = await fetch('/georead', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), id: id})
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName(), id: id})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -2713,7 +2736,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   }
   function renderMailbox(markersData) {
     if (mailboxMarker) { map.removeLayer(mailboxMarker); mailboxMarker = null; }
-    const me = (markersData || []).find(m => m.user === userKey());
+    const me = (markersData || []).find(m => m.user === myKey());
     if (!me) return;  // без своей метки ящика нет
     // только письма, доступные для чтения/перечитывания (удалённые сервером не приходят)
     const myMail = lastLetters.filter(l => l.mine && l.arrived);
@@ -2792,7 +2815,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       + '<div style="text-align:right;font-style:italic;font-size:13px;color:#8a764e">'
       + (data.re_read ? 'перечитано 📭' : '🆕 новое письмо') + '</div>';
     // кнопка «Ответить» — в том же окне, ответ летит отправителю автоматически
-    if (data.from_id && data.from_id !== userKey()) {
+    if (data.from_id && data.from_id !== myKey()) {
       const replyBtn = document.createElement('button');
       replyBtn.textContent = '✍️ Ответить';
       replyBtn.style.cssText = 'margin-top:14px;margin-right:10px;background:#6d8b47;'
@@ -2836,7 +2859,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     if (!text) { if (err) err.textContent = 'пустое письмо — напиши хоть пару слов 🙂'; return; }
     const r = await fetch('/geosend', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName(),
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName(),
                             to_user: orig.from_id, text: text})
     });
     const data = await r.json().catch(() => ({}));
@@ -2886,10 +2909,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   };
   async function pickVolcanoTarget(m) {
     volcanoMode = false;
-    if (m.user === userKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
+    if (m.user === myKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
     const r = await fetch('/volcano', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), to_user: m.user})
+      body: JSON.stringify({chat: chat, user: myKey(), to_user: m.user})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -2959,10 +2982,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   };
   async function pickSubTarget(m) {
     subMode = false;
-    if (m.user === userKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
+    if (m.user === myKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
     const r = await fetch('/subgift', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), to_user: m.user})
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName(), to_user: m.user})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -3000,7 +3023,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   async function openGift(id) {
     const r = await fetch('/subopen', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), id: id})
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName(), id: id})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -3047,7 +3070,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   window.claimMeteor = async () => {
     const r = await fetch('/meteor', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey()})
+      body: JSON.stringify({chat: chat, user: myKey()})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -3061,7 +3084,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   window.boostLetter = async (id) => {
     const r = await fetch('/letterboost', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), id: id})
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName(), id: id})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -3147,7 +3170,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       html += divider;
     } else {
       if (isl.guest) html += '<br>' + (legTxt[isl.guest.leg] || '');
-      if (isl.guest && isl.guest.user === userKey() && isl.guest.leg === 'staying'
+      if (isl.guest && isl.guest.user === myKey() && isl.guest.leg === 'staying'
           && (isl.storm_left || 0) > 0 && !isl.storm_collected) {
         html += '<br><button onclick="islandStorm()">🌲 Собрать дерево (+3)</button>';
       }
@@ -3155,7 +3178,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     }
     // «Улететь» — для того, кто сейчас гостит на острове, независимо от владения
     // (совладелец тоже может быть гостем — кнопка не должна теряться из-за isl.mine)
-    if (isl.guest && isl.guest.user === userKey() && isl.guest.leg === 'staying') {
+    if (isl.guest && isl.guest.user === myKey() && isl.guest.leg === 'staying') {
       html += '<div style="text-align:center;margin:6px 0 10px;"><button onclick="leaveIsland()">✈️ Улететь (домой)</button></div>';
     }
     html += '<div style="text-align:center;"><button onclick="openIslandCard(&quot;' + isl.owner + '&quot;)">🖼 Открытка острова</button></div>';
@@ -3271,21 +3294,21 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   };
   async function shipNavPick(lat, lon) {
     const r = await fetch('/shipnav', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), lat: lat, lon: lon})});
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName(), lat: lat, lon: lon})});
     const d = await r.json().catch(() => ({}));
     if (r.ok) { status('⛵ Галеон выходит в море!'); load(); }
     else status('⚠️ ' + (d.error || 'не вышло'));
   }
   window.shipBuild = async () => {
     const r = await fetch('/shipbuild', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName()})});
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName()})});
     const d = await r.json().catch(() => ({}));
     if (r.ok) { status('⛵ Галеон спущен на воду!'); load(); }
     else status('⚠️ ' + (d.error || 'не вышло'));
   };
   window.shipBoard = async () => {
     const r = await fetch('/shipboard', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName()})});
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName()})});
     const d = await r.json().catch(() => ({}));
     if (r.ok && d.phase) openShipDuel(d);
     else status('⚠️ ' + (d.error || 'не вышло'));
@@ -3366,7 +3389,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     if (rb) rb.onclick = async () => {
       rb.disabled = true;
       const r = await fetch('/shipready', {method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({chat: chat, user: userKey(), name: userName()})});
+        body: JSON.stringify({chat: chat, user: myKey(), name: userName()})});
       const nd = await r.json().catch(() => null);
       if (nd && nd.phase) { shipDuelCur = nd; renderShipDuel(nd); }
     };
@@ -3374,7 +3397,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       b.onclick = async () => {
         document.querySelectorAll('#shipDuelModal .rpsBtn').forEach(x => x.disabled = true);
         const r = await fetch('/shippick', {method: 'POST', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({chat: chat, user: userKey(), name: userName(), pick: b.dataset.pick})});
+          body: JSON.stringify({chat: chat, user: myKey(), name: userName(), pick: b.dataset.pick})});
         const nd = await r.json().catch(() => null);
         if (nd && nd.phase) { shipDuelCur = nd; renderShipDuel(nd); }
         else { document.querySelectorAll('#shipDuelModal .rpsBtn').forEach(x => x.disabled = false); }
@@ -3396,7 +3419,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     if (markSeen && shipDuelCur) {
       shipDuelSeen[shipDuelCur.id] = true;
       fetch('/shipduelseen', {method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({chat: chat, user: userKey(), name: userName()})}).catch(() => {});
+        body: JSON.stringify({chat: chat, user: myKey(), name: userName()})}).catch(() => {});
     }
     if (shipDuelPoll) { clearInterval(shipDuelPoll); shipDuelPoll = null; }
     const el = document.getElementById('shipDuelModal');
@@ -3407,7 +3430,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   async function pollShipDuel() {
     if (!shipDuelCur) return;
     try {
-      const r = await fetch('/shipduel?chat=' + chat + '&user=' + encodeURIComponent(userKey())
+      const r = await fetch('/shipduel?chat=' + chat + '&user=' + encodeURIComponent(myKey())
         + '&name=' + encodeURIComponent(userName()) + '&t=' + Date.now());
       const d = await r.json();
       if (!d || !d.phase) { closeShipDuel(false); return; }
@@ -3519,7 +3542,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     try {
       const r = await fetch('/islandrock', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({chat: chat, owner: owner, user: userKey(), name: userName()})
+        body: JSON.stringify({chat: chat, owner: owner, user: myKey(), name: userName()})
       });
       d = await r.json();
     } catch (e) { status('⚠️ Скала не отвечает'); return; }
@@ -3564,7 +3587,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       if (!text) { status('✎ Напиши хотя бы пару букв 🙂'); return; }
       const r = await fetch('/islandrock', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({chat: chat, owner: owner, user: userKey(), name: userName(), text: text})
+        body: JSON.stringify({chat: chat, owner: owner, user: myKey(), name: userName(), text: text})
       });
       const rd = await r.json().catch(() => ({}));
       if (r.ok) { status('🪨 Послание высечено на скале!'); openRock(owner); }
@@ -3575,7 +3598,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   window.buyIsland = async () => {
     const r = await fetch('/islandbuy', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName()})
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName()})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -3591,7 +3614,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     const mk = isl && islandMarkers[owner];
     if (!isl || !mk) { status('✈️ Кликни метку гостя, которого зовёшь на остров'); return; }
     // выбор гостя списком прямо в попапе — не нужно тыкать по карте
-    const others = (lastMarkers || []).filter(xm => xm.user !== userKey());
+    const others = (lastMarkers || []).filter(xm => xm.user !== myKey());
     let html = '<b>✈️ Кого зовём на «' + escapeHtml(isl.name) + '»?</b>';
     if (!others.length) {
       html += '<br><i>кроме тебя в чате меток нет</i>';
@@ -3611,10 +3634,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   };
   async function pickIslandGuest(m) {
     islandInvMode = false;
-    if (m.user === userKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
+    if (m.user === myKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
     const r = await fetch('/islandinvite', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), to_user: m.user})
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName(), to_user: m.user})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -3629,7 +3652,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   window.leaveIsland = async () => {
     const r = await fetch('/islandleave', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName()})
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName()})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -3643,7 +3666,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   window.islandBuild = async (bid) => {
     const r = await fetch('/islandbuild', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), building: bid})
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName(), building: bid})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -3658,9 +3681,9 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   // ---------- Строительство: окно с вариантами построек ----------
   let buildPick = null;
   window.openBuildMenu = () => {
-    const myIsl = (lastIslands || []).find(i => (i.owners || [i.owner]).indexOf(userKey()) >= 0);
+    const myIsl = (lastIslands || []).find(i => (i.owners || [i.owner]).indexOf(myKey()) >= 0);
     if (!myIsl) { status('🏝️ Сначала купи остров'); return; }
-    const me = (lastMarkers || []).find(mm => mm.user === userKey());
+    const me = (lastMarkers || []).find(mm => mm.user === myKey());
     const built = myIsl.buildings || [];
     const row = document.getElementById('buildRow');
     row.innerHTML = '';
@@ -3739,7 +3762,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   };
   // ---------- Действия острова: удобрить / пригласить гостя ----------
   window.openIslandActions = () => {
-    const myIsl = (lastIslands || []).find(i => (i.owners || [i.owner]).indexOf(userKey()) >= 0);
+    const myIsl = (lastIslands || []).find(i => (i.owners || [i.owner]).indexOf(myKey()) >= 0);
     const busy = !!(myIsl && myIsl.guest && myIsl.guest.leg !== 'home');
     const inv = document.getElementById('actInviteBtn');
     // не убираем кнопку — делаем неактивной, пока самолёт занят или гость на острове
@@ -3783,14 +3806,14 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   };
   document.getElementById('actInviteBtn').onclick = () => {
     if (document.getElementById('actInviteBtn').disabled) return;
-    const myIsl = (lastIslands || []).find(i => (i.owners || [i.owner]).indexOf(userKey()) >= 0);
+    const myIsl = (lastIslands || []).find(i => (i.owners || [i.owner]).indexOf(myKey()) >= 0);
     document.getElementById('actionsModal').style.display = 'none';
     if (myIsl) startIslandInvite(myIsl.owner);
   };
   window.islandStorm = async () => {
     const r = await fetch('/islandstorm', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName()})
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName()})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) status('🌲 +' + (data.got || 3) + ' дерева! В мешке: ' + data.wood + ' 🪵');
@@ -3806,7 +3829,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     document.getElementById('actionsModal').style.display = 'none';
     const r = await fetch('/islandkick', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName()})
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName()})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) status('👢 Гость ' + (data.gone ? 'исчез с острова' : 'улетает домой ✈️'));
@@ -3894,7 +3917,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     if (!sifaPos) return;
     fetch('/sifamove', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName(),
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName(),
                             lat: sifaPos.lat, lon: sifaPos.lon, heading: sifaHeading})
     }).then(r => r.json().catch(() => ({})))
       .then(d => {
@@ -3922,7 +3945,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     if (sifaBoundsRect) { map.removeLayer(sifaBoundsRect); sifaBoundsRect = null; }
     // границы и кнопка «задать границы» — только пока активна игра
     const ab = document.getElementById('sifaAreaBtn');
-    ab.style.display = (sifaPadOn && SIFA_AREA_ADMINS.indexOf(userKey()) >= 0 && !area) ? '' : 'none';
+    ab.style.display = (sifaPadOn && SIFA_AREA_ADMINS.indexOf(myKey()) >= 0 && !area) ? '' : 'none';
     if (!area || !sifaPadOn) return;
     // одна вертикальная пунктирная линия — западная граница зоны игры
     sifaBoundsRect = L.polyline([[area[0], area[1]], [area[2], area[1]]],
@@ -3960,7 +3983,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   async function sifaPoll() {
     if (!sifaPos) return;
     const r = await fetch('/sifastate?chat=' + chat + '&user='
-      + encodeURIComponent(userKey()) + '&name=' + encodeURIComponent(userName()));
+      + encodeURIComponent(myKey()) + '&name=' + encodeURIComponent(userName()));
     const d = await r.json().catch(() => ({}));
     const now = Date.now() / 1000;
     if (d.me) sifaMe = d.me;
@@ -4100,7 +4123,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     const pts = sifaAreaPts.slice();
     fetch('/sifaarea', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), points: pts})
+      body: JSON.stringify({chat: chat, user: myKey(), points: pts})
     }).then(r => r.json().catch(() => ({})))
       .then(d => {
         document.getElementById('sifaAreaBar').style.display = 'none';
@@ -4132,7 +4155,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     try {
       const r = await fetch('/sifaspawn', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({chat: chat, user: userKey(), name: userName()})
+        body: JSON.stringify({chat: chat, user: myKey(), name: userName()})
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok || d.error) { status('⚠️ ' + (d.error || 'не вышло отправить касатку')); return; }
@@ -4158,7 +4181,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     document.getElementById('sifaInfoModal').style.display = 'none';
   };
   // границы хранятся на сервере и переживают рестарты: подтягиваем сразу при открытии карты
-  fetch('/sifastate?chat=' + chat + '&user=' + encodeURIComponent(userKey())
+  fetch('/sifastate?chat=' + chat + '&user=' + encodeURIComponent(myKey())
     + '&name=' + encodeURIComponent(userName()))
     .then(r => r.json().catch(() => ({})))
     .then(d => { sifaAreaData = d.area || null; sifaDrawBounds(d.area); })
@@ -4167,7 +4190,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   document.getElementById('sifaMotorBtn').onclick = async () => {
     const r = await fetch('/sifamotor', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName()})
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName()})
     });
     const d = await r.json().catch(() => ({}));
     status(d.error ? '⚠️ ' + d.error : '🚤💨 МоторV8 активирован на 10 минут!');
@@ -4203,7 +4226,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   window.islandPoop = async () => {
     const r = await fetch('/islandpoop', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName()})
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName()})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -4220,7 +4243,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     if (!confirm('Вы точно хотите удалить остров? Это навсегда!')) return;
     const r = await fetch('/islanddel', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName()})
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName()})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -4302,7 +4325,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     sel.innerHTML = '';
     let n = 0;
     (lastMarkers || []).forEach(mm => {
-      if (mm.user === userKey()) return;
+      if (mm.user === myKey()) return;
       const opt = document.createElement('option');
       opt.value = mm.user;
       opt.textContent = (mm.icon || '📍') + ' ' + mm.name;
@@ -4324,7 +4347,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   // мой сундук: какашки, ЗП, подарки, сувениры
   const chestModal = document.getElementById('chestModal');
   document.getElementById('chestBtn').onclick = () => {
-    const me = (lastMarkers || []).find(mm => mm.user === userKey());
+    const me = (lastMarkers || []).find(mm => mm.user === myKey());
     if (!me) { status('🧰 Сундук появится после того, как поставишь метку'); return; }
     document.getElementById('chestBody').innerHTML =
       '💩 Какашки: <b>' + (me.poops || 0) + '</b>'
@@ -4343,7 +4366,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     if (!sel.value) return;
     const r = await fetch('/geosend', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName(),
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName(),
                           to_user: sel.value, text: text})
     });
     const data = await r.json().catch(() => ({}));
@@ -4362,14 +4385,14 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   document.getElementById('islandYes').onclick = () => { islandBar.style.display = 'none'; buyIsland(); };
   document.getElementById('islandNo').onclick = () => { islandBar.style.display = 'none'; };
   document.getElementById('islandBuyBtn').onclick = () => {
-    const myIsl = (lastIslands || []).find(i => (i.owners || [i.owner]).indexOf(userKey()) >= 0);
+    const myIsl = (lastIslands || []).find(i => (i.owners || [i.owner]).indexOf(myKey()) >= 0);
     if (myIsl) {
       map.setView([myIsl.lat, myIsl.lon], Math.max(map.getZoom(), 4));
       const mk = islandMarkers[myIsl.owner];
       if (mk) mk.openPopup();
       return;
     }
-    const me = (lastMarkers || []).find(mm => mm.user === userKey());
+    const me = (lastMarkers || []).find(mm => mm.user === myKey());
     const zp = me ? (me.zp || 0) : 0;
     if (zp < 10) {
       status('🏝️ Не хватает ЗвёзднойПыли: остров стоит 10 ЗП, у тебя ' + zp + ' 💫');
@@ -4379,7 +4402,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   };
 
   function tryLetterTarget(m) {
-    if (m.user === userKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
+    if (m.user === myKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
     letterTarget = m;
     letterBar.style.display = 'flex';
     status('✉️ Письмо для ' + m.name + ' — напиши текст (до 500 символов)');
@@ -4393,7 +4416,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     const target = letterTarget;
     const r = await fetch('/geosend', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName(),
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName(),
                           to_user: target.user, text: text})
     });
     const data = await r.json().catch(() => ({}));
@@ -4433,12 +4456,12 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     nameInput.style.width = Math.min(Math.max(len * 8 + 44, 90), 240) + 'px';
   }
   function updateMineUI() {
-    const mine = !!markers[userKey()];
+    const mine = !!markers[myKey()];
     document.getElementById('animals').style.display = (!mine || emojiEditMode) ? 'flex' : 'none';
     document.getElementById('saveBtn').style.display = mine ? 'none' : '';
     document.getElementById('delBtn').style.display = mine ? '' : 'none';
     document.getElementById('emojiBtn').style.display = mine ? '' : 'none';
-    const myM = (lastMarkers || []).find(mm => mm.user === userKey());
+    const myM = (lastMarkers || []).find(mm => mm.user === myKey());
     if (myM) document.getElementById('emojiBtn').textContent = myM.icon || '🐾';
     fitNameWidth();
     nameInput.disabled = mine;
@@ -4446,8 +4469,9 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   }
 
   async function load() {
-    const r = await fetch('/geodata?chat=' + chat + '&user=' + encodeURIComponent(userKey()) + '&name=' + encodeURIComponent(userName()) + '&t=' + Date.now());
+    const r = await fetch('/geodata?chat=' + chat + '&user=' + encodeURIComponent(myKey()) + '&name=' + encodeURIComponent(userName()) + '&t=' + Date.now());
     const data = await r.json();
+    serverMe = data.me || null;
     if (data.viewer_admin === false && !document.getElementById('adminOv')) {
       const ov = document.createElement('div');
       ov.id = 'adminOv';
@@ -4476,7 +4500,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     // кнопку покупки прячем, если остров уже есть (повторная покупка запрещена)
     const buyIslBtn = document.getElementById('islandBuyBtn');
     if (buyIslBtn) {
-      const haveIsl = lastIslands.some(i => (i.owners || [i.owner]).indexOf(userKey()) >= 0);
+      const haveIsl = lastIslands.some(i => (i.owners || [i.owner]).indexOf(myKey()) >= 0);
       buyIslBtn.title = haveIsl ? 'Мой остров' : 'Купить остров (10 ЗП)';
     }
     Object.values(shipMarkers).forEach(m => map.removeLayer(m));
@@ -4536,7 +4560,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     if (volcanoMode) { status('🌋 Кликни по МЕТКЕ участника (животное на карте), а не просто по карте'); return; }
     if (subMode) { status('🐳 Кликни по МЕТКЕ участника (животное на карте), а не просто по карте'); return; }
     if (islandInvMode) { status('✈️ Кликни по МЕТКЕ участника (животное на карте), а не просто по карте'); return; }
-    if (markers[userKey()]) {
+    if (markers[myKey()]) {
       status('У тебя уже есть метка. Чтобы поставить новую — кликни по своему животному и выбери «Удалить мою метку»');
       return;
     }
@@ -4550,7 +4574,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     const r = await fetch('/geomark', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), icon: curIcon,
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName(), icon: curIcon,
                             lat: pending.lat, lon: pending.lng})
     });
     if (r.ok) { status('✅ Метка поставлена!'); pending = null; load(); }
@@ -4562,7 +4586,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     await fetch('/geodel', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey()})
+      body: JSON.stringify({chat: chat, user: myKey()})
     });
     load();
   }
@@ -4578,7 +4602,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-05-1559"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-05-1560"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -4642,6 +4666,8 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   const userKey = () => String((tgUser && tgUser.id) || nameInput.value.trim() || guestKey);
   const userName = () => (tgUser && (tgUser.username ? '@' + tgUser.username : tgUser.first_name))
     || nameInput.value.trim() || 'Гость';
+  let serverMe = null;  // ключ моей метки, как его определил сервер по tid Telegram
+  const myKey = () => serverMe || userKey();
   // все POST-запросы подписываем initData Telegram — сервер принимает действия только из TG
   const _origFetch = window.fetch.bind(window);
   window.fetch = (url, opts) => {
@@ -4709,16 +4735,16 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     const hh = String(tLocal.getUTCHours()).padStart(2, '0');
     const mm = String(tLocal.getUTCMinutes()).padStart(2, '0');
     html += '<br>🕒 ' + hh + ':' + mm + ' (' + tzLabel + ')';
-    if (m.poops && m.user !== userKey()) html += '<br>💩 розовых какашек: ' + m.poops;
+    if (m.poops && m.user !== myKey()) html += '<br>💩 розовых какашек: ' + m.poops;
     if (m.gift_pics && m.gift_pics.length) html += '<br>🎁 подарки: ' + m.gift_pics.join(' ');
     if (m.souvenirs && m.souvenirs.length) html += '<br>🏝️ сувениры: ' + m.souvenirs.join(' ');
-    if (m.user === userKey()) {
+    if (m.user === myKey()) {
       const got = m.got || 0, read = m.read || 0;
       html += '<br><i>📮 письма — в Почтовом Ящике рядом с меткой</i>'
         + '<br>📬 получено ' + got + ' • прочитано ' + read + ' • непрочитано ' + (got - read)
         + '<br><br>☄️ моя ЗвезднаяПыль: <b>' + (m.zp || 0) + '</b>'
         + '<br>💩 мои Какашки: <b>' + (m.poops || 0) + '</b>';
-      const myIsl = (lastIslands || []).find(i => (i.owners || [i.owner]).indexOf(userKey()) >= 0);
+      const myIsl = (lastIslands || []).find(i => (i.owners || [i.owner]).indexOf(myKey()) >= 0);
       if (myIsl) {
         html += '<br>🏝️ мой остров: <b>' + escapeHtml(myIsl.name) + '</b> (уровень '
           + myIsl.level + ') — ищи 🏝️ на карте';
@@ -4770,7 +4796,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   async function readLetter(id) {
     const r = await fetch('/georead', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), id: id})
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName(), id: id})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -4807,7 +4833,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   }
   function renderMailbox(markersData) {
     if (mailboxMarker) { map.removeLayer(mailboxMarker); mailboxMarker = null; }
-    const me = (markersData || []).find(m => m.user === userKey());
+    const me = (markersData || []).find(m => m.user === myKey());
     if (!me) return;  // без своей метки ящика нет
     // только письма, доступные для чтения/перечитывания (удалённые сервером не приходят)
     const myMail = lastLetters.filter(l => l.mine && l.arrived);
@@ -4886,7 +4912,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
       + '<div style="text-align:right;font-style:italic;font-size:13px;color:#8a764e">'
       + (data.re_read ? 'перечитано 📭' : '🆕 новое письмо') + '</div>';
     // кнопка «Ответить» — в том же окне, ответ летит отправителю автоматически
-    if (data.from_id && data.from_id !== userKey()) {
+    if (data.from_id && data.from_id !== myKey()) {
       const replyBtn = document.createElement('button');
       replyBtn.textContent = '✍️ Ответить';
       replyBtn.style.cssText = 'margin-top:14px;margin-right:10px;background:#6d8b47;'
@@ -4930,7 +4956,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     if (!text) { if (err) err.textContent = 'пустое письмо — напиши хоть пару слов 🙂'; return; }
     const r = await fetch('/geosend', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName(),
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName(),
                             to_user: orig.from_id, text: text})
     });
     const data = await r.json().catch(() => ({}));
@@ -4980,10 +5006,10 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   };
   async function pickVolcanoTarget(m) {
     volcanoMode = false;
-    if (m.user === userKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
+    if (m.user === myKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
     const r = await fetch('/volcano', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), to_user: m.user})
+      body: JSON.stringify({chat: chat, user: myKey(), to_user: m.user})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -5053,10 +5079,10 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   };
   async function pickSubTarget(m) {
     subMode = false;
-    if (m.user === userKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
+    if (m.user === myKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
     const r = await fetch('/subgift', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), to_user: m.user})
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName(), to_user: m.user})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -5094,7 +5120,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   async function openGift(id) {
     const r = await fetch('/subopen', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), id: id})
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName(), id: id})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -5141,7 +5167,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   window.claimMeteor = async () => {
     const r = await fetch('/meteor', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey()})
+      body: JSON.stringify({chat: chat, user: myKey()})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -5155,7 +5181,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   window.boostLetter = async (id) => {
     const r = await fetch('/letterboost', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), id: id})
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName(), id: id})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -5233,7 +5259,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     }
     // «Улететь» — для того, кто сейчас гостит на острове, независимо от владения
     // (совладелец тоже может быть гостем — кнопка не должна теряться из-за isl.mine)
-    if (isl.guest && isl.guest.user === userKey() && isl.guest.leg === 'staying') {
+    if (isl.guest && isl.guest.user === myKey() && isl.guest.leg === 'staying') {
       html += '<br><button onclick="leaveIsland()">✈️ Улететь (домой)</button>';
     }
     html += '<br><button onclick="openIslandCard(&quot;' + isl.owner + '&quot;)">🖼 Открытка острова</button>';
@@ -5303,7 +5329,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   window.buyIsland = async () => {
     const r = await fetch('/islandbuy', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName()})
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName()})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -5319,7 +5345,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     const mk = isl && islandMarkers[owner];
     if (!isl || !mk) { status('✈️ Кликни метку гостя, которого зовёшь на остров'); return; }
     // выбор гостя списком прямо в попапе — не нужно тыкать по карте
-    const others = (lastMarkers || []).filter(xm => xm.user !== userKey());
+    const others = (lastMarkers || []).filter(xm => xm.user !== myKey());
     let html = '<b>✈️ Кого зовём на «' + escapeHtml(isl.name) + '»?</b>';
     if (!others.length) {
       html += '<br><i>кроме тебя в чате меток нет</i>';
@@ -5339,10 +5365,10 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   };
   async function pickIslandGuest(m) {
     islandInvMode = false;
-    if (m.user === userKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
+    if (m.user === myKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
     const r = await fetch('/islandinvite', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), to_user: m.user})
+      body: JSON.stringify({chat: chat, user: myKey(), to_user: m.user})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -5357,7 +5383,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   window.leaveIsland = async () => {
     const r = await fetch('/islandleave', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey()})
+      body: JSON.stringify({chat: chat, user: myKey()})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -5371,7 +5397,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   window.islandBuild = async (bid) => {
     const r = await fetch('/islandbuild', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), building: bid})
+      body: JSON.stringify({chat: chat, user: myKey(), building: bid})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -5386,7 +5412,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   window.islandPoop = async () => {
     const r = await fetch('/islandpoop', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey()})
+      body: JSON.stringify({chat: chat, user: myKey()})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -5403,7 +5429,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     if (!confirm('Вы точно хотите удалить остров? Это навсегда!')) return;
     const r = await fetch('/islanddel', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey()})
+      body: JSON.stringify({chat: chat, user: myKey()})
     });
     const data = await r.json().catch(() => ({}));
     if (r.ok) {
@@ -5454,7 +5480,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   document.getElementById('islandBuyBtn').onclick = () => buyIsland();
 
   function tryLetterTarget(m) {
-    if (m.user === userKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
+    if (m.user === myKey()) { status('Выбери метку ДРУГОГО участника, а не свою 🙂'); return; }
     letterTarget = m;
     letterBar.style.display = 'flex';
     status('✉️ Письмо для ' + m.name + ' — напиши текст (до 500 символов)');
@@ -5468,7 +5494,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     const target = letterTarget;
     const r = await fetch('/geosend', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName(),
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName(),
                           to_user: target.user, text: text})
     });
     const data = await r.json().catch(() => ({}));
@@ -5503,7 +5529,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   // если метка уже поставлена — убираем инструменты постановки (эмодзи, кнопку, имя),
   // остаются только 📏 и ✉️; удаление метки вернёт всё обратно
   function updateMineUI() {
-    const mine = !!markers[userKey()];
+    const mine = !!markers[myKey()];
     document.getElementById('animals').style.display = mine ? 'none' : 'flex';
     document.getElementById('saveBtn').style.display = mine ? 'none' : '';
     document.getElementById('delBtn').style.display = mine ? '' : 'none';
@@ -5512,8 +5538,9 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   }
 
   async function load() {
-    const r = await fetch('/geodata?chat=' + chat + '&user=' + encodeURIComponent(userKey()) + '&name=' + encodeURIComponent(userName()) + '&t=' + Date.now());
+    const r = await fetch('/geodata?chat=' + chat + '&user=' + encodeURIComponent(myKey()) + '&name=' + encodeURIComponent(userName()) + '&t=' + Date.now());
     const data = await r.json();
+    serverMe = data.me || null;
     if (data.viewer_admin === false && !document.getElementById('adminOv')) {
       const ov = document.createElement('div');
       ov.id = 'adminOv';
@@ -5542,7 +5569,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     // кнопку покупки прячем, если остров уже есть (повторная покупка запрещена)
     const buyIslBtn = document.getElementById('islandBuyBtn');
     if (buyIslBtn) {
-      const haveIsl = lastIslands.some(i => (i.owners || [i.owner]).indexOf(userKey()) >= 0);
+      const haveIsl = lastIslands.some(i => (i.owners || [i.owner]).indexOf(myKey()) >= 0);
       buyIslBtn.style.display = haveIsl ? 'none' : '';
     }
     meteorMarkers.forEach(m => map.removeLayer(m));
@@ -5580,7 +5607,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     if (volcanoMode) { status('🌋 Кликни по МЕТКЕ участника (животное на карте), а не просто по карте'); return; }
     if (subMode) { status('🐳 Кликни по МЕТКЕ участника (животное на карте), а не просто по карте'); return; }
     if (islandInvMode) { status('✈️ Кликни по МЕТКЕ участника (животное на карте), а не просто по карте'); return; }
-    if (markers[userKey()]) {
+    if (markers[myKey()]) {
       status('У тебя уже есть метка. Чтобы поставить новую — кликни по своему животному и выбери «Удалить мою метку»');
       return;
     }
@@ -5594,7 +5621,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     const r = await fetch('/geomark', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey(), name: userName(), icon: curIcon,
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName(), icon: curIcon,
                             lat: pending.lat, lon: pending.lng})
     });
     if (r.ok) { status('✅ Метка поставлена!'); pending = null; load(); }
@@ -5606,7 +5633,7 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
     await fetch('/geodel', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({chat: chat, user: userKey()})
+      body: JSON.stringify({chat: chat, user: myKey()})
     });
     load();
   }
@@ -5816,6 +5843,8 @@ class AppHandler(BaseHTTPRequestHandler):
             chat_id = int(params.get("chat", ["0"])[0])
             viewer = params.get("user", [""])[0]
             viewer_name = params.get("name", [""])[0][:64]
+            # кто я на самом деле: сервер узнаёт по tid Telegram, а не по сырому ключу клиента
+            me_key = resolve_marker_key(chat_id, viewer, viewer_name)
             with geo_lock:
                 letters_out = []
                 changed = False
@@ -6244,6 +6273,7 @@ class AppHandler(BaseHTTPRequestHandler):
                             "islands": islands_out, "planes": planes_out,
                             "ships": ships_out, "ship_duel": duel_out,
                             "ship_battles": battles_out,
+                            "me": me_key,
                             "viewer_admin": tg_chat_admin_allowed(
                                 chat_id, self.headers.get("X-TG-Init-Data", ""))},
                            ensure_ascii=False).encode("utf-8"),
@@ -8878,6 +8908,7 @@ def main() -> None:
     tgids_load_from_github()
     apply_marker_bindings()
     apply_tid_bindings()
+    apply_remove_tid_dup_markers()
     apply_sandbox_grants()
     apply_sandbox_island_levels()
     apply_ship_teleport_sumai()
