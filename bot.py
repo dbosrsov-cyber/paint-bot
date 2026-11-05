@@ -4472,16 +4472,6 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     const r = await fetch('/geodata?chat=' + chat + '&user=' + encodeURIComponent(myKey()) + '&name=' + encodeURIComponent(userName()) + '&t=' + Date.now());
     const data = await r.json();
     serverMe = data.me || null;
-    if (data.viewer_admin === false && !document.getElementById('adminOv')) {
-      const ov = document.createElement('div');
-      ov.id = 'adminOv';
-      ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(16,28,44,.94);'
-        + 'display:flex;align-items:center;justify-content:center;text-align:center;'
-        + 'color:#fff;font-size:19px;line-height:1.8;padding:24px;';
-      ov.innerHTML = '<div>🛡️<br>Полный функционал игры доступен только админам '
-        + 'этой группы.<br><small style="opacity:.7">Карта — для просмотра.</small></div>';
-      document.body.appendChild(ov);
-    }
     Object.values(markers).forEach(m => map.removeLayer(m));
     Object.keys(markers).forEach(k => delete markers[k]);
     Object.values(letterMarkers).forEach(m => map.removeLayer(m));
@@ -4602,7 +4592,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-05-1563"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-05-1564"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
