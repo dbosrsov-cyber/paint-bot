@@ -12,8 +12,10 @@ import uuid
 import asyncio
 import datetime
 import html
+import hashlib
+import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, parse_qsl
 import urllib.error
 import urllib.request
 
@@ -24,6 +26,25 @@ from telegram.ext import Application, CallbackQueryHandler, ChatMemberHandler, C
 
 # Токен бота берётся из переменной окружения BOT_TOKEN (задаётся в панели Render)
 BOT_TOKEN = os.environ["BOT_TOKEN"]
+
+
+def tg_init_data_valid(init_data: str) -> bool:
+    """Проверка подписи Telegram WebApp (initData) по стандарту TG: HMAC-SHA256.
+    Без валидной подписи сервер не принимает ни одного POST-действия —
+    так игра невозможна вне Telegram, даже напрямую через curl."""
+    if not BOT_TOKEN or BOT_TOKEN == "fake":
+        return True                       # тестовый контур — проверка отключена
+    try:
+        pairs = dict(parse_qsl(init_data, keep_blank_values=True))
+        received = pairs.pop("hash", "")
+        if not received:
+            return False
+        data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(pairs.items()))
+        secret = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
+        calculated = hmac.new(secret, data_check_string.encode(), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(calculated, received)
+    except Exception:
+        return False
 
 CHALLENGE_TTL_SECONDS = 120  # срок жизни вызова на дуэль
 APP_URL = "https://paint-bot.onrender.com"  # публичный адрес этого сервиса (для WebApp)
@@ -744,6 +765,21 @@ def apply_gaya_lyubertsy() -> None:
         gaya["lat"], gaya["lon"] = 55.6783, 37.8846
         geo_save_to_github()
         logline("Gaya moved -> Люберцы (55.6783, 37.8846)")
+    meteor_save_to_github()
+
+
+def apply_anon_rename_dasha() -> None:
+    """Разовое переименование: аккаунт anon (Владивосток) получает имя Даша —
+    чтобы запасной профиль больше не выглядел общим и на него не попадали."""
+    tag = "anon_rename_dasha_2026-11-05"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    anon = geo_state.get(-1002304715333, {}).get("anon")
+    if anon is not None and anon.get("name") != "Даша":
+        anon["name"] = "Даша"
+        geo_save_to_github()
+        logline("anon renamed -> Даша")
     meteor_save_to_github()
 
 
@@ -1827,6 +1863,16 @@ HTML_PAGE = """<!DOCTYPE html>
   tg.ready(); tg.expand();
   const chat = new URLSearchParams(location.search).get('chat') || '0';
 
+  // все POST-запросы подписываем initData Telegram — сервер принимает действия только из TG
+  const _origFetch = window.fetch.bind(window);
+  window.fetch = (url, opts) => {
+    if (opts && String(opts.method || 'GET').toUpperCase() === 'POST') {
+      opts = Object.assign({}, opts, {headers: Object.assign({}, opts.headers,
+        {'X-TG-Init-Data': tg.initData || ''})});
+    }
+    return _origFetch(url, opts);
+  };
+
   const COLORS = ['black','red','orange','yellow','green','blue','purple','brown'];
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
@@ -2373,12 +2419,38 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   const nameInput = document.getElementById('name');
   nameInput.value = localStorage.getItem('geo_name')
     || (tgUser && (tgUser.username ? '@' + tgUser.username : tgUser.first_name)) || '';
-  const realUserKey = () => String((tgUser && tgUser.id) || nameInput.value.trim() || 'anon');
+  // гость вне Telegram: свой случайный ключ в этом браузере — не чужой и не общий «anon»
+  let guestKey = localStorage.getItem('geo_guest');
+  if (!guestKey) {
+    guestKey = 'guest' + Math.random().toString(36).slice(2, 10);
+    localStorage.setItem('geo_guest', guestKey);
+  }
+  const realUserKey = () => String((tgUser && tgUser.id) || nameInput.value.trim() || guestKey);
   const realUserName = () => (tgUser && (tgUser.username ? '@' + tgUser.username : tgUser.first_name))
-    || nameInput.value.trim() || 'Аноним';
+    || nameInput.value.trim() || 'Гость';
   let persona = null;  // бета: Sumai действует на карте как Тест2
   const userKey = () => persona ? persona.user : realUserKey();
   const userName = () => persona ? persona.name : realUserName();
+  // все POST-запросы подписываем initData Telegram — сервер принимает действия только из TG
+  const _origFetch = window.fetch.bind(window);
+  window.fetch = (url, opts) => {
+    if (opts && String(opts.method || 'GET').toUpperCase() === 'POST') {
+      opts = Object.assign({}, opts, {headers: Object.assign({}, opts.headers,
+        {'X-TG-Init-Data': tg.initData || ''})});
+    }
+    return _origFetch(url, opts);
+  };
+  if (!tgUser) {
+    // прямой заход в браузере — игра доступна только из под Телеграм
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(16,28,44,.94);'
+      + 'display:flex;align-items:center;justify-content:center;text-align:center;'
+      + 'color:#fff;font-size:19px;line-height:1.8;padding:24px;';
+    ov.innerHTML = '<div>🗺️<br>Запустите, пожалуйста, игру из под Телеграм —<br>'
+      + 'кнопкой меню бота в чате.<br>'
+      + '<small style="opacity:.7">В браузере карта доступна только для просмотра.</small></div>';
+    document.body.appendChild(ov);
+  }
   // ===== бета Песочницы: персона Тест2 и ручной спавн событий (только Sumai) =====
   const isSumaiBeta = realUserKey() === 'Sumai'
     || (tgUser && tgUser.username === 'Sumai')
@@ -4448,7 +4520,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-05-1553"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-05-1554"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -4503,9 +4575,35 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
   const nameInput = document.getElementById('name');
   nameInput.value = localStorage.getItem('geo_name')
     || (tgUser && (tgUser.username ? '@' + tgUser.username : tgUser.first_name)) || '';
-  const userKey = () => String((tgUser && tgUser.id) || nameInput.value.trim() || 'anon');
+  // гость вне Telegram: свой случайный ключ в этом браузере — не чужой и не общий «anon»
+  let guestKey = localStorage.getItem('geo_guest');
+  if (!guestKey) {
+    guestKey = 'guest' + Math.random().toString(36).slice(2, 10);
+    localStorage.setItem('geo_guest', guestKey);
+  }
+  const userKey = () => String((tgUser && tgUser.id) || nameInput.value.trim() || guestKey);
   const userName = () => (tgUser && (tgUser.username ? '@' + tgUser.username : tgUser.first_name))
-    || nameInput.value.trim() || 'Аноним';
+    || nameInput.value.trim() || 'Гость';
+  // все POST-запросы подписываем initData Telegram — сервер принимает действия только из TG
+  const _origFetch = window.fetch.bind(window);
+  window.fetch = (url, opts) => {
+    if (opts && String(opts.method || 'GET').toUpperCase() === 'POST') {
+      opts = Object.assign({}, opts, {headers: Object.assign({}, opts.headers,
+        {'X-TG-Init-Data': tg.initData || ''})});
+    }
+    return _origFetch(url, opts);
+  };
+  if (!tgUser) {
+    // прямой заход в браузере — игра доступна только из под Телеграм
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(16,28,44,.94);'
+      + 'display:flex;align-items:center;justify-content:center;text-align:center;'
+      + 'color:#fff;font-size:19px;line-height:1.8;padding:24px;';
+    ov.innerHTML = '<div>🗺️<br>Запустите, пожалуйста, игру из под Телеграм —<br>'
+      + 'кнопкой меню бота в чате.<br>'
+      + '<small style="opacity:.7">В браузере карта доступна только для просмотра.</small></div>';
+    document.body.appendChild(ov);
+  }
 
   let pending = null;
   const markers = {};  // user_key -> L.marker
@@ -6103,6 +6201,10 @@ class AppHandler(BaseHTTPRequestHandler):
             self._respond(404, b"not found")
 
     def do_POST(self):
+        # каждое действие — только из Telegram: проверяем подпись WebApp (initData)
+        if not tg_init_data_valid(self.headers.get("X-TG-Init-Data", "")):
+            self._json_response(403, {"error": "только из Telegram"})
+            return
         url = urlparse(self.path)
         if url.path in ("/geomark", "/geodel", "/geoicon"):
             self._handle_geo_post(url)
@@ -8675,6 +8777,7 @@ def main() -> None:
     apply_fix_mari_pm_duel()
     apply_pm_ship_wins()
     apply_gaya_lyubertsy()
+    apply_anon_rename_dasha()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
