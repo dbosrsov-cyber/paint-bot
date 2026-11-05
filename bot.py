@@ -4076,8 +4076,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   distBtn.onclick = () => setMode(distMode ? null : 'dist');
   // ⛵ фокус на своём Галеоне
   document.getElementById('shipBtn').onclick = () => {
-    const s = (lastShips || []).find(x => x.mine && !x.sunk)
-      || (lastShips || []).find(x => x.mine);
+    const s = (lastShips || []).find(x => x.mine && !x.sunk);
     if (!s) { status('⛵ У тебя пока нет Галеона — построй на верфи ⚓ (1 🌲)'); return; }
     map.setView([s.lat, s.lon], Math.max(map.getZoom(), 5));
     const mk = shipMarkers[s.user];
@@ -4284,7 +4283,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     Object.keys(battleMarkers).forEach(k => delete battleMarkers[k]);
     lastShips = data.ships || [];
     const shipBtnEl = document.getElementById('shipBtn');
-    if (shipBtnEl) shipBtnEl.style.display = lastShips.some(s => s.mine) ? '' : 'none';
+    if (shipBtnEl) shipBtnEl.style.display = lastShips.some(s => s.mine && !s.sunk) ? '' : 'none';
     meteorMarkers.forEach(m => map.removeLayer(m));
     meteorMarkers.length = 0;
     (data.markers || []).forEach(renderMarker);
@@ -4367,7 +4366,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-05-1548"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-05-1549"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
