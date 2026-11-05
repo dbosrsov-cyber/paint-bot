@@ -718,6 +718,21 @@ def apply_fix_mari_pm_duel() -> None:
     meteor_save_to_github()
 
 
+def apply_pm_ship_wins() -> None:
+    """Разовое начисление: текущему живому кораблю ПМ +2 победы —
+    раунды, выигранные в некорректно завершившемся абордаже с Мари."""
+    tag = "pm_ship_wins2_2026-11-05"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    sh = ships_state.get(ship_key(-1002304715333, "ПМ"))
+    if sh is not None and not sh.get("sunk"):
+        sh["wins"] = sh.get("wins", 0) + 2
+        ships_save_to_github()
+        logline(f"fix duel: кораблю ПМ начислено +2 победы (итого {sh['wins']})")
+    meteor_save_to_github()
+
+
 def apply_startup_credits() -> None:
     for chat_id, user, amount, tag in STARTUP_CREDITS:
         if meteor_credits.get(tag):
@@ -4337,7 +4352,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-05-1545"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-05-1546"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -8531,6 +8546,7 @@ def main() -> None:
     apply_free_ships_main()
     apply_restore_wrecks()
     apply_fix_mari_pm_duel()
+    apply_pm_ship_wins()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
