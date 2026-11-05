@@ -20,7 +20,7 @@ import urllib.error
 import urllib.request
 
 from PIL import Image
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, MessageEntity, Update, WebAppInfo
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, KeyboardButton, MessageEntity, ReplyKeyboardMarkup, Update, WebAppInfo
 from telegram.error import BadRequest, Forbidden
 from telegram.ext import Application, CallbackQueryHandler, ChatMemberHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
@@ -4602,7 +4602,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-05-1560"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-05-1561"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -7944,10 +7944,17 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         if query.message.chat.type == "private":
             await context.bot.send_message(chat_id, text, reply_markup=geo2_keyboard(chat_id))
             await query.edit_message_text("🌍✨ Жми «Открыть карту» выше.")
-        elif await dm_game_button(context, query.from_user.id, text, geo2_keyboard(chat_id)):
-            await query.edit_message_text("🌍✨ Кнопка «Открыть карту» ушла тебе в личку 👌")
         else:
-            await query.edit_message_text("🌍✨ Не смог написать тебе в личку. Сначала запусти меня: /startsum")
+            # ВРЕМЕННЫЙ ЭКСПЕРИМЕНТ: reply-кнопка WebApp прямо в группе (видна всем участникам)
+            url = f"{APP_URL}/geo2map?chat={chat_id}&v={BUILD_TAG}"
+            await context.bot.send_message(
+                chat_id,
+                "🌍✨ ГеографияЧата 2.0!\nЖми кнопку «Открыть карту» внизу экрана 👇 "
+                "— карта откроется прямо в Telegram.",
+                reply_markup=ReplyKeyboardMarkup(
+                    [[KeyboardButton("🌍 Открыть карту", web_app=WebAppInfo(url=url))]],
+                    resize_keyboard=True))
+            await query.edit_message_text("🌍✨ Кнопка появилась в чате — жми её внизу экрана 👇")
         return
 
     if game_key == "saga":
