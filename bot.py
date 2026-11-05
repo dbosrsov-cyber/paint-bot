@@ -926,6 +926,7 @@ def finished_duel_for(chat_id: int, user: str, now: float):
     for dd in ship_duels.values():
         if (dd["chat"] == chat_id and user in (dd["a"], dd["b"])
                 and dd["phase"] == "finished"
+                and user not in dd.get("seen_by", [])
                 and now - dd.get("finished_ts", 0) <= SHIP_DUEL_KEEP_SEC):
             return dd
     return None
@@ -960,13 +961,10 @@ def ship_progress(sh: dict) -> bool:
 
 
 def _rps_winner(pa, pb):
-    """Кто выиграл раунд КНБ: 'a', 'b' или None (ничья). Непропуск хода = проигрыш раунда."""
+    """Кто выиграл раунд КНБ: 'a', 'b' или None (ничья). Ходы сюда приходят всегда
+    заполненные — таймаут уже заменён случайным выбором в duel_tick."""
     if pa == pb:
         return None
-    if pa is None:
-        return "b"
-    if pb is None:
-        return "a"
     return "a" if RPS_BEATS[pa] == pb else "b"
 
 
@@ -981,6 +979,8 @@ def spectator_duel(d: dict) -> dict:
         "a_ready": d["a"] in d["ready"], "b_ready": d["b"] in d["ready"],
         "a_picked": d["pa"] is not None, "b_picked": d["pb"] is not None,
         "pick_left": max(0, int(d.get("pick_deadline", 0) - time.time())),
+        "wait_left": (max(0, int(d["ts"] + SHIP_CPU_AFTER_SEC - time.time()))
+                      if d["phase"] == "ready" else 0),
     }
     if d.get("last"):
         out["last"] = {"round": d["last"]["round"],
@@ -1057,10 +1057,18 @@ def duel_tick(d: dict, now: float) -> None:
         if cpu_side and d["p" + cpu_side] is None and now >= d.get("cpu_pick_at", 0):
             d["p" + cpu_side] = random.choice(["r", "s", "p"])
         if (d["pa"] and d["pb"]) or now > d["pick_deadline"]:
+            # не успел выбрать — корабельная команда хватает первое попавшееся
+            rand_a = not d["pa"]
+            rand_b = not d["pb"]
+            if rand_a:
+                d["pa"] = random.choice(["r", "s", "p"])
+            if rand_b:
+                d["pb"] = random.choice(["r", "s", "p"])
             w = _rps_winner(d["pa"], d["pb"])
             if w:
                 d["wins"][w] += 1
-            d["last"] = {"pa": d["pa"], "pb": d["pb"], "winner": w, "round": d["round"]}
+            d["last"] = {"pa": d["pa"], "pb": d["pb"], "winner": w, "round": d["round"],
+                         "random": [s for s, r in (("a", rand_a), ("b", rand_b)) if r]}
             d["pa"] = d["pb"] = None
             d["phase"] = "roundend"
             d["roundend_ts"] = now
@@ -1090,6 +1098,8 @@ def public_duel(d: dict, user: str) -> dict:
         "my_pick": d["p" + side], "opp_picked": bool(d["p" + other]),
         "opp_name_full": d[other + "_name"],
         "pick_left": max(0, int(d.get("pick_deadline", 0) - time.time())),
+        "wait_left": (max(0, int(d["ts"] + SHIP_CPU_AFTER_SEC - time.time()))
+                      if d["phase"] == "ready" else 0),
     }
     if d.get("last"):
         last = d["last"]
@@ -1098,6 +1108,7 @@ def public_duel(d: dict, user: str) -> dict:
             "round": last["round"],
             "my_pick": last["p" + side], "opp_pick": last["p" + other],
             "i_won": (w == side) if w else None,
+            "my_random": side in last.get("random", []),
         }
     if d["phase"] == "finished":
         out["i_won"] = d["winner_side"] == side
@@ -3156,8 +3167,9 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     if (!d.last) return '';
     const l = d.last;
     const res = l.i_won === null ? '🤝 ничья в раунде' : (l.i_won ? '🎉 раунд твой!' : '💥 раунд у соперника');
+    const rnd = l.my_random ? '🎲 случайный ход: ' : '';
     return '<div style="font-size:14px;margin:8px 0;background:rgba(255,255,255,.35);'
-      + 'border-radius:10px;padding:8px;">Раунд ' + l.round + ': ' + RPS_EMOJI[l.my_pick]
+      + 'border-radius:10px;padding:8px;">Раунд ' + l.round + ': ' + rnd + RPS_EMOJI[l.my_pick]
       + ' против ' + RPS_EMOJI[l.opp_pick] + '<br><b>' + res + '</b></div>';
   }
   function renderShipDuel(d) {
@@ -3180,8 +3192,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
           : '<button id="duelReadyBtn" style="background:#c0392b;font-size:16px;'
             + 'padding:10px 22px;">⚔️ Готов!</button>');
       if (!d.cpu_opp) {
-        body += '<div style="font-size:13px;opacity:.75;margin-top:6px;">⏱ не явится за 3 минуты '
-          + '— за него дерётся его команда 🤖</div>';
+        const wl = d.wait_left || 0;
+        body += '<div style="font-size:13px;opacity:.75;margin-top:6px;">'
+          + (wl > 0 ? '🤖 команда капитана вступит в бой через ' + wl + ' с'
+            : '🤖 команда капитана вступает в бой…') + '</div>';
       }
     } else if (d.phase === 'pick') {
       body = cpuNote + '<div style="font-size:15px;margin:6px 0;"><b>' + score + '</b><br>⏱ на ход: '
@@ -3247,7 +3261,11 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     shipDuelPoll = setInterval(pollShipDuel, 1500);
   }
   function closeShipDuel(markSeen) {
-    if (markSeen && shipDuelCur) shipDuelSeen[shipDuelCur.id] = true;
+    if (markSeen && shipDuelCur) {
+      shipDuelSeen[shipDuelCur.id] = true;
+      fetch('/shipduelseen', {method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({chat: chat, user: userKey(), name: userName()})}).catch(() => {});
+    }
     if (shipDuelPoll) { clearInterval(shipDuelPoll); shipDuelPoll = null; }
     const el = document.getElementById('shipDuelModal');
     if (el) el.style.display = 'none';
@@ -3295,7 +3313,9 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     if (d.phase === 'ready') {
       body = '<div style="font-size:15px;margin:10px 0;line-height:1.7;">Команды готовятся к абордажу…<br>'
         + escapeHtml(d.a_name) + ': ' + (d.a_ready ? '✅ готов' : '⏳ ждём') + '<br>'
-        + escapeHtml(d.b_name) + ': ' + (d.b_ready ? '✅ готов' : '⏳ ждём') + '</div>';
+        + escapeHtml(d.b_name) + ': ' + (d.b_ready ? '✅ готов' : '⏳ ждём') + '</div>'
+        + (d.wait_left ? '<div style="font-size:13px;opacity:.75;">🤖 команда капитана вступит '
+          + 'в бой через ' + d.wait_left + ' с</div>' : '');
     } else if (d.phase === 'pick') {
       body = cpuNote + '<div style="font-size:15px;margin:6px 0;"><b>' + score + '</b><br>⏱ на ход: '
         + d.pick_left + ' сек</div>'
@@ -4406,7 +4426,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-05-1550"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-05-1551"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -6104,7 +6124,8 @@ class AppHandler(BaseHTTPRequestHandler):
         if url.path in ("/islandbuy", "/islandinvite", "/islandleave",
                         "/islandbuild", "/islandpoop", "/islanddel", "/islandrock",
                         "/islandstorm", "/islandkick",
-                        "/shipbuild", "/shipnav", "/shipboard", "/shipready", "/shippick"):
+                        "/shipbuild", "/shipnav", "/shipboard", "/shipready", "/shippick",
+                        "/shipduelseen"):
             self._handle_island_post(url)
             return
         if url.path != "/save":
@@ -6814,6 +6835,8 @@ class AppHandler(BaseHTTPRequestHandler):
             self._ship_ready()
         elif url.path == "/shippick":
             self._ship_pick()
+        elif url.path == "/shipduelseen":
+            self._ship_duel_seen()
         else:
             self._json_response(404, {"error": "not found"})
 
@@ -6965,6 +6988,27 @@ class AppHandler(BaseHTTPRequestHandler):
                         print(f"[paint_bot] уведомление об абордаже не ушло: {e!r}", flush=True)
             duel_tick(d, time.time())
         self._json_response(200, public_duel(d, me["user"]))
+
+    def _ship_duel_seen(self):
+        """Игрок закрыл финальный экран дуэли — больше не показывать (даже после
+        перезагрузки страницы, пока дуэль живёт в памяти сервера)."""
+        try:
+            chat_id, user, name, _ = self._ship_payload()
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        with geo_lock:
+            me = ship_of(chat_id, user, name)
+            d = None
+            if me:
+                for dd in ship_duels.values():
+                    if (dd["chat"] == chat_id and me["user"] in (dd["a"], dd["b"])
+                            and dd["phase"] == "finished"):
+                        d = dd
+                        break
+            if d is not None and me["user"] not in d.setdefault("seen_by", []):
+                d["seen_by"].append(me["user"])
+        self._json_response(200, {"ok": True})
 
     def _ship_ready(self):
         """Готов к бою."""
