@@ -733,6 +733,20 @@ def apply_pm_ship_wins() -> None:
     meteor_save_to_github()
 
 
+def apply_gaya_lyubertsy() -> None:
+    """Разовый перенос: метка Gaya — в район Люберец (Московская область)."""
+    tag = "gaya_lyubertsy_2026-11-05"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    gaya = geo_state.get(-1002304715333, {}).get("Gaya")
+    if gaya is not None:
+        gaya["lat"], gaya["lon"] = 55.6783, 37.8846
+        geo_save_to_github()
+        logline("Gaya moved -> Люберцы (55.6783, 37.8846)")
+    meteor_save_to_github()
+
+
 def apply_startup_credits() -> None:
     for chat_id, user, amount, tag in STARTUP_CREDITS:
         if meteor_credits.get(tag):
@@ -4352,7 +4366,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-05-1546"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-05-1547"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -8547,6 +8561,7 @@ def main() -> None:
     apply_restore_wrecks()
     apply_fix_mari_pm_duel()
     apply_pm_ship_wins()
+    apply_gaya_lyubertsy()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
