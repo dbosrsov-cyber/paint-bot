@@ -3115,7 +3115,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
         + '<br>потоплен… кораллы уже обживают палубу'
       : '<span style="font-size:22px">⛵</span> <b>Галеон капитана ' + escapeHtml(s.name) + '</b>'
         + '<br>⚓ ' + (s.moving ? 'в пути' : 'на якоре');
-    if (s.wins || s.built || s.lost) {
+    if (!s.sunk && (s.wins || s.built || s.lost)) {
       html += '<br>🏆 побед в морских боях: <b>' + (s.wins || 0) + '</b>'
         + ' • ⚓ капитан: построил ' + (s.built || 0) + ', потерял ' + (s.lost || 0);
     }
@@ -4426,7 +4426,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-05-1551"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-05-1552"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
