@@ -878,6 +878,20 @@ def apply_tatev_coowner() -> None:
     meteor_save_to_github()
 
 
+def apply_andrey_island_rename() -> None:
+    """Разовое: переименование острова Андрюхи."""
+    tag = "andrey_island_rename_2026-11-08"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    isl = islands_state.get("-1002304715333|Андрюха")
+    if isl is not None and isl.get("name") != "Остров распутных девственниц":
+        isl["name"] = "Остров распутных девственниц"
+        islands_save_to_github()
+        logline("island Андрюха renamed -> Остров распутных девственниц")
+    meteor_save_to_github()
+
+
 def apply_startup_credits() -> None:
     for chat_id, user, amount, tag in STARTUP_CREDITS:
         if meteor_credits.get(tag):
@@ -4620,7 +4634,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1577"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1578"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -8994,6 +9008,7 @@ def main() -> None:
     apply_gaya_lyubertsy()
     apply_anon_rename_dasha()
     apply_tatev_coowner()
+    apply_andrey_island_rename()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
