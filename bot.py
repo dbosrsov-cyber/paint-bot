@@ -4604,7 +4604,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-06-1574"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1575"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -7622,13 +7622,14 @@ class AppHandler(BaseHTTPRequestHandler):
             insc = isl.setdefault("inscriptions", [])
             name = str(payload.get("name", ""))[:64]
             mkey = resolve_marker_key(chat_id, user, name)
-            # скала — только для владельца и гостя, который СЕЙЧАС на острове
+            # скала — для владельцев (включая совладельцев) и гостя, который СЕЙЧАС на острове
+            owners = isl.get("owners") or [owner]
             g = isl.get("guest")
             is_guest = bool(g and g["leg"] == "staying"
                             and (g["user"] == user
                                  or (mkey is not None and g["user"] == mkey)
                                  or viewer_matches(g["user"], user, name, chat_id)))
-            is_owner = (mkey is not None and mkey == owner)
+            is_owner = (mkey is not None and mkey in owners)
             if not is_owner and not is_guest:
                 self._json_response(403, {"error": "послания на скале видят только владелец "
                                                 "и гость, который сейчас на острове 🪨"})
@@ -7636,7 +7637,7 @@ class AppHandler(BaseHTTPRequestHandler):
             already = any(i.get("user") in (user, mkey) or i.get("uid") == user
                           for i in insc)
             if not text:   # чтение
-                can_write = (is_guest and mkey != owner and not already)
+                can_write = (is_guest and mkey not in owners and not already)
                 self._json_response(200, {"inscriptions": insc, "can_write": can_write})
                 return
             # запись — только гость на острове (владелец на своей скале не пишет)
