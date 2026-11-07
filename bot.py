@@ -4634,7 +4634,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1578"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1579"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -6132,12 +6132,13 @@ class AppHandler(BaseHTTPRequestHandler):
                         dest_name = (dest or {}).get("name", gift["to"])
                         changed = True
                         # уведомление адресату в чат (один раз, при доставке);
-                        # НЕ автоудаляем — уведомление должно остаться (по требованию владельца)
+                        # автоудаление через 10 минут (по требованию владельца)
                         try:
-                            tg_send_message(
+                            tg_send_with_cleanup(
                                 chat_id,
                                 f"🎁 {dest_name}! Похотливый Кит прислал тебе подарок — "
                                 f"беги открывай! Он уже ждёт у твоей метки 😏🐳",
+                                600,
                             )
                         except Exception as e:
                             print(f"[paint_bot] уведомление о подарке не ушло: {e!r}", flush=True)
@@ -6821,9 +6822,10 @@ class AppHandler(BaseHTTPRequestHandler):
             ship["ts"] = now
         sifa_save_to_github()
         try:
-            tg_send_message(chat_id,
+            tg_send_with_cleanup(chat_id,
                 "🚤💨 Сифа обозначила себя! Активирован МоторV8 — 10 минут скорость ×3. "
-                "Касатки, разбегайтесь: Сифа сама охотится на вас! 🐬😱")
+                "Касатки, разбегайтесь: Сифа сама охотится на вас! 🐬😱",
+                600)
         except Exception as e:
             print(f"[paint_bot] sifa motor notify: {e!r}", flush=True)
         self._json_response(200, {"ok": True, "motor_until": ship["motor_until"]})
