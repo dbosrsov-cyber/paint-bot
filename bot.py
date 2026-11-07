@@ -862,6 +862,22 @@ def apply_anon_rename_dasha() -> None:
     meteor_save_to_github()
 
 
+def apply_tatev_coowner() -> None:
+    """Разовое: Татев — совладелец острова Андрюхи (равные права, как ПМ у Sumai)."""
+    tag = "tatev_coowner_2026-11-08"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    isl = islands_state.get("-1002304715333|Андрюха")
+    if isl is not None:
+        owners = isl.setdefault("owners", [isl.get("owner", "Андрюха")])
+        if "Татев" not in owners:
+            owners.append("Татев")
+            islands_save_to_github()
+            logline("island Андрюха: совладелец Татев добавлен")
+    meteor_save_to_github()
+
+
 def apply_startup_credits() -> None:
     for chat_id, user, amount, tag in STARTUP_CREDITS:
         if meteor_credits.get(tag):
@@ -4604,7 +4620,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1575"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1576"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -8975,6 +8991,7 @@ def main() -> None:
     apply_pm_ship_wins()
     apply_gaya_lyubertsy()
     apply_anon_rename_dasha()
+    apply_tatev_coowner()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
