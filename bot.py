@@ -3313,7 +3313,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       }
     }
     mk.bindPopup(html);
-    shipMarkers[s.user] = mk;
+    shipMarkers[s.id || s.user] = mk;
   }
   window.shipNavStart = () => {
     shipNavMode = !shipNavMode;
@@ -4322,7 +4322,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     const s = (lastShips || []).find(x => x.mine && !x.sunk);
     if (!s) { status('⛵ У тебя пока нет Галеона — построй на верфи ⚓ (1 🌲)'); return; }
     map.setView([s.lat, s.lon], Math.max(map.getZoom(), 5));
-    const mk = shipMarkers[s.user];
+    const mk = shipMarkers[s.id || s.user];
     if (mk) setTimeout(() => mk.openPopup(), 350);
   };
   // клики по панелям над картой не должны превращаться в точки линейки
@@ -4620,7 +4620,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1576"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1577"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -5988,6 +5988,7 @@ class AppHandler(BaseHTTPRequestHandler):
                         if dv is not None:
                             duel_out = public_duel(dv, sh["user"])
                     ships_out.append({
+                        "id": key,
                         "user": sh["user"], "name": sh.get("name", ""),
                         "lat": round(sh["lat"], 6), "lon": round(sh["lon"], 6),
                         "sunk": bool(sh.get("sunk")), "moving": sh.get("to_lat") is not None,
@@ -6024,6 +6025,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     if wr.get("chat") != chat_id:
                         continue
                     ships_out.append({
+                        "id": "wreck:" + wkey,
                         "user": wr.get("user", wkey), "name": wr.get("name", ""),
                         "lat": round(wr["lat"], 6), "lon": round(wr["lon"], 6),
                         "sunk": True, "moving": False,
