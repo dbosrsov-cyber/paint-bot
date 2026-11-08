@@ -1383,8 +1383,7 @@
       : '<span style="font-size:22px">⛵</span> <b>Галеон капитана ' + escapeHtml(s.name) + '</b>'
         + '<br>⚓ ' + (s.moving ? 'в пути' : 'на якоре');
     if (!s.sunk && (s.wins || s.built || s.lost)) {
-      html += '<br>🏆 побед в морских боях: <b>' + (s.wins || 0) + '</b>'
-        + ' • ⚓ капитан: построил ' + (s.built || 0) + ', потерял ' + (s.lost || 0);
+      html += '<br>🏆 побед в морских боях: <b>' + (s.wins || 0) + '</b>';
     }
     if (s.mine && !s.sunk) {
       if (s.in_duel) {
