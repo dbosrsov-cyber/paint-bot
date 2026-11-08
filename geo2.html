@@ -1003,7 +1003,7 @@
       + '<br><button onclick="openMarketCard()">Открыть рынок</button>');
     marketMarker = mkk;
   }
-  function openMarketCard() {
+  function openMarketCard(notice) {
     const mk = lastMarket;
     if (!mk) return;
     if (marketCard) { marketCard.remove(); marketCard = null; }
@@ -1011,15 +1011,33 @@
     const whoLine = mk.owner_name
       ? 'владелец: ' + escapeHtml(mk.owner_name) + ' • держит ' + hold
       : 'рынок свободен — бери, пока не увели! 🏴‍☠️';
-    const center = mk.mine
-      ? '<div style="font-size:14px;background:rgba(255,255,255,.92);border-radius:10px;'
+    let center;
+    if (mk.mine) {
+      center = '<div style="font-size:14px;background:rgba(255,255,255,.92);border-radius:10px;'
         + 'padding:10px 14px;color:#123;line-height:1.7;">🎁 открытых подарков у тебя: <b>'
         + (mk.gifts * 2) + '</b> эмодзи (' + mk.gifts + ' шт)<br>'
         + '<span style="font-size:12px;opacity:.75">1 подарок = 2 эмодзи</span><br>'
         + '<button onclick="marketExchange()" style="background:#2f6fb2;'
-        + 'font-size:15px;padding:8px 18px;">Обменять 10 эмодзи 🎁 → +1 ☄️ +1 🪵 +1 💩</button></div>'
-      : '<button onclick="marketCapture()" style="background:#c0392b;font-size:18px;'
-        + 'padding:12px 26px;">🏴‍☠️ Захватить рынок</button>';
+        + 'font-size:15px;padding:8px 18px;">Обменять 10 эмодзи 🎁 → +1 ☄️ +1 🪵 +1 💩</button></div>';
+    } else if (notice) {
+      // ответ сервера (отказ) показываем прямо в окне рынка
+      center = '<div style="max-width:420px;background:rgba(20,10,10,.88);border:1px solid #c0392b;'
+        + 'border-radius:12px;padding:14px 18px;color:#ffe9e5;font-size:15px;line-height:1.65;">'
+        + escapeHtml(notice) + '</div>'
+        + '<div style="margin-top:10px;"><button onclick="openMarketCard()" '
+        + 'style="background:#555;font-size:14px;padding:8px 20px;">↩️ Назад</button></div>';
+    } else {
+      // захват возможен только вплотную: галеон в радиусе абордажа (2000 км)
+      const myShip = (lastShips || []).find(x => x.mine && !x.sunk);
+      const near = myShip && sifaKm(myShip.lat, myShip.lon, mk.lat, mk.lon) <= 2000;
+      center = near
+        ? '<button onclick="marketCapture()" style="background:#c0392b;font-size:18px;'
+          + 'padding:12px 26px;">🏴‍☠️ Захватить рынок</button>'
+        : '<div style="max-width:400px;background:rgba(15,25,40,.88);border:1px solid #7dd3fc55;'
+          + 'border-radius:12px;padding:12px 16px;color:#dff2ff;font-size:14px;line-height:1.6;">'
+          + '⛵ Для захвата подплыви на Галеоне в радиус <b>2000 км</b> от рынка '
+          + '(как для абордажа) 🎪</div>';
+    }
     marketCard = document.createElement('div');
     marketCard.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;'
       + 'justify-content:center;z-index:100000;padding:18px;background:rgba(10,20,35,.6);';
@@ -1040,12 +1058,15 @@
   }
   window.openMarketCard = openMarketCard;
   window.marketCapture = async () => {
-    if (marketCard) { marketCard.remove(); marketCard = null; }
     const r = await fetch('/marketcapture', {method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({chat: chat, user: myKey(), name: userName()})});
     const d = await r.json().catch(() => ({}));
-    if (r.ok) { status('🎪 Морской Рынок твой! Торгуйся вовсю 🏴‍☠️'); load(); }
-    else status('⚠️ ' + (d.error || 'не вышло'));
+    if (r.ok) {
+      if (marketCard) { marketCard.remove(); marketCard = null; }
+      status('🎪 Морской Рынок твой! Торгуйся вовсю 🏴‍☠️'); load();
+    } else {
+      openMarketCard(d.error || 'не вышло');   // отказ показываем в окне рынка
+    }
   };
   window.marketExchange = async () => {
     if (marketCard) { marketCard.remove(); marketCard = null; }
