@@ -16,6 +16,8 @@ import hashlib
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, parse_qsl
+from array import array
+from collections import deque
 import urllib.error
 import urllib.request
 
@@ -724,6 +726,7 @@ def apply_ship_teleport_sumai() -> None:
         sh["lat"], sh["lon"] = base_lat, round(base_lon - dlon, 6)
         sh["to_lat"] = sh["to_lon"] = None
         sh["nav_from_lat"] = sh["nav_from_lon"] = None
+        sh["route"] = None
         ships_save_to_github()
         logline(f"ship Sumai wreck moved west 10000 km -> lon {sh['lon']}")
     meteor_save_to_github()
@@ -753,6 +756,7 @@ def apply_free_ships_main() -> None:
             "lat": isl["lat"], "lon": isl["lon"],
             "to_lat": None, "to_lon": None,
             "nav_from_lat": None, "nav_from_lon": None, "nav_ts": 0,
+            "route": None,
             "sunk": False, "sunk_ts": 0, "wins": 0,
         }
         given += 1
@@ -989,6 +993,85 @@ SHIP_READY_TIMEOUT = 180       # дуэль отменяется, если об�
 SHIP_CPU_AFTER_SEC = 180       # неявившийся капитан заменяется командой (компьютером)
 SHIP_DUEL_KEEP_SEC = 600       # финальный экран дуэли хранится столько после боя
 SHIP_REBUILD_DELAY_SEC = 600   # пауза: новый Галеон не ранее чем через 10 мин после потопления
+
+# ---------- Водный маршрут Галеона: обход суши по битовой маске ----------
+# Та же сетка, что у sifa_is_land: 360×720 клеток по 0.5°. Маску НЕ утолщаем —
+# между клетками-суходолами корабль может «протекать» (согласовано с владельцем).
+SHIP_ROUTE_ROWS = 360
+SHIP_ROUTE_COLS = 720
+
+def _ship_cell(lat, lon):
+    r = min(SHIP_ROUTE_ROWS - 1, max(0, int((90.0 - lat) * 2)))
+    c = min(SHIP_ROUTE_COLS - 1, max(0, int((lon + 180.0) * 2)))
+    return r, c
+
+def _ship_cell_water(r, c):
+    return not bool((_sifa_land[r * 90 + (c >> 3)] >> (7 - (c & 7))) & 1)
+
+def _ship_cell_center(r, c):
+    return 90.0 - (r + 0.5) * 0.5, -180.0 + (c + 0.5) * 0.5
+
+def ship_water_route(lat1, lon1, lat2, lon2):
+    """Маршрут только по воде: поворотные точки [[lat, lon], ...] — без стартовой,
+    с финишной. Корабль плывёт по ломаной и сам огибает сушу.
+    None — водного пути нет (точка в недостижимом водоёме)."""
+    r1, c1 = _ship_cell(lat1, lon1)
+    r2, c2 = _ship_cell(lat2, lon2)
+    if (r1, c1) == (r2, c2):
+        return [[round(lat2, 6), round(lon2, 6)]]
+    if not _ship_cell_water(r2, c2):
+        return None
+    n = SHIP_ROUTE_ROWS * SHIP_ROUTE_COLS
+    prev = array('i', [-2]) * n          # -2 = не посещена, -1 = старт, иначе индекс prev
+    start = r1 * SHIP_ROUTE_COLS + c1
+    goal = r2 * SHIP_ROUTE_COLS + c2
+    prev[start] = -1
+    dq = deque([start])
+    found = False
+    while dq:
+        cur = dq.popleft()
+        if cur == goal:
+            found = True
+            break
+        cr, cc = divmod(cur, SHIP_ROUTE_COLS)
+        for dr in (-1, 0, 1):
+            for dc in (-1, 0, 1):
+                if not dr and not dc:
+                    continue
+                nr, nc = cr + dr, cc + dc
+                if nr < 0 or nr >= SHIP_ROUTE_ROWS or nc < 0 or nc >= SHIP_ROUTE_COLS:
+                    continue
+                ni = nr * SHIP_ROUTE_COLS + nc
+                if prev[ni] != -2:
+                    continue
+                # стартовую клетку пропускаем даже если она суша (корабль уже там стоит);
+                # остальные — строго по воде
+                if ni != start and not _ship_cell_water(nr, nc):
+                    continue
+                prev[ni] = cur
+                dq.append(ni)
+    if not found:
+        return None
+    cells = []
+    cur = goal
+    while cur != -1:
+        cells.append(cur)
+        cur = prev[cur]
+    cells.reverse()
+    # оставляем только точки излома (смена направления), финиш — точная цель
+    pts = []
+    for i in range(1, len(cells)):
+        pr, pc = divmod(cells[i - 1], SHIP_ROUTE_COLS)
+        r, c = divmod(cells[i], SHIP_ROUTE_COLS)
+        d = (r - pr, c - pc)
+        if i == len(cells) - 1:
+            pts.append([round(lat2, 6), round(lon2, 6)])
+        else:
+            nr, nc = divmod(cells[i + 1], SHIP_ROUTE_COLS)
+            if (nr - r, nc - c) != d:
+                clat, clon = _ship_cell_center(r, c)
+                pts.append([round(clat, 6), round(clon, 6)])
+    return pts
 # ---------- Морской Рынок: локация в океане (Карское море, 79°N 70°E) ----------
 MARKET_LAT, MARKET_LON = 79.0, 70.0   # позиция одинакова для всех чатов, владелец — свой на чат
 MARKET_GIFT_COST = 5                  # обмен: 5 открытых подарков -> +1 ЗП, +1 дерева, +1 какашка
@@ -1002,7 +1085,8 @@ GALLEON_SUNK_B64 = "iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABccqhmAAEAAElEQVR42ux9
 
 SHIPS_FILE = "ships.json"
 ships_state = {}   # f"{chat}|{user}" -> {"chat","user","name","lat","lon","to_lat","to_lon",
-                   #  "nav_from_lat","nav_from_lon","nav_ts","sunk","sunk_ts"}
+                   #  "nav_from_lat","nav_from_lon","nav_ts","route","sunk","sunk_ts"}
+                   #  route — поворотные точки водного маршрута [[lat,lon],...] или None
 ship_duels = {}    # duel_id -> дуэль КНБ; хранится в ship_duels.json — бой переживает рестарт
 
 SHIP_SINK_PHRASES = [
@@ -1135,6 +1219,30 @@ def ship_progress(sh: dict) -> bool:
     if ship_in_duel(sh["chat"], sh["user"]):
         return False                       # в бою корабль стоит
     now = time.time()
+    traveled_km = (now - sh["nav_ts"]) / 60.0 * SHIP_SPEED_KM_PER_MIN
+    route = sh.get("route")
+    if route:
+        # движение вдоль водной ломаной: позиция — на расстоянии traveled_km от старта
+        alat, alon = sh["nav_from_lat"], sh["nav_from_lon"]
+        left = traveled_km
+        for wp in route:
+            seg = haversine_km(alat, alon, wp[0], wp[1])
+            if seg <= 0:
+                alat, alon = wp[0], wp[1]
+                continue
+            if left < seg:
+                f = left / seg
+                sh["lat"] = round(alat + (wp[0] - alat) * f, 6)
+                sh["lon"] = round(alon + (wp[1] - alon) * f, 6)
+                return False              # промежуточная позиция пересчитывается, не сохраняем
+            left -= seg
+            alat, alon = wp[0], wp[1]
+        sh["lat"], sh["lon"] = sh["to_lat"], sh["to_lon"]
+        sh["to_lat"] = sh["to_lon"] = None
+        sh["nav_from_lat"] = sh["nav_from_lon"] = None
+        sh["route"] = None
+        return True
+    # старые корабли без маршрута — прямая, как раньше
     total = haversine_km(sh["nav_from_lat"], sh["nav_from_lon"], sh["to_lat"], sh["to_lon"])
     elapsed_min = (now - sh["nav_ts"]) / 60.0
     if total <= 0 or elapsed_min * SHIP_SPEED_KM_PER_MIN >= total:
@@ -1194,6 +1302,7 @@ def _finish_duel(d: dict) -> None:
         lsh["sunk_ts"] = time.time()
         lsh["to_lat"] = lsh["to_lon"] = None
         lsh["nav_from_lat"] = lsh["nav_from_lon"] = None
+        lsh["route"] = None
     if wsh is not None:
         wsh["wins"] = wsh.get("wins", 0) + 1   # статистика живёт на корабле — с ним тонет
     lmarker = geo_state.get(d["chat"], {}).get(d[loser])
@@ -2266,7 +2375,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1601"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1410"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -3646,6 +3755,7 @@ class AppHandler(BaseHTTPRequestHandler):
                         # параметры маршрута для плавной клиентской интерполяции
                         "nav_from_lat": sh.get("nav_from_lat"), "nav_from_lon": sh.get("nav_from_lon"),
                         "to_lat": sh.get("to_lat"), "to_lon": sh.get("to_lon"),
+                        "route": sh.get("route") if sh.get("to_lat") is not None else None,
                         "nav_ts": sh.get("nav_ts"),
                     })
                 # активные абордажи — точки «сражения» между сцепленными кораблями
@@ -4969,6 +5079,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 "lat": isl["lat"], "lon": isl["lon"],
                 "to_lat": None, "to_lon": None,
                 "nav_from_lat": None, "nav_from_lon": None, "nav_ts": 0,
+                "route": None,
                 "sunk": False, "sunk_ts": 0, "wins": 0,
             }
             ships_save_to_github()
@@ -5011,8 +5122,14 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._json_response(403, {"error": "корабль плавает только по воде 🌊"})
                 return
             ship_progress(sh)
+            route = ship_water_route(sh["lat"], sh["lon"], lat, lon)
+            if route is None:
+                self._json_response(403, {"error": "до этой точки нет водного пути — "
+                                                    "Галеон туда не доплывёт 🌊"})
+                return
             sh["to_lat"], sh["to_lon"] = lat, lon
             sh["nav_from_lat"], sh["nav_from_lon"] = sh["lat"], sh["lon"]
+            sh["route"] = route
             sh["nav_ts"] = time.time()
             ships_save_to_github()
         self._json_response(200, {"ok": True})
