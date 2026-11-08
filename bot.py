@@ -4796,7 +4796,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1583"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1584"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -9257,6 +9257,31 @@ async def announce_geo2_release_job(context) -> None:
     context.job.schedule_removal()
 
 
+def geo_sweep_job() -> None:
+    """Фоновый прогон «ленивого» осмотра активных чатов: прибытия писем/подарков/какашек,
+    перелёты самолёта, замена неявившегося капитана — уведомления уходят по расписанию,
+    а не пачкой при входе первого игрока. Идём по тому же коду /geodata по localhost
+    (viewer пустой — никаких tid-меток не ставится, только чат-уровень событий)."""
+    port = int(os.environ.get("PORT", "10000"))
+    chats = set(geo_state.keys())
+    for st in (letters_state, poops_state, gifts_state, islands_state,
+               ships_state, wrecks_state):
+        for v in st.values():
+            c = v.get("chat")
+            if c:
+                chats.add(c)
+    for d in ship_duels.values():
+        c = d.get("chat")
+        if c:
+            chats.add(c)
+    for cid in sorted(chats):
+        try:
+            urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/geodata?chat={cid}&user=&name=", timeout=15)
+        except Exception as e:
+            print(f"[paint_bot] sweep чат {cid}: {e!r}", flush=True)
+
+
 def main() -> None:
     # Поднимаем сохранённые метки географии, письма и вулканы из GitHub (после перезапусков)
     geo_load_from_github()
@@ -9328,6 +9353,8 @@ def main() -> None:
     app.job_queue.run_repeating(announce_geo2_release_job, interval=120.0, first=15.0)
     # подводные лодки: фоновый спавн в океанах БЕЗ уведомления в чат
     app.job_queue.run_repeating(submarine_spawn_job, interval=60.0, first=30.0)
+    # ленивый осмотр ГЕО: уведомления о прибытиях/перелётах уходят по расписанию
+    app.job_queue.run_repeating(geo_sweep_job, interval=60.0, first=45.0)
     app.run_polling()
 
 
