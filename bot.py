@@ -1962,12 +1962,22 @@ def tg_send_message(chat_id: int, text: str) -> None:
 ARRIVAL_NOTIFY_TTL_SEC = 3600  # уведомления о прибытии писем/какашек удаляются через час
 
 
-def tg_send_message_id(chat_id: int, text: str):
-    """Отправить сообщение и вернуть message_id (None при ошибке)."""
+def tg_mention(tid, name: str) -> str:
+    """HTML-упоминание пользователя: tg://user?id=... — Telegram подсвечивает имя
+    и показывает получателю «вас отметили» (работает даже без @username)."""
+    return f'<a href="tg://user?id={int(tid)}">{html.escape(str(name))}</a>'
+
+
+def tg_send_message_id(chat_id: int, text: str, html_mode: bool = False):
+    """Отправить сообщение и вернуть message_id (None при ошибке).
+    html_mode=True — текст в HTML (нужен для tg_mention)."""
     try:
+        payload = {"chat_id": chat_id, "text": text}
+        if html_mode:
+            payload["parse_mode"] = "HTML"
         req = urllib.request.Request(
             f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
-            data=json.dumps({"chat_id": chat_id, "text": text}).encode("utf-8"),
+            data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"}, method="POST",
         )
         resp = json.loads(urllib.request.urlopen(req, timeout=15).read())
@@ -1990,9 +2000,11 @@ def tg_delete_message(chat_id: int, msg_id: int) -> None:
         print(f"[paint_bot] не смог удалить сообщение {chat_id}/{msg_id}: {e!r}", flush=True)
 
 
-def tg_send_with_cleanup(chat_id: int, text: str, ttl_sec: int) -> None:
-    """Отправить уведомление и автоудалить его через ttl_sec (из HTTP-потока)."""
-    msg_id = tg_send_message_id(chat_id, text)
+def tg_send_with_cleanup(chat_id: int, text: str, ttl_sec: int,
+                         html_mode: bool = False) -> None:
+    """Отправить уведомление и автоудалить его через ttl_sec (из HTTP-потока).
+    html_mode=True — для текстов с tg_mention (тег-упоминание)."""
+    msg_id = tg_send_message_id(chat_id, text, html_mode=html_mode)
     if msg_id is not None:
         threading.Timer(ttl_sec, tg_delete_message, args=(chat_id, msg_id)).start()
 
@@ -4858,7 +4870,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1590"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1591"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -9322,6 +9334,49 @@ async def announce_geo2_release_job(context) -> None:
     context.job.schedule_removal()
 
 
+MENTION_TEST_FLAG = "mention_test_sent.txt"  # флаг в data-репо: тестовое уведомление с тегом отправлено
+
+
+async def mention_test_job(context) -> None:
+    """Разовый тест тегов-упоминаний: пример уведомления с @-тегом в Песочнице.
+    Флаг в data-репо не даёт повторить при рестарте (как анонс GEO2)."""
+    try:
+        urllib.request.urlopen(geo_github_request("GET", MENTION_TEST_FLAG), timeout=15)
+        context.job.schedule_removal()
+        return
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            print(f"[paint_bot] тест упоминаний: флаг проверить не вышло: {e!r}", flush=True)
+            return
+    except Exception as e:
+        print(f"[paint_bot] тест упоминаний: флаг проверить не вышло: {e!r}", flush=True)
+        return
+    text = ("🧪 " + tg_mention(8668538137, "Sumai")
+            + ", это тест тегов-упоминаний: если имя подсвечено как ссылка, а у тебя "
+              "чат всплыл «вас отметили» — механика работает 🎉 Так будут выглядеть "
+              "личные уведомления игры.")
+    msg_id = tg_send_message_id(GEO2_CHAT_ID, text, html_mode=True)
+    if msg_id is None:
+        return  # не ушло — флаг не ставим, повторим на следующем тике
+    try:
+        body = {"content": base64.b64encode("2026-11-08".encode("utf-8")).decode("ascii")}
+        try:
+            current = json.load(urllib.request.urlopen(
+                geo_github_request("GET", MENTION_TEST_FLAG), timeout=15))
+            body["sha"] = current["sha"]
+        except urllib.error.HTTPError as e:
+            if e.code != 404:
+                raise
+        req = geo_github_request("PUT", MENTION_TEST_FLAG,
+                                 {"Content-Type": "application/json"})
+        req.data = json.dumps({**body, "message": "mention test sent"}).encode("utf-8")
+        urllib.request.urlopen(req, timeout=15)
+        print("[paint_bot] тестовое уведомление с тегом отправлено, флаг выставлен", flush=True)
+    except Exception as e:
+        print(f"[paint_bot] тест ушёл, но флаг не записался: {e!r}", flush=True)
+    context.job.schedule_removal()
+
+
 def geo_sweep_job() -> None:
     """Фоновый прогон «ленивого» осмотра активных чатов: прибытия писем/подарков/какашек,
     перелёты самолёта, замена неявившегося капитана — уведомления уходят по расписанию,
@@ -9420,6 +9475,8 @@ def main() -> None:
     app.job_queue.run_repeating(submarine_spawn_job, interval=60.0, first=30.0)
     # ленивый осмотр ГЕО: уведомления о прибытиях/перелётах уходят по расписанию
     app.job_queue.run_repeating(geo_sweep_job, interval=60.0, first=45.0)
+    # разовый тест тегов-упоминаний (самоотключается после отправки)
+    app.job_queue.run_repeating(mention_test_job, interval=120.0, first=30.0)
     app.run_polling()
 
 
