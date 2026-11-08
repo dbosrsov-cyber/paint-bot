@@ -2482,6 +2482,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       <button id="actInviteBtn">✈️ Пригласить гостя</button>
       <button id="actStormBtn">🌲 Собрать дерево</button>
       <button id="actKickBtn">👢 Выпнуть гостя</button>
+      <button id="actShipBtn">⛵ Построить Галеон</button>
     </div>
     <div id="actHint" style="margin-top:10px;font-size:12px;color:var(--hint);min-height:16px;"></div>
     <div style="display:flex;justify-content:flex-end;margin-top:8px;">
@@ -3359,12 +3360,6 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       html += '<button onclick="openBuildMenu()">🏗 Строительство</button>'
         + ' <button onclick="openIslandActions()">🎬 Действия</button>';
       html += divider;
-      // постройка Галеона — у владельца с верфью, у кого ещё нет живого корабля
-      const myShipLive = (lastShips || []).some(s => s.mine && !s.sunk);
-      if (built.indexOf('shipyard') >= 0 && !myShipLive) {
-        html += '<button onclick="shipBuild()">⛵ Построить Галеон (10 🌲)</button>';
-      }
-      html += divider;
     } else {
       if (isl.guest) html += '<br>' + (legTxt[isl.guest.leg] || '');
       if (isl.guest && isl.guest.user === myKey() && isl.guest.leg === 'staying'
@@ -3989,6 +3984,15 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       ? '👢 Выпнуть гостя (можно через ' + Math.floor(stayLeft / 3600) + ':'
         + String(Math.floor(stayLeft % 3600 / 60)).padStart(2, '0') + ')'
       : '👢 Выпнуть гостя';
+    // постройка Галеона: нужна верфь и отсутствие живого корабля у игрока
+    const shBtn = document.getElementById('actShipBtn');
+    const hasShipyard = !!(myIsl && (myIsl.buildings || []).indexOf('shipyard') >= 0);
+    const myShipLive = (lastShips || []).some(s => s.mine && !s.sunk);
+    shBtn.disabled = !hasShipyard || myShipLive;
+    shBtn.style.opacity = shBtn.disabled ? '.45' : '1';
+    shBtn.textContent = myShipLive
+      ? '⛵ Галеон уже на плаву'
+      : (hasShipyard ? '⛵ Построить Галеон (10 🌲)' : '⛵ Построить Галеон (нужна Верфь ⚓)');
     document.getElementById('actHint').textContent = busy
       ? 'Самолёт занят: гость уже летит или гуляет на острове' : '';
     document.getElementById('actionsModal').style.display = 'flex';
@@ -4028,6 +4032,11 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     if (r.ok) status('👢 Гость ' + (data.gone ? 'исчез с острова' : 'улетает домой ✈️'));
     else status('⚠️ ' + (data.error || 'не вышло'));
     load();
+  };
+  document.getElementById('actShipBtn').onclick = () => {
+    if (document.getElementById('actShipBtn').disabled) return;
+    document.getElementById('actionsModal').style.display = 'none';
+    shipBuild();
   };
   document.getElementById('actionsCloseBtn').onclick = () => {
     document.getElementById('actionsModal').style.display = 'none';
@@ -4787,7 +4796,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1582"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1583"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
