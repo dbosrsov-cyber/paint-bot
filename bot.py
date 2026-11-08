@@ -2424,6 +2424,11 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     background:rgba(30,45,60,.92); color:#bfe3f7; border:1px solid rgba(125,211,252,.25);
     border-radius:999px; font-size:13px; line-height:1; padding:3px 8px; cursor:pointer; }
   .brand .brandHelp:hover { border-color:#2dd4bf; color:#fff; }
+  @keyframes helpBtnBlink {
+    0%, 100% { box-shadow:0 0 0 0 rgba(45,212,191,0); opacity:1; }
+    50% { box-shadow:0 0 12px 3px rgba(45,212,191,.8); opacity:.55; }
+  }
+  .brand .brandHelp.blink { animation:helpBtnBlink 1s ease-in-out 5; }
   /* карточки попапов Leaflet */
   .leaflet-popup-content-wrapper { border-radius:16px; background:var(--popup-bg);
     color:var(--text); box-shadow:0 10px 32px var(--shadow); }
@@ -4940,10 +4945,13 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   document.getElementById('delBtn').onclick = delMarker;
 
   nameInput.onchange = () => { localStorage.setItem('geo_name', nameInput.value.trim()); load(); };
-  // при входе в игру: на 3 секунды под кнопкой «?» в шапке — полупрозрачная «Справка по игре»
+  // при входе в игру: 10 секунд под кнопкой «?» в шапке — полупрозрачная
+  // «Справка по игре», а сама кнопка мигает (5 циклов по 1 секунде)
   (function hintHelp() {
     const btn = document.getElementById('helpBtn');
     if (!btn) return;
+    btn.classList.add('blink');
+    setTimeout(() => { btn.classList.remove('blink'); }, 10000);
     const r = btn.getBoundingClientRect();
     const el = document.createElement('div');
     el.textContent = 'Справка по игре';
@@ -4951,10 +4959,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       + (r.bottom + 6) + 'px;z-index:99998;pointer-events:none;'
       + 'font-size:13px;color:#bfe3f7;opacity:.55;background:rgba(11,18,26,.55);'
       + 'padding:3px 10px;border-radius:999px;border:1px solid rgba(125,211,252,.2);'
-      + 'transition:opacity .5s;white-space:nowrap;';
+      + 'transition:opacity .8s;white-space:nowrap;';
     document.body.appendChild(el);
-    setTimeout(() => { el.style.opacity = '0'; }, 2500);
-    setTimeout(() => { el.remove(); }, 3100);
+    setTimeout(() => { el.style.opacity = '0'; }, 9200);
+    setTimeout(() => { el.remove(); }, 10100);
   })();
   load();
 </script>
@@ -4964,7 +4972,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1593"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1594"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
