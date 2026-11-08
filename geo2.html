@@ -429,7 +429,9 @@
 <script>
   const tg = window.Telegram.WebApp;
   tg.ready(); tg.expand();
-  const chat = new URLSearchParams(location.search).get('chat') || '0';
+  // чат: из ?chat= (кнопка web_app из ЛС) или из start_param (прямая ссылка Mini App t.me/<bot>/<app>)
+  const chat = new URLSearchParams(location.search).get('chat')
+    || (tg.initDataUnsafe && tg.initDataUnsafe.start_param) || '0';
   document.getElementById('brandSub').textContent =
     chat === '-1004400745434' ? 'бета · Песочница' : '2.0 · Другое измерение';
 
