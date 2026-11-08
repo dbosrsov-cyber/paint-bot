@@ -1642,6 +1642,14 @@ def letter_progress(letter: dict):
     return lat, lon, total <= 0 or done_km >= total
 
 
+def letter_sender_name(chat_id: int, letter: dict) -> str:
+    """Отображаемое имя отправителя: актуальное имя его метки
+    (ник в Telegram мог смениться после отправки); если метка удалена —
+    имя, зафиксированное при отправке."""
+    m = geo_state.get(chat_id, {}).get(letter["from"])
+    return (m or {}).get("name") or letter.get("from_name", "?")
+
+
 # ---------- Ванильный Вулкан Какашек: спавн и полёт какашек ----------
 
 def random_point_near_moscow(radius_km: float):
@@ -4810,7 +4818,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1586"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1587"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -6115,7 +6123,7 @@ class AppHandler(BaseHTTPRequestHandler):
                         "read": letter.get("read_ts") is not None,
                         "mine": viewer_matches(letter["to"], viewer, viewer_name, chat_id),
                         "to": letter["to"],
-                        "from_name": letter.get("from_name", "?"),
+                        "from_name": letter_sender_name(chat_id, letter),
                         "from": letter["from"],  # user key отправителя — для кнопки «Ответить»
                         "to_name": (dest or {}).get("name", "удалённой метке"),
                         "from_lat": letter["from_lat"], "from_lon": letter["from_lon"],
@@ -6837,7 +6845,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     if dest is not None:
                         dest["read"] = dest.get("read", 0) + 1
                 result = {
-                    "from": letter["from_name"],
+                    "from": letter_sender_name(chat_id, letter),
                     "from_id": letter["from"],  # user key отправителя — для кнопки «Ответить»
                     "text": letter["text"],
                     "re_read": read_ts is not None,
