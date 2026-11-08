@@ -1156,10 +1156,11 @@ def _rps_winner(pa, pb):
 def spectator_duel(d: dict) -> dict:
     """Нейтральный вид дуэли для зрителя: чужие ходы в раунде скрыты,
     итоги прошлых раундов и финал — открыты."""
+    na, nb = duel_display_names(d)
     out = {
         "id": d["id"], "phase": d["phase"], "round": d["round"],
-        "a_name": d["a_name"], "b_name": d["b_name"],
-        "cpu_name": d[d["cpu"] + "_name"] if d.get("cpu") else None,
+        "a_name": na, "b_name": nb,
+        "cpu_name": (na if d.get("cpu") == "a" else nb) if d.get("cpu") else None,
         "wins_a": d["wins"]["a"], "wins_b": d["wins"]["b"],
         "a_ready": d["a"] in d["ready"], "b_ready": d["b"] in d["ready"],
         "a_picked": d["pa"] is not None, "b_picked": d["pb"] is not None,
@@ -1172,7 +1173,7 @@ def spectator_duel(d: dict) -> dict:
                        "pa": d["last"]["pa"], "pb": d["last"]["pb"],
                        "winner": d["last"]["winner"]}
     if d["phase"] == "finished":
-        out["loser_name"] = d[d["loser_side"] + "_name"]
+        out["loser_name"] = na if d["loser_side"] == "a" else nb
         out["sink_phrase"] = d["sink_phrase"]
     return out
 
@@ -1180,6 +1181,8 @@ def spectator_duel(d: dict) -> dict:
 def _finish_duel(d: dict) -> None:
     winner = "a" if d["wins"]["a"] > d["wins"]["b"] else "b"
     loser = "b" if winner == "a" else "a"
+    na, nb = duel_display_names(d)
+    dn = {"a": na, "b": nb}
     lsh = ships_state.get(ship_key(d["chat"], d[loser]))
     wsh = ships_state.get(ship_key(d["chat"], d[winner]))
     phrase = random.choice(SHIP_SINK_PHRASES)
@@ -1201,15 +1204,15 @@ def _finish_duel(d: dict) -> None:
     geo_save_to_github()
     duels_save_to_github()
     if d.get("cpu"):
-        note = (f"Капитан {d[d['cpu'] + '_name']} не явился на абордаж — "
+        note = (f"Капитан {dn[d['cpu']]} не явился на абордаж — "
                 f"команда билась сама, без единой капитанской пощады! ")
     else:
         note = ""
     try:
         tg_send_with_cleanup(
             d["chat"],
-            f"⚔️ АБОРДАЖ ОКОНЧЕН! {note}Корабль «{d[loser + '_name']}» был потоплен — {phrase} "
-            f"Победил капитан {d[winner + '_name']} 🏆",
+            f"⚔️ АБОРДАЖ ОКОНЧЕН! {note}Корабль «{dn[loser]}» был потоплен — {phrase} "
+            f"Победил капитан {dn[winner]} 🏆",
             600,
         )
     except Exception as e:
@@ -1277,15 +1280,17 @@ def public_duel(d: dict, user: str) -> dict:
     """Дуэль в безопасном виде для игрока user (без подглядывания чужого выбора)."""
     side = "a" if d["a"] == user else "b"
     other = "b" if side == "a" else "a"
+    na, nb = duel_display_names(d)
+    dn = {"a": na, "b": nb}
     out = {
         "id": d["id"], "phase": d["phase"], "round": d["round"],
         "my_side": side,
         "cpu_opp": d.get("cpu") == other,
-        "opp_name": d[other + "_name"], "my_name": d[side + "_name"],
+        "opp_name": dn[other], "my_name": dn[side],
         "wins_me": d["wins"][side], "wins_opp": d["wins"][other],
         "ready_me": user in d["ready"], "ready_opp": d[other] in d["ready"],
         "my_pick": d["p" + side], "opp_picked": bool(d["p" + other]),
-        "opp_name_full": d[other + "_name"],
+        "opp_name_full": dn[other],
         "pick_left": max(0, int(d.get("pick_deadline", 0) - time.time())),
         "wait_left": (max(0, int(d["ts"] + SHIP_CPU_AFTER_SEC - time.time()))
                       if d["phase"] == "ready" else 0),
@@ -1301,7 +1306,7 @@ def public_duel(d: dict, user: str) -> dict:
         }
     if d["phase"] == "finished":
         out["i_won"] = d["winner_side"] == side
-        out["loser_name"] = d[d["loser_side"] + "_name"]
+        out["loser_name"] = dn[d["loser_side"]]
         out["sink_phrase"] = d["sink_phrase"]
     return out
 
@@ -1648,6 +1653,23 @@ def letter_sender_name(chat_id: int, letter: dict) -> str:
     имя, зафиксированное при отправке."""
     m = geo_state.get(chat_id, {}).get(letter["from"])
     return (m or {}).get("name") or letter.get("from_name", "?")
+
+
+def gift_sender_name(chat_id: int, gift: dict) -> str:
+    """Отображаемое имя отправителя подарка: актуальное имя его метки."""
+    mkey = resolve_marker_key(chat_id, str(gift.get("from", "")),
+                             str(gift.get("from_name", "")))
+    m = geo_state.get(chat_id, {}).get(mkey) if mkey else None
+    return (m or {}).get("name") or gift.get("from_name", "?")
+
+
+def duel_display_names(d: dict) -> tuple:
+    """Актуальные имена капитанов — с их меток (ник в Telegram мог смениться);
+    если метка пропала — имена, зафиксированные при создании боя."""
+    def _nm(u, stored):
+        m = geo_state.get(d["chat"], {}).get(u)
+        return (m or {}).get("name") or stored
+    return _nm(d["a"], d["a_name"]), _nm(d["b"], d["b_name"])
 
 
 # ---------- Ванильный Вулкан Какашек: спавн и полёт какашек ----------
@@ -3139,6 +3161,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       ? '<div style="font-size:14px;background:rgba(255,255,255,.92);border-radius:10px;'
         + 'padding:10px 14px;color:#123;line-height:1.7;">🎁 открытых подарков у тебя: <b>'
         + (mk.gifts * 2) + '</b> эмодзи (' + mk.gifts + ' шт)<br>'
+        + '<span style="font-size:12px;opacity:.75">1 подарок = 2 эмодзи</span><br>'
         + '<button onclick="marketExchange()" style="background:#2f6fb2;'
         + 'font-size:15px;padding:8px 18px;">Обменять 10 эмодзи 🎁 → +1 ☄️ +1 🪵 +1 💩</button></div>'
       : '<button onclick="marketCapture()" style="background:#c0392b;font-size:18px;'
@@ -4818,7 +4841,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1587"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1588"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -6210,11 +6233,12 @@ class AppHandler(BaseHTTPRequestHandler):
                     sb = ships_state.get(ship_key(chat_id, bd["b"]))
                     if sa is None or sb is None:
                         continue
+                    ba_name, bb_name = duel_display_names(bd)
                     battles_out.append({
                         "id": bd["id"],
                         "lat": round((sa["lat"] + sb["lat"]) / 2, 6),
                         "lon": round((sa["lon"] + sb["lon"]) / 2, 6),
-                        "a": bd["a_name"], "b": bd["b_name"],
+                        "a": ba_name, "b": bb_name,
                     })
                 if changed:
                     ships_save_to_github()
@@ -7304,13 +7328,15 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             if gift.get("opened"):
                 self._json_response(200, {"picture": gift["picture"],
-                                          "from": gift.get("from_name", "?"), "re_open": True})
+                                          "from": gift_sender_name(chat_id, gift),
+                                          "re_open": True})
                 return
             gift["opened"] = True
             gift["picture"] = random.choice(GIFT_PICS)
             submarine_save_to_github()
         logline(f"200 /subopen chat={chat_id} user={user!r} gift={gid}")
-        self._json_response(200, {"picture": gift["picture"], "from": gift.get("from_name", "?")})
+        self._json_response(200, {"picture": gift["picture"],
+                                  "from": gift_sender_name(chat_id, gift)})
         return
 
     # ---------- Остров: покупка, гости на самолёте, постройки, удобрения ----------
