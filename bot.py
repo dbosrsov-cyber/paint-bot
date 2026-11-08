@@ -4964,6 +4964,24 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     setTimeout(() => { el.style.opacity = '0'; }, 9200);
     setTimeout(() => { el.remove(); }, 10100);
   })();
+  // плавное движение галеонов: сервер отдаёт параметры маршрута, клиент каждые
+  // 1,5 сек сам интерполирует позицию — не дожидаясь минутного обновления
+  const SHIP_KM_PER_MIN = 5000;
+  setInterval(() => {
+    const nowSec = Date.now() / 1000;
+    (lastShips || []).forEach(s => {
+      if (!s.moving || s.sunk || s.nav_from_lat == null || s.nav_ts == null) return;
+      const mk = shipMarkers[s.id || s.user];
+      if (!mk) return;
+      const totalKm = map.distance(L.latLng(s.nav_from_lat, s.nav_from_lon),
+                                   L.latLng(s.to_lat, s.to_lon)) / 1000;
+      const frac = totalKm > 0
+        ? ((nowSec - s.nav_ts) / 60 * SHIP_KM_PER_MIN) / totalKm : 1;
+      if (frac >= 1) { mk.setLatLng([s.to_lat, s.to_lon]); return; }
+      mk.setLatLng([s.nav_from_lat + (s.to_lat - s.nav_from_lat) * frac,
+                    s.nav_from_lon + (s.to_lon - s.nav_from_lon) * frac]);
+    });
+  }, 1500);
   load();
 </script>
 </body>
@@ -4972,7 +4990,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1594"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1595"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -6349,6 +6367,10 @@ class AppHandler(BaseHTTPRequestHandler):
                         "wins": sh.get("wins", 0),
                         "built": (geo_state.get(chat_id, {}).get(sh["user"]) or {}).get("ships_built", 0),
                         "lost": (geo_state.get(chat_id, {}).get(sh["user"]) or {}).get("ships_lost", 0),
+                        # параметры маршрута для плавной клиентской интерполяции
+                        "nav_from_lat": sh.get("nav_from_lat"), "nav_from_lon": sh.get("nav_from_lon"),
+                        "to_lat": sh.get("to_lat"), "to_lon": sh.get("to_lon"),
+                        "nav_ts": sh.get("nav_ts"),
                     })
                 # активные абордажи — точки «сражения» между сцепленными кораблями
                 battles_out = []
