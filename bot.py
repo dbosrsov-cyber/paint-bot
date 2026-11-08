@@ -1051,7 +1051,9 @@ def market_save_to_github() -> None:
 def market_load_from_github() -> None:
     loaded = _load_json_from_github(MARKET_FILE, "market")
     if loaded:
-        market_state.update(loaded)
+        # в JSON ключи становятся строками — в памяти ключи int (chat_id),
+        # без нормализации после перезапуска владелец рынка терялся
+        market_state.update({int(cid): e for cid, e in loaded.items()})
         print(f"[paint_bot] market: загружено {len(loaded)} рынков", flush=True)
 
 
@@ -2264,7 +2266,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1600"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1601"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
