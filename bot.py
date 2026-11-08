@@ -2494,6 +2494,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     <ul>
       <li>🐬 «Сифа» — догонялки на касатках по воде</li>
       <li>🪵 Брёвна плавают в море — подплыви вплотную касаткой и заберёшь</li>
+      <li>🔄 Каждые 8 часов титул Сифы случайно передаётся другой живой касатке</li>
     </ul>
     <div style="display:flex;justify-content:flex-end;">
       <button id="helpCloseBtn" class="btn-cancel">Закрыть</button>
@@ -4841,7 +4842,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1588"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1589"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
