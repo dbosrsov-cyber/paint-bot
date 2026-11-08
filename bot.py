@@ -1367,10 +1367,13 @@ def _duel_enter_pick(d: dict, now: float) -> None:
 
 
 def duel_tick(d: dict, now: float) -> None:
-    """Лениво продвинуть дуэль КНБ (вызывается из /geodata и /shipduel)."""
+    """Лениво продвинуть дуэль КНБ (вызывается из /geodata и /shipduel).
+    Каждая смена фазы/раунда сохраняется в GitHub — рестарт сервера (деплой,
+    падение Render) продолжит бой с того же раунда и счёта, а не с нуля."""
     if d["phase"] == "ready":
         if len(d["ready"]) >= 2:
             _duel_enter_pick(d, now)
+            duels_save_to_github()
         elif len(d["ready"]) == 1 and now - d["ts"] > SHIP_CPU_AFTER_SEC:
             # второй капитан не явился за 3 минуты — вместо него дерётся его команда
             human = d["a"] if d["a"] in d["ready"] else d["b"]
@@ -1379,6 +1382,7 @@ def duel_tick(d: dict, now: float) -> None:
             logline(f"ship duel: капитан {d[d['cpu'] + '_name']} не явился — играет команда")
             duels_save_to_github()
             _duel_enter_pick(d, now)
+            duels_save_to_github()
         elif not d["ready"] and now - d["ts"] > SHIP_READY_TIMEOUT:
             ship_duels.pop(d["id"], None)
             duels_save_to_github()
@@ -1402,6 +1406,7 @@ def duel_tick(d: dict, now: float) -> None:
             d["pa"] = d["pb"] = None
             d["phase"] = "roundend"
             d["roundend_ts"] = now
+            duels_save_to_github()
     elif d["phase"] == "roundend":
         if now - d["roundend_ts"] > SHIP_ROUNDEND_SEC:
             if d["wins"]["a"] >= 3 or d["wins"]["b"] >= 3:
@@ -1409,6 +1414,7 @@ def duel_tick(d: dict, now: float) -> None:
             else:
                 d["round"] += 1
                 _duel_enter_pick(d, now)
+                duels_save_to_github()
     elif d["phase"] == "finished":
         if now - d["finished_ts"] > SHIP_DUEL_KEEP_SEC:
             ship_duels.pop(d["id"], None)
@@ -2400,7 +2406,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1445"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1450"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
