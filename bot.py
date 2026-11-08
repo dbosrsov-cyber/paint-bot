@@ -2400,7 +2400,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1440"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1445"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -5855,6 +5855,25 @@ async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(f"Твой ID Telegram: {update.effective_user.id}")
 
 
+async def cmd_geo2(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/geo2 — инлайн-кнопка «Открыть карту» прямо в чат. WebApp в ИНЛАЙН-клавиатуре
+    в группах разрешён (запрет — только для reply-кнопок); идентификация игрока идёт
+    по подписанному initData нажавшего, а не по чату кнопки. Личный вход через
+    меню /startsum при этом сохранён."""
+    if not chat_allowed(update.effective_chat):
+        return
+    remember_user(update.effective_user)
+    chat_id = update.effective_chat.id
+    if chat_id not in (GEO2_CHAT_ID, ANON_GROUP_ID):
+        await update.message.reply_text("🧪 «ГеографияЧата 2.0» пока доступна только в чатах бета-теста!")
+        return
+    text = (
+        "🌍✨ ГеографияЧата 2.0 — общая карта этого чата: метки, письма, подарки, события.\n"
+        "Жми «Открыть карту» — Telegram подписывает тебя лично, играешь от своего имени."
+    )
+    await update.message.reply_text(text, reply_markup=geo2_keyboard(chat_id))
+
+
 async def dm_game_button(context: ContextTypes.DEFAULT_TYPE, user_id: int, text: str, keyboard):
     """Кнопки WebApp Telegram разрешает только в личке — в группах шлём кнопку в ЛС игроку.
     Возвращает (доставлено, причина_отказа) — причину пишем в лог и показываем в чате."""
@@ -6983,6 +7002,7 @@ def main() -> None:
     app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CommandHandler("helpsum", cmd_help))
     app.add_handler(CommandHandler("myid", cmd_myid))
+    app.add_handler(CommandHandler("geo2", cmd_geo2))
     app.add_handler(CommandHandler("delpointgeo", cmd_delpointgeo))
     app.add_handler(CallbackQueryHandler(on_game_menu, pattern="^game:"))
     app.add_handler(CallbackQueryHandler(on_saga_action, pattern="^saga:"))
