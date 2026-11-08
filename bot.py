@@ -987,6 +987,11 @@ SHIP_ROUNDEND_SEC = 4          # пауза «раунд окончен» пер
 SHIP_READY_TIMEOUT = 180       # дуэль отменяется, если оба не нажали «Готов»
 SHIP_CPU_AFTER_SEC = 180       # неявившийся капитан заменяется командой (компьютером)
 SHIP_DUEL_KEEP_SEC = 600       # финальный экран дуэли хранится столько после боя
+SHIP_REBUILD_DELAY_SEC = 600   # пауза: новый Галеон не ранее чем через 10 мин после потопления
+# ---------- Морской Рынок: локация в океане (Карское море, 79°N 70°E) ----------
+MARKET_LAT, MARKET_LON = 79.0, 70.0   # позиция одинакова для всех чатов, владелец — свой на чат
+MARKET_GIFT_COST = 5                  # обмен: 5 открытых подарков -> +1 ЗП, +1 дерева, +1 какашка
+MARKET_FILE = "market.json"
 # потопленные корабли с карты не исчезают: висят «мемориальными рифами»,
 # пока капитан не спустит на воду новый Галеон (запись перезаписывается)
 
@@ -1032,6 +1037,21 @@ def ships_load_from_github() -> None:
     if loaded:
         ships_state.update(loaded)
         print(f"[paint_bot] ships: загружено {len(loaded)} кораблей", flush=True)
+
+
+market_state = {}   # str(chat_id) -> {"owner": mkey|None, "owner_name": str, "captured_ts": float}
+                    # владелец Морского Рынка чата; None/"свободен" — пока никто не захватывал
+
+
+def market_save_to_github() -> None:
+    _save_json_to_github(MARKET_FILE, market_state, geo_lock, "market")
+
+
+def market_load_from_github() -> None:
+    loaded = _load_json_from_github(MARKET_FILE, "market")
+    if loaded:
+        market_state.update(loaded)
+        print(f"[paint_bot] market: загружено {len(loaded)} рынков", flush=True)
 
 
 DUELS_FILE = "ship_duels.json"
@@ -3054,6 +3074,89 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       iconSize: [76, 76], iconAnchor: [38, 38], popupAnchor: [0, -42],
     });
   }
+
+  // ---------- Морской Рынок: маркер в океане, открытка-верфь, захват и обмен ----------
+  let marketMarker = null;         // L.marker рынка
+  let lastMarket = null;           // данные из /geodata (пересобираются каждый load)
+  let marketCard = null;           // открытка рынка
+
+  function marketIcon() {
+    // вариант А: белый круг с шатром 🎪 + синий бейдж ⚓
+    return L.divIcon({
+      html: '<div class="mk" style="position:relative;font-size:34px;line-height:1;background:#fff;'
+        + 'border:2px solid #2f6fb2;border-radius:50%;padding:6px;'
+        + 'filter:drop-shadow(0 2px 3px rgba(0,0,0,.45))">🎪'
+        + '<span style="position:absolute;right:-9px;bottom:-7px;font-size:17px;'
+        + 'background:#2f6fb2;color:#fff;border-radius:50%;padding:2px 4px;line-height:1">⚓</span></div>',
+      className: 'emoji-marker',
+      iconSize: [58, 58], iconAnchor: [29, 29], popupAnchor: [0, -36],
+    });
+  }
+  function fmtHold(sec) {
+    const h = Math.floor(sec / 3600), mnt = Math.floor((sec % 3600) / 60);
+    return h > 0 ? h + ' ч ' + mnt + ' мин' : mnt + ' мин';
+  }
+  function renderMarket(mk) {
+    if (marketMarker) { map.removeLayer(marketMarker); marketMarker = null; }
+    lastMarket = mk;
+    const mkk = L.marker([mk.lat, mk.lon], {icon: marketIcon()}).addTo(map);
+    const who = mk.owner_name
+      ? 'владелец: <b>' + escapeHtml(mk.owner_name) + '</b><br>держит: ' + fmtHold(mk.hold_sec)
+      : '<b>никем не захвачен</b>';
+    mkk.bindPopup('<span style="font-size:22px">🎪</span> <b>Морской Рынок</b><br>' + who
+      + '<br><button onclick="openMarketCard()">Открыть рынок</button>');
+    marketMarker = mkk;
+  }
+  function openMarketCard() {
+    const mk = lastMarket;
+    if (!mk) return;
+    if (marketCard) { marketCard.remove(); marketCard = null; }
+    const hold = fmtHold(mk.hold_sec);
+    const whoLine = mk.owner_name
+      ? 'владелец: ' + escapeHtml(mk.owner_name) + ' • держит ' + hold
+      : 'рынок свободен — бери, пока не увели! 🏴‍☠️';
+    const center = mk.mine
+      ? '<div style="font-size:14px;background:rgba(255,255,255,.92);border-radius:10px;'
+        + 'padding:10px 14px;color:#123;line-height:1.7;">🎁 открытых подарков у тебя: <b>'
+        + mk.gifts + '</b><br><button onclick="marketExchange()" style="background:#2f6fb2;'
+        + 'font-size:15px;padding:8px 18px;">Обменять 5 🎁 → +1 ☄️ +1 🪵 +1 💩</button></div>'
+      : '<button onclick="marketCapture()" style="background:#c0392b;font-size:18px;'
+        + 'padding:12px 26px;">🏴‍☠️ Захватить рынок</button>';
+    marketCard = document.createElement('div');
+    marketCard.style.cssText = 'position:fixed;inset:0;display:flex;align-items:center;'
+      + 'justify-content:center;z-index:100000;padding:18px;background:rgba(10,20,35,.6);';
+    marketCard.innerHTML = '<div style="position:relative;width:100%;max-width:520px;height:340px;'
+      + 'border-radius:14px;overflow:hidden;box-shadow:0 16px 50px rgba(0,0,0,.6);font-family:Georgia,serif">'
+      + '<img src="/islandimg?p=shipyard" draggable="false" alt="" style="position:absolute;inset:0;'
+      + 'width:100%;height:100%;object-fit:cover;">'
+      + '<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">'
+      + center + '</div>'
+      + '<div style="position:absolute;top:10px;left:0;right:0;text-align:center;color:#fff;'
+      + 'font-weight:bold;font-size:19px;text-shadow:0 1px 4px rgba(0,0,0,.8)">🎪 Морской Рынок</div>'
+      + '<div style="position:absolute;bottom:8px;left:0;right:0;text-align:center;color:#fff;'
+      + 'font-size:13px;text-shadow:0 1px 3px rgba(0,0,0,.7)">' + whoLine + '</div>'
+      + '<button onclick="this.parentNode.parentNode.remove()" style="position:absolute;top:10px;'
+      + 'right:12px;background:rgba(255,255,255,.85);border:none;border-radius:50%;width:30px;'
+      + 'height:30px;font-size:15px;cursor:pointer">✕</button></div>';
+    document.body.appendChild(marketCard);
+  }
+  window.openMarketCard = openMarketCard;
+  window.marketCapture = async () => {
+    if (marketCard) { marketCard.remove(); marketCard = null; }
+    const r = await fetch('/marketcapture', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName()})});
+    const d = await r.json().catch(() => ({}));
+    if (r.ok) { status('🎪 Морской Рынок твой! Торгуйся вовсю 🏴‍☠️'); load(); }
+    else status('⚠️ ' + (d.error || 'не вышло'));
+  };
+  window.marketExchange = async () => {
+    if (marketCard) { marketCard.remove(); marketCard = null; }
+    const r = await fetch('/marketexchange', {method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName()})});
+    const d = await r.json().catch(() => ({}));
+    if (r.ok) { status('🎪 Сделка! −5 🎁, +1 ☄️ +1 🪵 +1 💩'); load(); }
+    else status('⚠️ ' + (d.error || 'не вышло'));
+  };
   function renderSubmarine(s) {
     if (submarineMarker) { map.removeLayer(submarineMarker); submarineMarker = null; }
     const mk = L.marker([s.lat, s.lon], {icon: submarineIcon()}).addTo(map);
@@ -4603,6 +4706,8 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     (data.gifts || []).forEach(renderGift);
     if (data.submarine) renderSubmarine(data.submarine);
     else if (submarineMarker) { map.removeLayer(submarineMarker); submarineMarker = null; }
+    if (data.market) renderMarket(data.market);
+    else if (marketMarker) { map.removeLayer(marketMarker); marketMarker = null; lastMarket = null; }
     (data.ships || []).forEach(renderShip);
     (data.ship_battles || []).forEach(renderBattle);
     if (data.ship_duel) handleShipDuel(data.ship_duel);
@@ -4682,7 +4787,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1581"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1582"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -6359,6 +6464,24 @@ class AppHandler(BaseHTTPRequestHandler):
                     if src and src.get("souvenirs"):
                         m["souvenirs"] = src["souvenirs"]
                     m["zp"] = stardust_balance(chat_id, m["user"])
+                # ---------- Морской Рынок: владелец, отсчёт владения, мешок зрителя ----------
+                mk_entry = market_state.get(str(chat_id))
+                if mk_entry is None:
+                    mk_entry = market_state.get(chat_id)
+                market_out = {"lat": MARKET_LAT, "lon": MARKET_LON,
+                              "owner": None, "owner_name": None, "mine": False,
+                              "hold_sec": 0, "gifts": 0}
+                if mk_entry and mk_entry.get("owner"):
+                    owner_key = mk_entry["owner"]
+                    market_out["owner"] = owner_key
+                    market_out["owner_name"] = mk_entry.get("owner_name") or "?"
+                    market_out["mine"] = viewer_matches(owner_key, viewer, viewer_name, chat_id)
+                    market_out["hold_sec"] = max(
+                        0, int(now - mk_entry.get("captured_ts", now)))
+                market_out["gifts"] = len([
+                    g for g in gifts_state.values()
+                    if g["chat"] == chat_id and g.get("opened") and g.get("picture")
+                    and viewer_matches(g["to"], viewer, viewer_name, chat_id)])
             if changed:
                 geo_save_to_github()
                 letters_save_to_github()
@@ -6375,6 +6498,7 @@ class AppHandler(BaseHTTPRequestHandler):
                             "islands": islands_out, "planes": planes_out,
                             "ships": ships_out, "ship_duel": duel_out,
                             "ship_battles": battles_out,
+                            "market": market_out,
                             "me": me_key,
                             "viewer_admin": tg_chat_admin_allowed(
                                 chat_id, self.headers.get("X-TG-Init-Data", ""))},
@@ -6468,6 +6592,9 @@ class AppHandler(BaseHTTPRequestHandler):
                         "/shipbuild", "/shipnav", "/shipboard", "/shipready", "/shippick",
                         "/shipduelseen"):
             self._handle_island_post(url)
+            return
+        if url.path in ("/marketcapture", "/marketexchange"):
+            self._handle_market_post(url)
             return
         if url.path != "/save":
             self._respond(404, b"not found")
@@ -7191,6 +7318,90 @@ class AppHandler(BaseHTTPRequestHandler):
         else:
             self._json_response(404, {"error": "not found"})
 
+    # ---------- Морской Рынок: захват локации и обмен подарков ----------
+
+    def _handle_market_post(self, url):
+        """Захватить рынок (/marketcapture) или обменять подарки на ресурсы (/marketexchange)."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+            name = str(payload.get("name", ""))[:64]
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        with geo_lock:
+            mkey = resolve_marker_key(chat_id, user, name)
+            if mkey is None:
+                self._json_response(404, {"error": "сначала поставь метку на карте"})
+                return
+            entry = market_state.setdefault(
+                chat_id, {"owner": None, "owner_name": None, "captured_ts": 0.0})
+            if url.path == "/marketcapture":
+                if entry.get("owner") and viewer_matches(entry["owner"], user, name, chat_id):
+                    self._json_response(409, {"error": "рынок уже твой — торгуйся 🎪"})
+                    return
+                cur_ship = (ships_state.get(ship_key(chat_id, entry["owner"]))
+                            if entry.get("owner") else None)
+                if cur_ship is not None and not cur_ship.get("sunk"):
+                    owner_name = entry.get("owner_name") or "?"
+                    self._json_response(403, {"error": (
+                        f"🎪 Морской Рынок охраняется! У владельца {owner_name} ещё плавает "
+                        f"Галеон — сначала потопи его в честном бою ⚔️ "
+                        f"и возвращайся за трофеями 🏴‍☠️"
+                    )})
+                    return
+                prev_name = entry.get("owner_name")
+                marker = geo_state.get(chat_id, {}).get(mkey) or {}
+                entry["owner"] = mkey
+                entry["owner_name"] = marker.get("name", mkey)
+                entry["captured_ts"] = time.time()
+                market_save_to_github()
+                cap_name = entry["owner_name"]
+            elif url.path == "/marketexchange":
+                if not entry.get("owner") or not viewer_matches(entry["owner"], user, name, chat_id):
+                    self._json_response(403, {"error": "рынок не твой — сначала захвати 🏴‍☠️"})
+                    return
+                my_gifts = [g for g in list(gifts_state.values())
+                            if g["chat"] == chat_id and g.get("opened") and g.get("picture")
+                            and viewer_matches(g["to"], user, name, chat_id)]
+                if len(my_gifts) < MARKET_GIFT_COST:
+                    self._json_response(403, {"error": (
+                        f"на обмен нужно {MARKET_GIFT_COST} открытых подарков 🎁 "
+                        f"(у тебя — {len(my_gifts)})"
+                    )})
+                    return
+                for g in my_gifts[:MARKET_GIFT_COST]:
+                    del gifts_state[g["id"]]  # подарки сгорают в торговых печах
+                marker = geo_state.get(chat_id, {}).get(mkey)
+                if marker is not None:
+                    marker["wood"] = marker.get("wood", 0) + 1
+                    marker["poops"] = marker.get("poops", 0) + 1
+                stardust_earn(chat_id, mkey, 1)
+                submarine_save_to_github()
+                geo_save_to_github()
+                market_save_to_github()
+                logline(f"200 /marketexchange chat={chat_id} user={mkey!r}")
+                self._json_response(200, {"ok": True, "spent": MARKET_GIFT_COST})
+                return
+            else:
+                self._json_response(404, {"error": "not found"})
+                return
+        # уведомление в чат — только при захвате (вне лока: Telegram долго думает)
+        if prev_name and prev_name != cap_name:
+            text = (f"🎪 Морской Рынок сменил хозяина! Теперь за прилавком {cap_name} — "
+                    f"{prev_name} отправился кормить рыб 🦈")
+        else:
+            text = (f"🎪 Морской Рынок впервые захвачен! Хозяин прилавка — {cap_name}. "
+                    f"Торгуй, пока Галеон цел ⚓😎")
+        try:
+            tg_send_with_cleanup(chat_id, text, 600)
+        except Exception as e:
+            print(f"[paint_bot] уведомление о захвате рынка не ушло: {e!r}", flush=True)
+        logline(f"200 /marketcapture chat={chat_id} user={mkey!r}")
+        self._json_response(200, {"ok": True})
+
     # ---------- Корабли (Галеоны): постройка, плавание, абордаж ----------
 
     def _ship_payload(self):
@@ -7227,6 +7438,14 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._json_response(409, {"error": "у тебя уже есть корабль — он один. Потопи его в бою 😈"})
                 return
             if old is not None and old.get("sunk"):
+                # пауза после потопления: капитан оплакивает экипаж, верфь остывает
+                left = SHIP_REBUILD_DELAY_SEC - (time.time() - old.get("sunk_ts", 0))
+                if left > 0:
+                    self._json_response(403, {"error": (
+                        f"верфь остывает после потопления: новый Галеон — "
+                        f"через {int(left // 60)} мин {int(left % 60)} сек ⏳"
+                    )})
+                    return
                 # тонувший корабль уходит «мемориальным рифом» — на карте остаётся
                 wkey = f"{chat_id}|{mkey}|{int(old.get('sunk_ts', time.time()))}"
                 wrecks_state[wkey] = dict(old)
@@ -9043,6 +9262,7 @@ def main() -> None:
     ships_load_from_github()
     wrecks_load_from_github()
     duels_load_from_github()
+    market_load_from_github()
     tgids_load_from_github()
     apply_marker_bindings()
     apply_tid_bindings()
