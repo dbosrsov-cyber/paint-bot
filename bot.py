@@ -227,6 +227,7 @@ users_by_name = {}
 # Доступ: бот работает только в этих группах (личка всегда разрешена)
 ALLOWED_GROUPS = {-1004400745434, -1002304715333}
 GEO2_CHAT_ID = -1004400745434  # «ГеографияЧата 2.0» — пока только Песочница
+WEEKLY_STATS_CHAT = -1002304715333  # «Другое измерение»: сюда пятница 16:00 МСК — итоги недели
 ADMIN_ID = 8668538137  # кому сообщать о добавлении в чужие группы
 
 
@@ -1334,6 +1335,9 @@ def _finish_duel(d: dict) -> None:
     lmarker = geo_state.get(d["chat"], {}).get(d[loser])
     if lmarker is not None:
         lmarker["ships_lost"] = lmarker.get("ships_lost", 0) + 1   # а это навсегда у капитана
+    wmarker = geo_state.get(d["chat"], {}).get(d[winner])
+    if wmarker is not None:
+        wmarker["ships_won"] = wmarker.get("ships_won", 0) + 1     # потопленные галеоны — навсегда
     d["phase"] = "finished"
     d["finished_ts"] = time.time()
     d["loser_side"], d["winner_side"] = loser, winner
@@ -2090,6 +2094,13 @@ def _sifa_note_holder(entry: dict, ships: dict, now: float) -> None:
         entry["sifa_since"] = now
 
 
+def _sifa_grant(entry: dict, ships: dict, user: str) -> None:
+    """Дать Сифу касатке и зафиксировать факт владения (для статистики недели)."""
+    ships[user]["sifa"] = True
+    holds = entry.setdefault("sifa_holds", {})
+    holds[user] = holds.get(user, 0) + 1
+
+
 async def sifa_sweep_job(context) -> None:
     """Раз в 10 минут: касатки игроков, не заходивших 48ч, удаляются (молча —
     новая создастся при входе); раз в 8ч Сифа случайно переходит к другой
@@ -2107,14 +2118,14 @@ async def sifa_sweep_job(context) -> None:
             for u in stale:
                 del ships[u]
             if ships and not any(s.get("sifa") for s in ships.values()):
-                random.choice(list(ships.values()))["sifa"] = True
+                _sifa_grant(entry, ships, random.choice(list(ships)))
             if ships and now >= entry.get("next_sifa_rotate_ts", 0):
                 for s in ships.values():
                     s["sifa"] = False
-                holder = random.choice(list(ships.values()))
-                holder["sifa"] = True
+                holder_u = random.choice(list(ships))
+                _sifa_grant(entry, ships, holder_u)
                 entry["next_sifa_rotate_ts"] = now + SIFA_ROTATE_SEC
-                rotate_name = holder.get("name", "капитан")
+                rotate_name = ships[holder_u].get("name", "капитан")
             if ships:
                 _sifa_note_holder(entry, ships, now)
                 # ротация каждые 8ч сама сбрасывает таймер: до напоминания
@@ -2200,6 +2211,146 @@ def geo_mention(chat_id, user_key, fallback: str) -> str:
         except (TypeError, ValueError):
             return name
     return name
+
+
+def _ws_tg_mention(chat_id: int, uid) -> str:
+    """Упоминание по числовому id Telegram: имя из базы чата (tgids) + tg-ссылка."""
+    info = ((tgids_state.get(str(chat_id)) or tgids_state.get(chat_id) or {})
+            .get(str(uid), {}))
+    return tg_mention(int(uid), info.get("name") or f"игрок {uid}")
+
+
+async def weekly_stats_job(context) -> None:
+    """Пятница 16:00 МСК: итоги недели в «Другое измерение» по 11 номинациям.
+    Сообщение НЕ удаляется. Пустая номинация — красный крест (✗)."""
+    chat_id = WEEKLY_STATS_CHAT
+    now = time.time()
+    markers = geo_state.get(chat_id) or {}
+    members = set((tgids_state.get(str(chat_id)) or tgids_state.get(chat_id) or {}).keys())
+    lines = ["🏆 <b>Итоги недели в «Другом измерении»</b>", ""]
+
+    def row(emoji: str, title: str, desc: str, val, who) -> None:
+        if val and who:
+            lines.append(f"{emoji} <b>{title}</b> — {desc}: <b>{val}</b> — {who}")
+        else:
+            lines.append(f"{emoji} <b>{title}</b> — {desc}: ✗")
+
+    def top(counter: dict):
+        if not counter:
+            return 0, None
+        k, v = max(counter.items(), key=lambda kv: kv[1])
+        return (v, k) if v and v > 0 else (0, None)
+
+    try:
+        # 1. Быки и коровы: победы (стата глобальная — берём участников этого чата)
+        v, k = top({str(u): s.get("wins", 0) for u, s in stats.items()
+                    if str(u) in members})
+        row("🐂", "Быкующий гений", "побед в «Быки и коровы»", v,
+            _ws_tg_mention(chat_id, k) if k else None)
+
+        # 2. СагаЧат: написано глав (счётчик копится с момента обновления)
+        saga = saga_state.get(chat_id) or {}
+        v, k = top({u: n for u, n in (saga.get("author_counts") or {}).items()
+                    if str(u) in members})
+        row("📜", "Главный главописец", "глав в СагаЧате", v,
+            _ws_tg_mention(chat_id, k) if k else None)
+
+        # 3–4. Письма: отправлено / получено
+        sent, got = {}, {}
+        for l in letters_state.values():
+            if l.get("chat") == chat_id:
+                sent[l["from"]] = sent.get(l["from"], 0) + 1
+                got[l["to"]] = got.get(l["to"], 0) + 1
+        v, k = top(sent)
+        row("✉️", "Почтмейстер", "отправлено писем", v,
+            geo_mention(chat_id, k, k) if k else None)
+        v, k = top(got)
+        row("📥", "Магнит для писем", "получено писем", v,
+            geo_mention(chat_id, k, k) if k else None)
+
+        # 5. Розовые какашки: получено
+        poops_got = {}
+        for p in poops_state.values():
+            if p.get("chat") == chat_id:
+                poops_got[p["to"]] = poops_got.get(p["to"], 0) + 1
+        v, k = top(poops_got)
+        row("💗", "Розовощёкий", "получено розовых какашек", v,
+            geo_mention(chat_id, k, k) if k else None)
+
+        # 6. Подарки: получено
+        gifts_got = {}
+        for g in gifts_state.values():
+            if g.get("chat") == chat_id:
+                gifts_got[g["to"]] = gifts_got.get(g["to"], 0) + 1
+        v, k = top(gifts_got)
+        row("🎁", "Любимчик Дедморозов", "получено подарков", v,
+            geo_mention(chat_id, k, k) if k else None)
+
+        # 7. Звёздная пыль: собрано (агрегируем все ключи баланса в канонический ключ метки)
+        pref = f"{chat_id}|"
+        dust = {}
+        for key, n in stardust_state.items():
+            if not str(key).startswith(pref):
+                continue
+            ukey = str(key)[len(pref):]
+            if str(ukey).isdigit():
+                mk = next((mk for mk, m in markers.items()
+                           if str(m.get("tid", "")) == str(ukey)), None)
+                if mk:
+                    ukey = mk
+            dust[ukey] = dust.get(ukey, 0) + n
+        v, k = top(dust)
+        row("✨", "Звездочёт", "собрано звёздной пыли", v,
+            geo_mention(chat_id, k, k) if k else None)
+
+        # 8–9. Абордажи: потоплено галеонов / поражений (счётчики навсегда на метках)
+        won = {mk: m["ships_won"] for mk, m in markers.items() if m.get("ships_won")}
+        lost = {mk: m["ships_lost"] for mk, m in markers.items() if m.get("ships_lost")}
+        v, k = top(won)
+        row("⚔️", "Морской дьявол", "потоплено галеонов (мастер КНБ)", v,
+            geo_mention(chat_id, k, k) if k else None)
+        v, k = top(lost)
+        row("🌊", "Корм для акул", "поражений при абордаже", v,
+            geo_mention(chat_id, k, k) if k else None)
+
+        # 10. Морской Рынок: часов владения (накопитель + текущий отсчёт)
+        mk_e = market_state.get(str(chat_id)) or market_state.get(chat_id) or {}
+        hours = dict(mk_e.get("owner_hours") or {})
+        cur = mk_e.get("owner")
+        if cur and mk_e.get("captured_ts"):
+            hours[cur] = hours.get(cur, 0.0) + max(
+                0.0, now - float(mk_e["captured_ts"])) / 3600.0
+        v, k = top(hours)
+        row("⚖️", "Воротила Рынка", "часов владения Морским Рынком",
+            (round(v, 1) if v else 0), geo_mention(chat_id, k, k) if k else None)
+
+        # 11. Сифа: сколько раз носил титул (счётчик копится с момента обновления)
+        sifa_e = sifa_state.get(chat_id) or {}
+        ships = sifa_e.get("ships") or {}
+        v, k = top(sifa_e.get("sifa_holds") or {})
+        who = None
+        if k:
+            tid = (ships.get(k) or {}).get("tid")
+            nm = (ships.get(k) or {}).get("name") or k
+            if tid:
+                try:
+                    who = tg_mention(int(tid), nm)
+                except (TypeError, ValueError):
+                    who = geo_mention(chat_id, k, nm)
+            else:
+                who = geo_mention(chat_id, k, nm)
+        row("🐬", "Сифа недели", "раз получал титул Сифы", v, who)
+    except Exception as e:
+        logline(f"weekly_stats: ошибка сбора статистики: {e!r}")
+        return
+
+    try:
+        await context.bot.send_message(
+            chat_id, "\n".join(lines), parse_mode="HTML",
+            disable_web_page_preview=True)
+        logline("weekly_stats: итоги недели отправлены")
+    except Exception as e:
+        logline(f"weekly_stats: не отправлена: {e!r}")
 
 
 def tg_send_message_id(chat_id: int, text: str, html_mode: bool = False):
@@ -2407,7 +2558,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1945"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-2141"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -4495,7 +4646,7 @@ class AppHandler(BaseHTTPRequestHandler):
             else:
                 ship = ships[sk]
             if ships and not any(s.get("sifa") for s in ships.values()):
-                _rnd.choice(list(ships.values()))["sifa"] = True
+                _sifa_grant(entry, ships, _rnd.choice(list(ships)))
             _sifa_note_holder(entry, ships, time.time())
         sifa_save_to_github()
         self._json_response(200, {"ok": True, "lat": ship["lat"], "lon": ship["lon"],
@@ -4564,7 +4715,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     if now < os.get("frozen_until", 0):
                         continue
                     if haversine_km(lat, lon, os["lat"], os["lon"]) <= SIFA_PASS_KM:
-                        os["sifa"] = True
+                        _sifa_grant(entry, ships, ou)
                         os["frozen_until"] = now + SIFA_FROZEN_SEC
                         ship["sifa"] = False
                         tlat, tlon = sifa_random_water(area)
@@ -4575,7 +4726,7 @@ class AppHandler(BaseHTTPRequestHandler):
                         break
             if ships and not any(s.get("sifa") for s in ships.values()):
                 import random as _rnd
-                _rnd.choice(list(ships.values()))["sifa"] = True
+                _sifa_grant(entry, ships, _rnd.choice(list(ships)))
             _sifa_note_holder(entry, ships, now)
         wood_total = 0
         if wood_picked:
@@ -5010,6 +5161,12 @@ class AppHandler(BaseHTTPRequestHandler):
                     return
                 prev_name = entry.get("owner_name")
                 prev_owner = entry.get("owner")
+                if prev_owner:
+                    # накопитель часов владения (для статистики недели): старому владельцу
+                    # добиваем время от захвата до смены владельца (в часах)
+                    oh = entry.setdefault("owner_hours", {})
+                    oh[prev_owner] = oh.get(prev_owner, 0.0) + max(
+                        0.0, time.time() - float(entry.get("captured_ts") or time.time())) / 3600.0
                 marker = geo_state.get(chat_id, {}).get(mkey) or {}
                 entry["owner"] = mkey
                 entry["owner_name"] = marker.get("name", mkey)
@@ -6687,6 +6844,9 @@ async def on_saga_chapter(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     s["last_author"] = update.effective_user.id
     s["last_chapter_ts"] = time.time()
     s["last_nag_ts"] = 0.0
+    ac = s.setdefault("author_counts", {})
+    au = str(update.effective_user.id)
+    ac[au] = ac.get(au, 0) + 1   # для статистики недели: главы по авторам не сохраняются — только счётчик
     saga_save_to_github()
     # политика анонимности: само сообщение с текстом главы стираем из чата
     try:
@@ -7049,6 +7209,9 @@ def main() -> None:
     app.job_queue.run_repeating(paint_periodic_sweep, interval=15.0)
     # автобэкап меток и писем: каждый день в 01:00 по Москве
     app.job_queue.run_daily(backup_job, time=datetime.time(1, 0, tzinfo=MSK_TZ))
+    # итоги недели: каждую пятницу в 16:00 по Москве в «Другое измерение» (не удаляются)
+    app.job_queue.run_daily(weekly_stats_job, time=datetime.time(16, 0, tzinfo=MSK_TZ),
+                            days=(4,))
     # вулканы: фоновый спавн + уведомление в чат при появлении
     app.job_queue.run_repeating(volcano_spawn_job, interval=60.0, first=10.0)
     # метеориты: фоновое падение + уведомление в чат
