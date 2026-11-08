@@ -2238,7 +2238,7 @@
   const sifaPadEl = document.getElementById('sifaPad');
   const sifaCtrlEl = document.getElementById('sifaCtrl');
   sifaBtn.onclick = async () => {
-    if (sifaPadOn) {   // выходим из режима: убираем джойстик и маркер касатки с карты
+    if (sifaPadOn) {   // выходим из режима: убираем джойстик и ВСЕХ касаток с карты
       sifaPadOn = false;
       sifaPadEl.style.display = 'none';
       sifaCtrlEl.style.display = 'none';
@@ -2247,8 +2247,13 @@
       document.getElementById('sifaAreaBar').style.display = 'none';
       sifaDrawBounds(null);
       clearInterval(sifaPollTimer); sifaPollTimer = null;
+      if (sifaSailTimer) { clearInterval(sifaSailTimer); sifaSailTimer = null; }
       if (sifaMarker) { map.removeLayer(sifaMarker); sifaMarker = null; }
-      status('🐬 Ты вышел из игры — касатка убрана с карты');
+      Object.values(sifaShips).forEach(m => map.removeLayer(m));
+      Object.keys(sifaShips).forEach(k => delete sifaShips[k]);
+      Object.values(sifaLogMarks).forEach(m => map.removeLayer(m));
+      Object.keys(sifaLogMarks).forEach(k => delete sifaLogMarks[k]);
+      status('🐬 Ты вышел из игры — все касатки убраны с карты');
       return;
     }
     status('🐬 Готовим касатку…');
