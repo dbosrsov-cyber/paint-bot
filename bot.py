@@ -4834,6 +4834,22 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   document.getElementById('delBtn').onclick = delMarker;
 
   nameInput.onchange = () => { localStorage.setItem('geo_name', nameInput.value.trim()); load(); };
+  // при входе в игру: на 3 секунды рядом с «?» — полупрозрачная «Справка по игре»
+  (function hintHelp() {
+    const btn = document.getElementById('helpBtn');
+    if (!btn) return;
+    const r = btn.getBoundingClientRect();
+    const el = document.createElement('div');
+    el.textContent = 'Справка по игре';
+    el.style.cssText = 'position:fixed;left:' + (r.right + 8) + 'px;top:'
+      + (r.top + r.height / 2 - 11) + 'px;z-index:99998;pointer-events:none;'
+      + 'font-size:13px;color:#bfe3f7;opacity:.55;background:rgba(11,18,26,.55);'
+      + 'padding:3px 10px;border-radius:999px;border:1px solid rgba(125,211,252,.2);'
+      + 'transition:opacity .5s;white-space:nowrap;';
+    document.body.appendChild(el);
+    setTimeout(() => { el.style.opacity = '0'; }, 2500);
+    setTimeout(() => { el.remove(); }, 3100);
+  })();
   load();
 </script>
 </body>
@@ -4842,7 +4858,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1589"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1590"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
