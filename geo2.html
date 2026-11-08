@@ -429,9 +429,12 @@
 <script>
   const tg = window.Telegram.WebApp;
   tg.ready(); tg.expand();
-  // чат: из ?chat= (кнопка web_app из ЛС) или из start_param (прямая ссылка Mini App t.me/<bot>/<app>)
+  // чат: из ?chat= (кнопка web_app из ЛС) → start_param (ссылка Mini App t.me/<bot>/<app>)
+  // → initData.chat.id (menu button BotFather, открытие из группы). Без чата — только ошибка запуска.
   const chat = new URLSearchParams(location.search).get('chat')
-    || (tg.initDataUnsafe && tg.initDataUnsafe.start_param) || '0';
+    || (tg.initDataUnsafe && tg.initDataUnsafe.start_param)
+    || (tg.initDataUnsafe && tg.initDataUnsafe.chat && String(tg.initDataUnsafe.chat.id))
+    || '0';
   document.getElementById('brandSub').textContent =
     chat === '-1004400745434' ? 'бета · Песочница' : '2.0 · Другое измерение';
 
