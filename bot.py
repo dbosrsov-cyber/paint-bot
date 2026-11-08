@@ -2329,6 +2329,10 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     border:1px solid rgba(140,160,180,.2); opacity:.95; }
   .brand b { color:var(--link); }
   .brand span { font-size:11px; color:var(--hint); }
+  .brand .brandHelp { pointer-events:auto; margin-left:10px; align-self:center;
+    background:rgba(30,45,60,.92); color:#bfe3f7; border:1px solid rgba(125,211,252,.25);
+    border-radius:999px; font-size:13px; line-height:1; padding:3px 8px; cursor:pointer; }
+  .brand .brandHelp:hover { border-color:#2dd4bf; color:#fff; }
   /* карточки попапов Leaflet */
   .leaflet-popup-content-wrapper { border-radius:16px; background:var(--popup-bg);
     color:var(--text); box-shadow:0 10px 32px var(--shadow); }
@@ -2389,7 +2393,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 </style>
 </head>
 <body>
-<div id="map"><div class="brand">🌍 ГеографияЧата <b>2.0</b> <span id="brandSub">бета · Песочница</span></div>
+<div id="map"><div class="brand">🌍 ГеографияЧата <b>2.0</b> <span id="brandSub">бета · Песочница</span><button id="helpBtn" class="brandHelp" title="Что здесь можно делать">❓</button></div>
 <div class="toolbar" id="toolsPanel">
   <button id="saveBtn" title="Поставить метку">📍</button>
   <button id="letterBtn" title="ПочтаЧата">✉️</button>
@@ -2399,7 +2403,6 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   <button id="sifaAreaBtn" title="Задать границы игры «Сифа» (кликни 4 угла)" style="display:none;">🚧</button>
   <button id="islandBuyBtn" title="Купить остров (10 ЗП)">🏝️</button>
   <button id="chestBtn" title="Мой сундук">🧰</button>
-  <button id="helpBtn" title="Что здесь можно делать">❓</button>
   <button id="personaBtn" title="Действовать как Тест2" style="display:none;">🎭</button>
   <button id="eventsBtn" title="События (только Sumai)" style="display:none;">⚡</button>
   <button id="themeBtn" title="Сменить тему" style="display:none;">🌓</button>
@@ -4846,15 +4849,15 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
   document.getElementById('delBtn').onclick = delMarker;
 
   nameInput.onchange = () => { localStorage.setItem('geo_name', nameInput.value.trim()); load(); };
-  // при входе в игру: на 3 секунды рядом с «?» — полупрозрачная «Справка по игре»
+  // при входе в игру: на 3 секунды под кнопкой «?» в шапке — полупрозрачная «Справка по игре»
   (function hintHelp() {
     const btn = document.getElementById('helpBtn');
     if (!btn) return;
     const r = btn.getBoundingClientRect();
     const el = document.createElement('div');
     el.textContent = 'Справка по игре';
-    el.style.cssText = 'position:fixed;left:' + (r.right + 8) + 'px;top:'
-      + (r.top + r.height / 2 - 11) + 'px;z-index:99998;pointer-events:none;'
+    el.style.cssText = 'position:fixed;left:' + (r.left + r.width / 2 - 50) + 'px;top:'
+      + (r.bottom + 6) + 'px;z-index:99998;pointer-events:none;'
       + 'font-size:13px;color:#bfe3f7;opacity:.55;background:rgba(11,18,26,.55);'
       + 'padding:3px 10px;border-radius:999px;border:1px solid rgba(125,211,252,.2);'
       + 'transition:opacity .5s;white-space:nowrap;';
@@ -4870,7 +4873,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1591"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1592"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
