@@ -383,6 +383,7 @@ SAGA_MAX_CHAPTERS = 30
 SAGA_MIN_LEN = 30
 SAGA_MAX_LEN = 280
 SAGA_PREFIX = "saga"  # глава = сообщение «saga <текст>»
+SAGA_NAG_SEC = 8 * 3600  # напоминание в чат, если 8ч никто не писал главу
 
 SAGA_ZAGINS = [
     "В то утро в чате пропал последний спокойный человек, и никто даже не удивился.",
@@ -1211,9 +1212,11 @@ def _finish_duel(d: dict) -> None:
     try:
         tg_send_with_cleanup(
             d["chat"],
-            f"⚔️ АБОРДАЖ ОКОНЧЕН! {note}Корабль «{dn[loser]}» был потоплен — {phrase} "
-            f"Победил капитан {dn[winner]} 🏆",
+            f"⚔️ АБОРДАЖ ОКОНЧЕН! {note}Корабль капитана "
+            f"{geo_mention(d['chat'], d[loser], dn[loser])} был потоплен — {phrase} "
+            f"Победил капитан {geo_mention(d['chat'], d[winner], dn[winner])} 🏆",
             600,
+            html_mode=True,
         )
     except Exception as e:
         print(f"[paint_bot] уведомление о потоплении не ушло: {e!r}", flush=True)
@@ -1884,6 +1887,38 @@ async def volcano_spawn_job(context) -> None:
             logline(f"volcano spawned chat={chat_id}, но уведомление не ушло: {e!r}")
 
 
+SAGA_NAG_PHRASES = [
+    "📜😢 Пергамент плачет, перышко дрожит… 8 часов никто не продолжает Сагу! "
+    "История замирает на самом интересном месте. Не бросайте её в беде — "
+    "напишите главу сообщением «saga <твоя глава>» прямо в чат (30–280 символов) 🥺📖",
+    "📜🥀 Сага скучает по вам… Уже 8 часов ни одной новой главы. Где ваше воображение, "
+    "капитаны перьев? Продолжение — сообщением «saga <твоя глава>» в чат (30–280 символов) ✍️",
+    "📜🌙 Ночная смена дозорных закончилась, а главы всё нет… 8 часов молчания! "
+    "Спасите Сагу от вечного сна — «saga <твоя глава>» в чат (30–280 символов) 🙏",
+]
+
+
+async def saga_nag_job(context) -> None:
+    """Раз в 30 минут: если сага активна и 8ч никто не писал главу — слезливое
+    напоминание в чат (не чаще раза в 8 часов; сага не начата — молчим)."""
+    now = time.time()
+    for chat_id, s in list(saga_state.items()):
+        last = float(s.get("last_chapter_ts") or s.get("started_ts") or now)
+        if now - last < SAGA_NAG_SEC:
+            continue
+        if now - float(s.get("last_nag_ts") or 0) < SAGA_NAG_SEC:
+            continue
+        s["last_nag_ts"] = now
+        saga_save_to_github()
+        try:
+            msg = await context.bot.send_message(
+                chat_id, random.choice(SAGA_NAG_PHRASES))
+            schedule_event_cleanup(context, chat_id, msg.message_id, 600)
+            logline(f"saga nag chat={chat_id} chapters={len(s.get('chapters', []))} +notify")
+        except Exception as e:
+            logline(f"saga nag chat={chat_id}, но уведомление не ушло: {e!r}")
+
+
 SIFA_ROTATE_PHRASES = [
     "🐬📢 Официально океана: Сифа теперь у {name}. Остальные — притворитесь брёвнышками 🪵",
     "🐬♻️ Ротация! Сифа переплыла к {name}. Прежний владелец выдохся (или съеден) 🦈",
@@ -1892,14 +1927,35 @@ SIFA_ROTATE_PHRASES = [
     "🐬😱 Тревога: Сифа обосновалась у {name}. Всем всплыть и сделать вид, что вы — остров 🏝️",
 ]
 
+SIFA_STALE_PHRASES = [
+    "🐬😢 Прошло уже 8 часов, а Сифа всё у {name}… Никто её не догоняет, никто не отбирает. "
+    "Касатка скучает по погоням! Кто хочет забрать титул — плывите и перехватывайте эстафету 🏁",
+    "🐬🥀 8 часов Сифа не меняет хозяина — {name} держится за титул мёртвой хваткой! "
+    "Неужели в океане не нашлось смельчака, который догонит касатку? 🏊",
+    "🐬⏰ Восьмичасовое молчание океана: Сифа по-прежнему у {name}. Даже брёвнышки уже "
+    "смеются. Касатки, вперёд — титул сам себя не перехватит! 🏁",
+]
+
+
+def _sifa_note_holder(entry: dict, ships: dict, now: float) -> None:
+    """Запомнить держателя Сифы и момент смены (для напоминаний о застое)."""
+    holder = next((u for u, s in ships.items() if s.get("sifa")), None)
+    if holder is None:
+        return
+    if entry.get("sifa_holder") != holder:
+        entry["sifa_holder"] = holder
+        entry["sifa_since"] = now
+
 
 async def sifa_sweep_job(context) -> None:
     """Раз в 10 минут: касатки игроков, не заходивших 48ч, удаляются (молча —
     новая создастся при входе); раз в 8ч Сифа случайно переходит к другой
-    живой касатке, в чат уходит шутливое уведомление."""
+    живой касатке, в чат уходит шутливое уведомление; если держатель Сифы не
+    менялся 8ч — слезливое напоминание (не чаще раза в 8ч)."""
     now = time.time()
     for chat_id in list(sifa_state.keys()):
         rotate_name = None
+        nag_name = None
         with sifa_lock:
             entry = _sifa_entry(chat_id)
             ships = entry["ships"]
@@ -1916,7 +1972,18 @@ async def sifa_sweep_job(context) -> None:
                 holder["sifa"] = True
                 entry["next_sifa_rotate_ts"] = now + SIFA_ROTATE_SEC
                 rotate_name = holder.get("name", "капитан")
-            if stale or rotate_name:
+            if ships:
+                _sifa_note_holder(entry, ships, now)
+                # ротация каждые 8ч сама сбрасывает таймер: до напоминания
+                # дойдёт только если держатель остался тем же (или передача
+                # по догону давно — смена держателя сбрасывает sifa_since)
+                since = float(entry.get("sifa_since") or now)
+                if (now - since >= SIFA_ROTATE_SEC
+                        and now >= entry.get("next_sifa_nag_ts", 0)):
+                    entry["next_sifa_nag_ts"] = now + SIFA_ROTATE_SEC
+                    nag_name = (ships.get(entry["sifa_holder"]) or {}).get(
+                        "name", "капитан")
+            if stale or rotate_name or nag_name:
                 sifa_save_to_github()
         if rotate_name:
             try:
@@ -1926,6 +1993,14 @@ async def sifa_sweep_job(context) -> None:
                 logline(f"sifa rotated chat={chat_id} -> {rotate_name!r} +notify")
             except Exception as e:
                 logline(f"sifa rotated chat={chat_id}, но уведомление не ушло: {e!r}")
+        if nag_name:
+            try:
+                msg = await context.bot.send_message(
+                    chat_id, random.choice(SIFA_STALE_PHRASES).format(name=nag_name))
+                schedule_event_cleanup(context, chat_id, msg.message_id, 600)
+                logline(f"sifa stale-nag chat={chat_id} holder={nag_name!r} +notify")
+            except Exception as e:
+                logline(f"sifa stale-nag chat={chat_id}, но уведомление не ушло: {e!r}")
         if stale:
             logline(f"sifa chat={chat_id}: удалены неактивные касатки {stale}")
 
@@ -1966,6 +2041,22 @@ def tg_mention(tid, name: str) -> str:
     """HTML-упоминание пользователя: tg://user?id=... — Telegram подсвечивает имя
     и показывает получателю «вас отметили» (работает даже без @username)."""
     return f'<a href="tg://user?id={int(tid)}">{html.escape(str(name))}</a>'
+
+
+def geo_mention(chat_id, user_key, fallback: str) -> str:
+    """Имя игрока для персонального уведомления: тег-упоминание, если у метки
+    есть tid, иначе просто актуальное имя с метки (или fallback без tid)."""
+    m = (geo_state.get(chat_id) or {}).get(user_key)
+    if not m:
+        return fallback
+    name = m.get("name") or fallback
+    tid = m.get("tid")
+    if tid:
+        try:
+            return tg_mention(int(tid), name)
+        except (TypeError, ValueError):
+            return name
+    return name
 
 
 def tg_send_message_id(chat_id: int, text: str, html_mode: bool = False):
@@ -4873,7 +4964,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1592"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1593"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -6165,9 +6256,10 @@ class AppHandler(BaseHTTPRequestHandler):
                         try:
                             tg_send_with_cleanup(
                                 chat_id,
-                                f"📬 {dest_name}! Тебе прибыло письмо — открой карту чата "
-                                "и нажми на 📬, чтобы прочитать.",
+                                f"📬 {geo_mention(chat_id, letter['to'], dest_name)}! Тебе прибыло "
+                                "письмо — открой карту чата и нажми на 📬, чтобы прочитать.",
                                 ARRIVAL_NOTIFY_TTL_SEC,
+                                html_mode=True,
                             )
                         except Exception as e:
                             print(f"[paint_bot] уведомление о письме не ушло: {e!r}", flush=True)
@@ -6327,10 +6419,12 @@ class AppHandler(BaseHTTPRequestHandler):
                         try:
                             tg_send_with_cleanup(
                                 chat_id,
-                                f"🌋 Ванильный Вулкан извергся! К тебе, {dest_name}, прилетела "
+                                f"🌋 Ванильный Вулкан извергся! К тебе, "
+                                f"{geo_mention(chat_id, poop['to'], dest_name)}, прилетела "
                                 "Розовая Какашка 💩🩷. Примирительно улыбнись и неси в дом — "
                                 "принесёт удачу! 😄😊",
                                 ARRIVAL_NOTIFY_TTL_SEC,
+                                html_mode=True,
                             )
                         except Exception as e:
                             print(f"[paint_bot] уведомление о какашке не ушло: {e!r}", flush=True)
@@ -6376,9 +6470,10 @@ class AppHandler(BaseHTTPRequestHandler):
                         try:
                             tg_send_with_cleanup(
                                 chat_id,
-                                f"🎁 {dest_name}! Похотливый Кит прислал тебе подарок — "
-                                f"беги открывай! Он уже ждёт у твоей метки 😏🐳",
+                                f"🎁 {geo_mention(chat_id, gift['to'], dest_name)}! Похотливый Кит "
+                                f"прислал тебе подарок — беги открывай! Он уже ждёт у твоей метки 😏🐳",
                                 600,
+                                html_mode=True,
                             )
                         except Exception as e:
                             print(f"[paint_bot] уведомление о подарке не ушло: {e!r}", flush=True)
@@ -6438,10 +6533,11 @@ class AppHandler(BaseHTTPRequestHandler):
                                 try:
                                     tg_send_with_cleanup(
                                         chat_id,
-                                        f"✈️ {g['name']}! За тобой прилетел самолёт с острова "
-                                        f"«{isl['name']}» — тебя зовут в гости! 🏝️😎 "
-                                        "Готовь плавки, скоро приземлишься!",
+                                        f"✈️ {geo_mention(chat_id, g['user'], g['name'])}! За тобой "
+                                        f"прилетел самолёт с острова «{isl['name']}» — тебя зовут "
+                                        "в гости! 🏝️😎 Готовь плавки, скоро приземлишься!",
                                         ARRIVAL_NOTIFY_TTL_SEC,
+                                        html_mode=True,
                                     )
                                 except Exception as e:
                                     print(f"[paint_bot] уведомление гостю не ушло: {e!r}", flush=True)
@@ -6460,24 +6556,29 @@ class AppHandler(BaseHTTPRequestHandler):
                                 try:
                                     tg_send_with_cleanup(
                                         chat_id,
-                                        f"🏝️ {g['name']} приземлился на «{isl['name']}»!\n"
+                                        f"🏝️ {geo_mention(chat_id, g['user'], g['name'])} приземлился "
+                                        f"на «{isl['name']}»!\n"
                                         f"Гостю: +{zp_reward} ЗП и сувенир {g['souvenir']} 🎁 "
                                         "Когда нагуляешься — жми «Улететь», а до этого не забудь "
                                         "оставить послание на скале 🪨✎\n"
-                                        "Хозяину: +1 опыт острова 😎",
+                                        f"Хозяину ({geo_mention(chat_id, isl['owner'], isl.get('owner_name', isl['owner']))}): "
+                                        "+1 опыт острова 😎",
                                         ARRIVAL_NOTIFY_TTL_SEC,
+                                        html_mode=True,
                                     )
                                 except Exception as e:
                                     print(f"[paint_bot] уведомление о госте не ушло: {e!r}", flush=True)
                             else:  # home — гость улетел домой, сессия закрыта
                                 gname = g["name"]
+                                guser = g["user"]
                                 isl["guest"] = None
                                 try:
                                     tg_send_with_cleanup(
                                         chat_id,
-                                        f"✈️ {gname} улетел с острова «{isl['name']}» домой. "
-                                        "Возвращайся, здесь тепло 🙂",
+                                        f"✈️ {geo_mention(chat_id, guser, gname)} улетел с острова "
+                                        f"«{isl['name']}» домой. Возвращайся, здесь тепло 🙂",
                                         ARRIVAL_NOTIFY_TTL_SEC,
+                                        html_mode=True,
                                     )
                                 except Exception as e:
                                     print(f"[paint_bot] уведомление об отлёте не ушло: {e!r}", flush=True)
@@ -6945,6 +7046,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 ship = ships[sk]
             if ships and not any(s.get("sifa") for s in ships.values()):
                 _rnd.choice(list(ships.values()))["sifa"] = True
+            _sifa_note_holder(entry, ships, time.time())
         sifa_save_to_github()
         self._json_response(200, {"ok": True, "lat": ship["lat"], "lon": ship["lon"],
                                   "sifa": bool(ship.get("sifa"))})
@@ -7024,6 +7126,7 @@ class AppHandler(BaseHTTPRequestHandler):
             if ships and not any(s.get("sifa") for s in ships.values()):
                 import random as _rnd
                 _rnd.choice(list(ships.values()))["sifa"] = True
+            _sifa_note_holder(entry, ships, now)
         wood_total = 0
         if wood_picked:
             with geo_lock:
@@ -7084,10 +7187,12 @@ class AppHandler(BaseHTTPRequestHandler):
             ship["ts"] = now
         sifa_save_to_github()
         try:
+            _who = (tg_mention(ship["tid"], name) if ship.get("tid")
+                    else geo_mention(chat_id, sk, name))
             tg_send_with_cleanup(chat_id,
-                "🚤💨 Сифа обозначила себя! Активирован МоторV8 — 10 минут скорость ×3. "
-                "Касатки, разбегайтесь: Сифа сама охотится на вас! 🐬😱",
-                600)
+                f"🚤💨 {_who} активировал МоторV8 — 10 минут скорость ×3! "
+                "Сифа обозначила себя и сама охотится на касаток! 🐬😱",
+                600, html_mode=True)
         except Exception as e:
             print(f"[paint_bot] sifa motor notify: {e!r}", flush=True)
         self._json_response(200, {"ok": True, "motor_until": ship["motor_until"]})
@@ -7442,6 +7547,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     )})
                     return
                 prev_name = entry.get("owner_name")
+                prev_owner = entry.get("owner")
                 marker = geo_state.get(chat_id, {}).get(mkey) or {}
                 entry["owner"] = mkey
                 entry["owner_name"] = marker.get("name", mkey)
@@ -7478,14 +7584,16 @@ class AppHandler(BaseHTTPRequestHandler):
                 self._json_response(404, {"error": "not found"})
                 return
         # уведомление в чат — только при захвате (вне лока: Telegram долго думает)
+        _cap = geo_mention(chat_id, mkey, cap_name)
+        _prev = geo_mention(chat_id, prev_owner, prev_name) if prev_name else prev_name
         if prev_name and prev_name != cap_name:
-            text = (f"🎪 Морской Рынок сменил хозяина! Теперь за прилавком {cap_name} — "
-                    f"{prev_name} отправился кормить рыб 🦈")
+            text = (f"🎪 Морской Рынок сменил хозяина! Теперь за прилавком {_cap} — "
+                    f"{_prev} отправился кормить рыб 🦈")
         else:
-            text = (f"🎪 Морской Рынок впервые захвачен! Хозяин прилавка — {cap_name}. "
+            text = (f"🎪 Морской Рынок впервые захвачен! Хозяин прилавка — {_cap}. "
                     f"Торгуй, пока Галеон цел ⚓😎")
         try:
-            tg_send_with_cleanup(chat_id, text, 600)
+            tg_send_with_cleanup(chat_id, text, 600, html_mode=True)
         except Exception as e:
             print(f"[paint_bot] уведомление о захвате рынка не ушло: {e!r}", flush=True)
         logline(f"200 /marketcapture chat={chat_id} user={mkey!r}")
@@ -7554,8 +7662,10 @@ class AppHandler(BaseHTTPRequestHandler):
             tg_send_with_cleanup(
                 chat_id,
                 f"⛵ С верфи острова «{isl.get('name', '?')}» спущен на воду Галеон "
-                f"капитана {marker.get('name', mkey)}! Море теперь не безопасно… 🏴‍☠️",
+                f"капитана {geo_mention(chat_id, mkey, marker.get('name', mkey))}! "
+                "Море теперь не безопасно… 🏴‍☠️",
                 600,
+                html_mode=True,
             )
         except Exception as e:
             print(f"[paint_bot] уведомление о спуске галеона не ушло: {e!r}", flush=True)
@@ -7639,10 +7749,12 @@ class AppHandler(BaseHTTPRequestHandler):
                     try:
                         tg_send_with_cleanup(
                             chat_id,
-                            f"⚔️ АБОРДАЖ! Капитан {d['a_name']} взял на абордаж капитана "
-                            f"{d['b_name']}! Морская волчица готовит зубы, а кто-то из них "
-                            f"очень скоро кормит рыб… 🦈",
+                            f"⚔️ АБОРДАЖ! Капитан {geo_mention(chat_id, d['a'], d['a_name'])} взял "
+                            f"на абордаж капитана {geo_mention(chat_id, d['b'], d['b_name'])}! "
+                            "Морская волчица готовит зубы, а кто-то из них очень скоро кормит "
+                            "рыб… 🦈",
                             600,
+                            html_mode=True,
                         )
                     except Exception as e:
                         print(f"[paint_bot] уведомление об абордаже не ушло: {e!r}", flush=True)
@@ -7743,8 +7855,10 @@ class AppHandler(BaseHTTPRequestHandler):
             tg_send_with_cleanup(
                 chat_id,
                 f"🏝️ Остров «{isl_name}» растворился в океане. "
-                "Была хорошая легенда 🙂 Владелец может основать новый — за 10 ЗП.",
+                f"Была хорошая легенда 🙂 {geo_mention(chat_id, user, name)} может основать "
+                "новый — за 10 ЗП.",
                 300,
+                html_mode=True,
             )
         except Exception as e:
             print(f"[paint_bot] уведомление об удалении острова не ушло: {e!r}", flush=True)
@@ -7791,9 +7905,10 @@ class AppHandler(BaseHTTPRequestHandler):
             tg_send_with_cleanup(
                 chat_id,
                 f"🏝️ НОВЫЙ ОСТРОВ! На карте чата вырос «{isl_name}». "
-                f"Владелец {name} вложил {ISLAND_COST_ZP} ЗП и теперь может звать гостей "
-                "самолётом ✈️😎",
+                f"Владелец {geo_mention(chat_id, user, name)} вложил {ISLAND_COST_ZP} ЗП и "
+                "теперь может звать гостей самолётом ✈️😎",
                 300,  # новость короткоживущая — через 5 минут удаляем, остров остаётся
+                html_mode=True,
             )
         except Exception as e:
             print(f"[paint_bot] уведомление об острове не ушло: {e!r}", flush=True)
@@ -8155,9 +8270,10 @@ class AppHandler(BaseHTTPRequestHandler):
         try:
             tg_send_with_cleanup(
                 chat_id,
-                f"👢 {gname} задержался на «{isl_name}» дольше суток — хозяин отправил "
-                f"его домой ✈️ До встречи!",
+                f"👢 {geo_mention(chat_id, g['user'], gname)} задержался на «{isl_name}» "
+                f"дольше суток — хозяин отправил его домой ✈️ До встречи!",
                 ARRIVAL_NOTIFY_TTL_SEC,
+                html_mode=True,
             )
         except Exception as e:
             print(f"[paint_bot] уведомление о кике не ушло: {e!r}", flush=True)
@@ -8436,7 +8552,8 @@ async def on_saga_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
         zagin = random.choice(SAGA_ZAGINS)
         saga_state[chat_id] = {"chapters": [zagin], "last_author": None,
-                               "started_ts": time.time()}
+                               "started_ts": time.time(),
+                               "last_chapter_ts": time.time(), "last_nag_ts": 0.0}
         saga_save_to_github()
         await query.edit_message_text(
             f"📜 Сага чата началась! Глава 1/{SAGA_MAX_CHAPTERS}:\n«{zagin}»\n\n"
@@ -9064,6 +9181,8 @@ async def on_saga_chapter(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
     s["chapters"].append(body)
     s["last_author"] = update.effective_user.id
+    s["last_chapter_ts"] = time.time()
+    s["last_nag_ts"] = 0.0
     saga_save_to_github()
     # политика анонимности: само сообщение с текстом главы стираем из чата
     try:
@@ -9337,49 +9456,6 @@ async def announce_geo2_release_job(context) -> None:
     context.job.schedule_removal()
 
 
-MENTION_TEST_FLAG = "mention_test_sent.txt"  # флаг в data-репо: тестовое уведомление с тегом отправлено
-
-
-async def mention_test_job(context) -> None:
-    """Разовый тест тегов-упоминаний: пример уведомления с @-тегом в Песочнице.
-    Флаг в data-репо не даёт повторить при рестарте (как анонс GEO2)."""
-    try:
-        urllib.request.urlopen(geo_github_request("GET", MENTION_TEST_FLAG), timeout=15)
-        context.job.schedule_removal()
-        return
-    except urllib.error.HTTPError as e:
-        if e.code != 404:
-            print(f"[paint_bot] тест упоминаний: флаг проверить не вышло: {e!r}", flush=True)
-            return
-    except Exception as e:
-        print(f"[paint_bot] тест упоминаний: флаг проверить не вышло: {e!r}", flush=True)
-        return
-    text = ("🧪 " + tg_mention(8668538137, "Sumai")
-            + ", это тест тегов-упоминаний: если имя подсвечено как ссылка, а у тебя "
-              "чат всплыл «вас отметили» — механика работает 🎉 Так будут выглядеть "
-              "личные уведомления игры.")
-    msg_id = tg_send_message_id(GEO2_CHAT_ID, text, html_mode=True)
-    if msg_id is None:
-        return  # не ушло — флаг не ставим, повторим на следующем тике
-    try:
-        body = {"content": base64.b64encode("2026-11-08".encode("utf-8")).decode("ascii")}
-        try:
-            current = json.load(urllib.request.urlopen(
-                geo_github_request("GET", MENTION_TEST_FLAG), timeout=15))
-            body["sha"] = current["sha"]
-        except urllib.error.HTTPError as e:
-            if e.code != 404:
-                raise
-        req = geo_github_request("PUT", MENTION_TEST_FLAG,
-                                 {"Content-Type": "application/json"})
-        req.data = json.dumps({**body, "message": "mention test sent"}).encode("utf-8")
-        urllib.request.urlopen(req, timeout=15)
-        print("[paint_bot] тестовое уведомление с тегом отправлено, флаг выставлен", flush=True)
-    except Exception as e:
-        print(f"[paint_bot] тест ушёл, но флаг не записался: {e!r}", flush=True)
-    context.job.schedule_removal()
-
-
 def geo_sweep_job() -> None:
     """Фоновый прогон «ленивого» осмотра активных чатов: прибытия писем/подарков/какашек,
     перелёты самолёта, замена неявившегося капитана — уведомления уходят по расписанию,
@@ -9478,8 +9554,8 @@ def main() -> None:
     app.job_queue.run_repeating(submarine_spawn_job, interval=60.0, first=30.0)
     # ленивый осмотр ГЕО: уведомления о прибытиях/перелётах уходят по расписанию
     app.job_queue.run_repeating(geo_sweep_job, interval=60.0, first=45.0)
-    # разовый тест тегов-упоминаний (самоотключается после отправки)
-    app.job_queue.run_repeating(mention_test_job, interval=120.0, first=30.0)
+    # сага: слезливое напоминание, если 8ч никто не пишет главу (сага не начата — молчим)
+    app.job_queue.run_repeating(saga_nag_job, interval=1800.0, first=120.0)
     app.run_polling()
 
 
