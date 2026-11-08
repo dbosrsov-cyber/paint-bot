@@ -1010,7 +1010,7 @@ def sifa_random_water(area):
 # ---------- Корабли (Галеоны): верфь, плавание, абордаж и КНБ ----------
 SHIP_COST_WOOD = 10            # постройка Галеона на верфи — 10 дерева
 SHIP_SPEED_KM_PER_MIN = 5000.0 # скорость корабля
-SHIP_BOARD_KM = 2000.0         # сближение на эту дистанцию → доступен Абордаж
+SHIP_BOARD_KM = 500.0          # сближение на эту дистанцию → доступен Абордаж
 SHIP_PICK_SEC = 5              # окно выбора в КНБ (после готовности обоих)
 SHIP_PICK_GRACE_SEC = 3        # сетевая грация к окну выбора
 SHIP_ROUNDEND_SEC = 4          # пауза «раунд окончен» перед следующим раундом
@@ -2400,7 +2400,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1435"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1440"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -4984,7 +4984,8 @@ class AppHandler(BaseHTTPRequestHandler):
                                         MARKET_LAT, MARKET_LON) > SHIP_BOARD_KM):
                     self._json_response(403, {"error": (
                         "🏴‍☠️ Захватить рынок можно только вплотную! "
-                        "Подплыви на Галеоне в радиус 2000 км от Морского Рынка 🎪"
+                        f"Подплыви на Галеоне в радиус {int(SHIP_BOARD_KM)} км "
+                        "от Морского Рынка 🎪"
                     )})
                     return
                 cur_ship = (ships_state.get(ship_key(chat_id, entry["owner"]))
@@ -5160,7 +5161,7 @@ class AppHandler(BaseHTTPRequestHandler):
         self._json_response(200, {"ok": True})
 
     def _ship_board(self):
-        """Абордаж: создать/подключиться к дуэли КНБ с ближайшим кораблём (≤2000 км)."""
+        """Абордаж: создать/подключиться к дуэли КНБ с ближайшим кораблём (≤500 км)."""
         try:
             chat_id, user, name, _ = self._ship_payload()
         except Exception:
@@ -5185,7 +5186,7 @@ class AppHandler(BaseHTTPRequestHandler):
                         rival = sh2
                         break
                 if rival is None:
-                    self._json_response(409, {"error": "рядом нет враждебных кораблей (нужно ≤2000 км)"})
+                    self._json_response(409, {"error": f"рядом нет враждебных кораблей (нужно ≤{int(SHIP_BOARD_KM)} км)"})
                     return
                 pair = "|".join(sorted([me["user"], rival["user"]]))
                 d = ship_duels.get(f"{chat_id}|{pair}")
