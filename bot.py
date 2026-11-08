@@ -2458,7 +2458,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     <ul>
       <li>🏝️ Купить остров: строить постройки, приглашать гостей, получать сувениры</li>
       <li>⚓ Верфь (3 ур.) строит Галеоны — абордаж и морские бои в КНБ до 3 побед</li>
-      <li>🎪 Морской Рынок: захвати его (предварительно потопив галеон владельца!) и меняй 5 открытых подарков Кита на +1 ☄️ +1 🪵 +1 💩</li>
+      <li>🎪 Морской Рынок: захвати его (предварительно потопив галеон владельца!) и меняй 10 эмодзи подарков Кита (5 пар) на +1 ☄️ +1 🪵 +1 💩</li>
     </ul>
     <b>🐬 Море Сифы</b>
     <ul>
@@ -2764,7 +2764,8 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     const mm = String(tLocal.getUTCMinutes()).padStart(2, '0');
     html += '<br>🕒 ' + hh + ':' + mm + ' (' + tzLabel + ')';
     if (m.poops && m.user !== myKey()) html += '<br>💩 розовых какашек: ' + m.poops;
-    if (m.gift_pics && m.gift_pics.length) html += '<br>🎁 подарки: ' + m.gift_pics.join(' ');
+    if (m.gift_pics && m.gift_pics.length) html += '<br>🎁 подарки: ' + m.gift_pics.join(' ')
+      + ' • ' + (m.gift_pics.length * 2) + ' эмодзи';
     if (m.souvenirs && m.souvenirs.length) html += '<br>🏝️ сувениры: ' + m.souvenirs.join(' ');
     if (m.user === myKey()) {
       const got = m.got || 0, read = m.read || 0;
@@ -3129,8 +3130,9 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     const center = mk.mine
       ? '<div style="font-size:14px;background:rgba(255,255,255,.92);border-radius:10px;'
         + 'padding:10px 14px;color:#123;line-height:1.7;">🎁 открытых подарков у тебя: <b>'
-        + mk.gifts + '</b><br><button onclick="marketExchange()" style="background:#2f6fb2;'
-        + 'font-size:15px;padding:8px 18px;">Обменять 5 🎁 → +1 ☄️ +1 🪵 +1 💩</button></div>'
+        + (mk.gifts * 2) + '</b> эмодзи (' + mk.gifts + ' шт)<br>'
+        + '<button onclick="marketExchange()" style="background:#2f6fb2;'
+        + 'font-size:15px;padding:8px 18px;">Обменять 10 эмодзи 🎁 → +1 ☄️ +1 🪵 +1 💩</button></div>'
       : '<button onclick="marketCapture()" style="background:#c0392b;font-size:18px;'
         + 'padding:12px 26px;">🏴‍☠️ Захватить рынок</button>';
     marketCard = document.createElement('div');
@@ -3165,7 +3167,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
     const r = await fetch('/marketexchange', {method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({chat: chat, user: myKey(), name: userName()})});
     const d = await r.json().catch(() => ({}));
-    if (r.ok) { status('🎪 Сделка! −5 🎁, +1 ☄️ +1 🪵 +1 💩'); load(); }
+    if (r.ok) { status('🎪 Сделка! −10 эмодзи 🎁, +1 ☄️ +1 🪵 +1 💩'); load(); }
     else status('⚠️ ' + (d.error || 'не вышло'));
   };
   function renderSubmarine(s) {
@@ -4565,7 +4567,9 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
       '💩 Какашки: <b>' + (me.poops || 0) + '</b>'
       + '<br>🪵 Дерево: <b>' + (me.wood || 0) + '</b>'
       + '<br>☄️ ЗвёзднаяПыль: <b>' + (me.zp || 0) + '</b>'
-      + '<br>🎁 Подарки: ' + ((me.gift_pics && me.gift_pics.length) ? me.gift_pics.join(' ') : '<i>пока нет</i>')
+      + '<br>🎁 Подарки: ' + ((me.gift_pics && me.gift_pics.length)
+        ? me.gift_pics.join(' ') + ' • <b>' + (me.gift_pics.length * 2) + '</b> эмодзи'
+        : '<i>пока нет</i>')
       + '<br>🏝️ Сувениры: ' + ((me.souvenirs && me.souvenirs.length) ? me.souvenirs.join(' ') : '<i>пока нет</i>');
     chestModal.style.display = 'flex';
   };
@@ -4806,7 +4810,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1585"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1586"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -7387,8 +7391,8 @@ class AppHandler(BaseHTTPRequestHandler):
                             and viewer_matches(g["to"], user, name, chat_id)]
                 if len(my_gifts) < MARKET_GIFT_COST:
                     self._json_response(403, {"error": (
-                        f"на обмен нужно {MARKET_GIFT_COST} открытых подарков 🎁 "
-                        f"(у тебя — {len(my_gifts)})"
+                        f"на обмен нужно {MARKET_GIFT_COST * 2} эмодзи подарков 🎁 "
+                        f"(у тебя — {len(my_gifts) * 2})"
                     )})
                     return
                 for g in my_gifts[:MARKET_GIFT_COST]:
