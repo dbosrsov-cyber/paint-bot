@@ -2406,7 +2406,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1450"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1510"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -3614,8 +3614,11 @@ class AppHandler(BaseHTTPRequestHandler):
         elif url.path == "/geomap":
             self._respond(200, GEO_HTML_PAGE.encode("utf-8"), "text/html; charset=utf-8", nocache=True)
         elif url.path == "/geo2map":
-            # «ГеографияЧата 2.0» — Песочница и «Другое измерение» (остальным 403)
-            if int(params.get("chat", ["0"])[0]) not in (GEO2_CHAT_ID, ANON_GROUP_ID):
+            # «ГеографияЧата 2.0» — Песочница и «Другое измерение». Без ?chat= тоже
+            # отдаём страницу: прямой вход Mini App по t.me/<bot>/<shortname> приходит
+            # без параметров — чат клиент берёт из start_param (initData).
+            chat_param = params.get("chat", [""])[0]
+            if chat_param and int(chat_param) not in (GEO2_CHAT_ID, ANON_GROUP_ID):
                 self._respond(403, "beta: allowed chats only".encode("utf-8"),
                               "text/plain; charset=utf-8")
             else:
@@ -5862,10 +5865,11 @@ async def cmd_myid(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_geo2(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/geo2 — инлайн-кнопка «Открыть карту» прямо в чат. WebApp в ИНЛАЙН-клавиатуре
-    в группах разрешён (запрет — только для reply-кнопок); идентификация игрока идёт
-    по подписанному initData нажавшего, а не по чату кнопки. Личный вход через
-    меню /startsum при этом сохранён."""
+    """/geo2 — вход в ГеографиюЧата 2.0. WebApp-кнопки (web_app) Telegram разрешает
+    ТОЛЬКО в личке: в группах тот же запрос падает с Button_type_invalid. Обход —
+    прямая ссылка Mini App t.me/<bot>/<shortname>?startapp=<chat_id> (открывается
+    внутри Telegram из любого чата); нужен shortname из BotFather (env GEO2_APP_SHORTNAME).
+    Без него — честный фолбэк: кнопка уходит в ЛС (как через меню /startsum)."""
     if not chat_allowed(update.effective_chat):
         return
     remember_user(update.effective_user)
@@ -5877,7 +5881,22 @@ async def cmd_geo2(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "🌍✨ ГеографияЧата 2.0 — общая карта этого чата: метки, письма, подарки, события.\n"
         "Жми «Открыть карту» — Telegram подписывает тебя лично, играешь от своего имени."
     )
-    await update.message.reply_text(text, reply_markup=geo2_keyboard(chat_id))
+    shortname = os.environ.get("GEO2_APP_SHORTNAME", "").strip()
+    if update.message.chat.type != "private" and shortname:
+        url = f"https://t.me/{context.bot.username}/{shortname}?startapp={chat_id}"
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(
+            [[InlineKeyboardButton("🌍 Открыть карту", url=url)]]))
+        return
+    if update.message.chat.type == "private":
+        await update.message.reply_text(text, reply_markup=geo2_keyboard(chat_id))
+        return
+    dm_ok, dm_err = await dm_game_button(context, update.effective_user.id, text,
+                                         geo2_keyboard(chat_id))
+    if dm_ok:
+        await update.message.reply_text("🌍✨ Кнопка «Открыть карту» ушла тебе в личку 👌")
+    else:
+        await update.message.reply_text("🌍✨ Не смог написать в личку: "
+                                        + dm_fail_reason(dm_err) + ". Сначала /startsum")
 
 
 async def dm_game_button(context: ContextTypes.DEFAULT_TYPE, user_id: int, text: str, keyboard):
@@ -6940,11 +6959,12 @@ async def announce_geo2_release_job(context) -> None:
     context.job.schedule_removal()
 
 
-def geo_sweep_job() -> None:
+def geo_sweep_job(context=None) -> None:
     """Фоновый прогон «ленивого» осмотра активных чатов: прибытия писем/подарков/какашек,
     перелёты самолёта, замена неявившегося капитана — уведомления уходят по расписанию,
     а не пачкой при входе первого игрока. Идём по тому же коду /geodata по localhost
-    (viewer пустой — никаких tid-меток не ставится, только чат-уровень событий)."""
+    (viewer пустой — никаких tid-меток не ставится, только чат-уровень событий).
+    context — обязательный аргумент job_queue; не используется."""
     port = int(os.environ.get("PORT", "10000"))
     chats = set(geo_state.keys())
     for st in (letters_state, poops_state, gifts_state, islands_state,
