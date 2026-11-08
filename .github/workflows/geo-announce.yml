@@ -1,0 +1,53 @@
+name: geo-announce-once
+on:
+  workflow_dispatch:
+    inputs:
+      bot_token:
+        description: Telegram bot token (one-off)
+        required: true
+        type: string
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send announce + stats
+        env:
+          BOT_TOKEN: ${{ inputs.bot_token }}
+        run: |
+          python3 - <<'EOF'
+          import json, os, urllib.request
+          CHAT = -1002304715333
+          ANNOUNCE = ("🎉 <b>Внимание, жители «Другого измерения»!</b>
+
+"
+                      "С сегодняшнего дня каждую <b>пятницу в 16:00</b> я буду подводить "
+                      "итоги недели по 11 номинациям — от глав СагаЧата до морских абордажей 🏆
+"
+                      "Побеждайте, пишите, топите галеоны — и займите место в списке героев!
+
+"
+                      "А пока — первая пробная сводка:")
+          STATS = """🏆 <b>Итоги недели в «Другом измерении»</b>
+
+🐂 <b>Быкующий гений</b> — побед в «Быки и коровы»: ✗
+📜 <b>Главный главописец</b> — глав в СагаЧате: ✗
+✉️ <b>Почтмейстер</b> — отправлено писем: <b>7</b> — <a href="tg://user?id=769828689">ПМ</a>
+📥 <b>Магнит для писем</b> — получено писем: <b>4</b> — <a href="tg://user?id=8668538137">Sumai</a>
+💗 <b>Розовощёкий</b> — получено розовых какашек: <b>1</b> — <a href="tg://user?id=8584582199">Андрюха</a>
+🎁 <b>Любимчик Дедморозов</b> — получено подарков: <b>13</b> — <a href="tg://user?id=8584582199">Андрюха</a>
+✨ <b>Звездочёт</b> — собрано звёздной пыли: <b>8</b> — <a href="tg://user?id=8584582199">Андрюха</a>
+⚔️ <b>Морской дьявол</b> — потоплено галеонов (мастер КНБ): ✗
+🌊 <b>Корм для акул</b> — поражений при абордаже: <b>4</b> — <a href="tg://user?id=8668538137">Sumai</a>
+⚖️ <b>Воротила Рынка</b> — часов владения Морским Рынком: <b>9.4</b> — <a href="tg://user?id=8668538137">Sumai</a>
+🐬 <b>Сифа недели</b> — раз получал титул Сифы: ✗"""
+          for text in (ANNOUNCE, STATS):
+              payload = {"chat_id": CHAT, "text": text, "parse_mode": "HTML",
+                         "disable_web_page_preview": True}
+              req = urllib.request.Request(
+                  f"https://api.telegram.org/bot{os.environ['BOT_TOKEN']}/sendMessage",
+                  data=json.dumps(payload).encode(),
+                  headers={"Content-Type": "application/json"}, method="POST")
+              resp = json.loads(urllib.request.urlopen(req, timeout=30).read())
+              assert resp.get("ok"), resp
+              print("sent message_id:", resp["result"]["message_id"])
+          EOF
