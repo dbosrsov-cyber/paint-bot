@@ -2238,7 +2238,7 @@
   const sifaPadEl = document.getElementById('sifaPad');
   const sifaCtrlEl = document.getElementById('sifaCtrl');
   sifaBtn.onclick = async () => {
-    if (sifaPadOn) {   // прячем только джойстик — касатка остаётся навсегда
+    if (sifaPadOn) {   // выходим из режима: убираем джойстик и маркер касатки с карты
       sifaPadOn = false;
       sifaPadEl.style.display = 'none';
       sifaCtrlEl.style.display = 'none';
@@ -2247,7 +2247,8 @@
       document.getElementById('sifaAreaBar').style.display = 'none';
       sifaDrawBounds(null);
       clearInterval(sifaPollTimer); sifaPollTimer = null;
-      status('🐬 Джойстик убран — касатка осталась на карте');
+      if (sifaMarker) { map.removeLayer(sifaMarker); sifaMarker = null; }
+      status('🐬 Ты вышел из игры — касатка убрана с карты');
       return;
     }
     status('🐬 Готовим касатку…');
