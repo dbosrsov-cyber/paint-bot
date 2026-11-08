@@ -4990,7 +4990,7 @@ GEO2_HTML_PAGE = """<!DOCTYPE html>
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1595"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1596"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -6591,8 +6591,7 @@ class AppHandler(BaseHTTPRequestHandler):
                                         f"Гостю: +{zp_reward} ЗП и сувенир {g['souvenir']} 🎁 "
                                         "Когда нагуляешься — жми «Улететь», а до этого не забудь "
                                         "оставить послание на скале 🪨✎\n"
-                                        f"Хозяину ({geo_mention(chat_id, isl['owner'], isl.get('owner_name', isl['owner']))}): "
-                                        "+1 опыт острова 😎",
+                                        "Владельцам острова: +1 опыт 😎",
                                         ARRIVAL_NOTIFY_TTL_SEC,
                                         html_mode=True,
                                     )
