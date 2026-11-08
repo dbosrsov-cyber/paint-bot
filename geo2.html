@@ -1028,15 +1028,15 @@
         + '<div style="margin-top:10px;"><button onclick="openMarketCard()" '
         + 'style="background:#555;font-size:14px;padding:8px 20px;">↩️ Назад</button></div>';
     } else {
-      // захват возможен только вплотную: галеон в радиусе абордажа (2000 км)
+      // захват возможен только вплотную: галеон в радиусе абордажа (500 км)
       const myShip = (lastShips || []).find(x => x.mine && !x.sunk);
-      const near = myShip && sifaKm(myShip.lat, myShip.lon, mk.lat, mk.lon) <= 2000;
+      const near = myShip && sifaKm(myShip.lat, myShip.lon, mk.lat, mk.lon) <= 500;
       center = near
         ? '<button onclick="marketCapture()" style="background:#c0392b;font-size:18px;'
           + 'padding:12px 26px;">🏴‍☠️ Захватить рынок</button>'
         : '<div style="max-width:400px;background:rgba(15,25,40,.88);border:1px solid #7dd3fc55;'
           + 'border-radius:12px;padding:12px 16px;color:#dff2ff;font-size:14px;line-height:1.6;">'
-          + '⛵ Для захвата подплыви на Галеоне в радиус <b>2000 км</b> от рынка '
+          + '⛵ Для захвата подплыви на Галеоне в радиус <b>500 км</b> от рынка '
           + '(как для абордажа) 🎪</div>';
     }
     marketCard = document.createElement('div');
