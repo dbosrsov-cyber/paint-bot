@@ -341,6 +341,7 @@
     <ul>
       <li>🏝️ Купить остров: строить постройки, приглашать гостей, получать сувениры</li>
       <li>⚓ Верфь (3 ур.) строит Галеоны — абордаж и морские бои в КНБ до 3 побед</li>
+      <li>⛵ Галеон плывёт только по воде и сам огибает сушу — цель ставь на воде; если водного пути нет, курс не примется</li>
       <li>🎪 Морской Рынок: захвати его (предварительно потопив галеон владельца!) и меняй 10 эмодзи подарков Кита (5 пар) на +1 ☄️ +1 🪵 +1 💩</li>
     </ul>
     <b>🐬 Море Сифы</b>
@@ -1395,7 +1396,7 @@
   }
   window.shipNavStart = () => {
     shipNavMode = !shipNavMode;
-    status(shipNavMode ? '🧭 Кликни точку на ВОДЕ, куда плыть Галеону (5000 км/мин)'
+    status(shipNavMode ? '🧭 Кликни точку на ВОДЕ, куда плыть Галеону (5000 км/мин) — сушу обойдёт сам'
       : '🧭 Отправка отменена');
   };
   async function shipNavPick(lat, lon) {
@@ -2734,21 +2735,38 @@
     setTimeout(() => { el.remove(); }, 10100);
   })();
   // плавное движение галеонов: сервер отдаёт параметры маршрута, клиент каждые
-  // 1,5 сек сам интерполирует позицию — не дожидаясь минутного обновления
+  // 1,5 сек сам интерполирует позицию — не дожидаясь минутного обновления.
+  // Маршрут водный: если есть route (поворотные точки) — движение вдоль ломаной,
+  // иначе (старые данные) — прямая от nav_from к цели.
   const SHIP_KM_PER_MIN = 5000;
+  function shipPosAt(s, nowSec) {
+    const traveled = (nowSec - s.nav_ts) / 60 * SHIP_KM_PER_MIN;
+    let pts;
+    if (s.route && s.route.length) {
+      pts = [[s.nav_from_lat, s.nav_from_lon]].concat(s.route);
+    } else {
+      pts = [[s.nav_from_lat, s.nav_from_lon], [s.to_lat, s.to_lon]];
+    }
+    let left = traveled;
+    for (let i = 1; i < pts.length; i++) {
+      const a = pts[i - 1], b = pts[i];
+      const seg = map.distance(L.latLng(a[0], a[1]), L.latLng(b[0], b[1])) / 1000;
+      if (seg <= 0) continue;
+      if (left < seg) {
+        const f = left / seg;
+        return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f];
+      }
+      left -= seg;
+    }
+    return pts[pts.length - 1];
+  }
   setInterval(() => {
     const nowSec = Date.now() / 1000;
     (lastShips || []).forEach(s => {
       if (!s.moving || s.sunk || s.nav_from_lat == null || s.nav_ts == null) return;
       const mk = shipMarkers[s.id || s.user];
       if (!mk) return;
-      const totalKm = map.distance(L.latLng(s.nav_from_lat, s.nav_from_lon),
-                                   L.latLng(s.to_lat, s.to_lon)) / 1000;
-      const frac = totalKm > 0
-        ? ((nowSec - s.nav_ts) / 60 * SHIP_KM_PER_MIN) / totalKm : 1;
-      if (frac >= 1) { mk.setLatLng([s.to_lat, s.to_lon]); return; }
-      mk.setLatLng([s.nav_from_lat + (s.to_lat - s.nav_from_lat) * frac,
-                    s.nav_from_lon + (s.to_lon - s.nav_from_lon) * frac]);
+      mk.setLatLng(shipPosAt(s, nowSec));
     });
   }, 1500);
   load();
