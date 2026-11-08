@@ -732,6 +732,31 @@ def apply_ship_teleport_sumai() -> None:
     meteor_save_to_github()
 
 
+def apply_ship_teleport_sumai_random_ocean() -> None:
+    """Разовая телепортация (2026-11-08): Галеон Sumai застрял между островами
+    у Гренландии (79.27, -70.57) — переносим в случайную точку открытого океана."""
+    tag = "ship_sumai_random_ocean_2026-11-08"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    sh = ships_state.get(ship_key(-1002304715333, "Sumai"))
+    if sh is not None and not sh.get("sunk"):
+        lat, lon = 25.0, -40.0   # запасная середина Атлантики
+        for _ in range(200):
+            cand_lat, cand_lon = sifa_random_water(None)
+            # только открытый океан: из точки должен существовать водный путь
+            if ship_water_route(cand_lat, cand_lon, 0.0, -30.0):
+                lat, lon = cand_lat, cand_lon
+                break
+        sh["lat"], sh["lon"] = round(lat, 6), round(lon, 6)
+        sh["to_lat"] = sh["to_lon"] = None
+        sh["nav_from_lat"] = sh["nav_from_lon"] = None
+        sh["route"] = None
+        ships_save_to_github()
+        logline(f"ship Sumai teleported to open ocean -> {sh['lat']}, {sh['lon']}")
+    meteor_save_to_github()
+
+
 def apply_free_ships_main() -> None:
     """Разовая выдача: каждому владельцу острова в «Другом измерении» — по Галеону,
     если живого корабля сейчас нет (потопленный не считается)."""
@@ -2375,7 +2400,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1410"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1435"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -6936,6 +6961,7 @@ def main() -> None:
     apply_sandbox_grants()
     apply_sandbox_island_levels()
     apply_ship_teleport_sumai()
+    apply_ship_teleport_sumai_random_ocean()
     apply_sumai_wreck_east6000()
     apply_free_ships_main()
     apply_restore_wrecks()
