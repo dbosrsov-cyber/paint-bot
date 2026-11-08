@@ -2264,7 +2264,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-08-1599"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-08-1600"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -4839,14 +4839,25 @@ class AppHandler(BaseHTTPRequestHandler):
                 if entry.get("owner") and viewer_matches(entry["owner"], user, name, chat_id):
                     self._json_response(409, {"error": "рынок уже твой — торгуйся 🎪"})
                     return
+                # захват только вплотную к рынку: живой галеон атакующего
+                # должен быть в радиусе абордажа (как кнопка ⚔️)
+                my_ship = ships_state.get(ship_key(chat_id, mkey))
+                if (my_ship is None or my_ship.get("sunk")
+                        or haversine_km(my_ship["lat"], my_ship["lon"],
+                                        MARKET_LAT, MARKET_LON) > SHIP_BOARD_KM):
+                    self._json_response(403, {"error": (
+                        "🏴‍☠️ Захватить рынок можно только вплотную! "
+                        "Подплыви на Галеоне в радиус 2000 км от Морского Рынка 🎪"
+                    )})
+                    return
                 cur_ship = (ships_state.get(ship_key(chat_id, entry["owner"]))
                             if entry.get("owner") else None)
                 if cur_ship is not None and not cur_ship.get("sunk"):
                     owner_name = entry.get("owner_name") or "?"
                     self._json_response(403, {"error": (
                         f"🎪 Морской Рынок охраняется! У владельца {owner_name} ещё плавает "
-                        f"Галеон — сначала потопи его в честном бою ⚔️ "
-                        f"и возвращайся за трофеями 🏴‍☠️"
+                        f"Галеон — сначала потопи его в честном абордаже ⚔️, "
+                        f"а потом приплыви сюда и захвати рынок 🏴‍☠️"
                     )})
                     return
                 prev_name = entry.get("owner_name")
