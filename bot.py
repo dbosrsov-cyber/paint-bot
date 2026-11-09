@@ -2558,7 +2558,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-09-1611"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-09-1621"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -5566,6 +5566,27 @@ class AppHandler(BaseHTTPRequestHandler):
             dest = geo_state.get(chat_id, {}).get(to_user)
             if dest is None:
                 self._json_response(404, {"error": "нет такой метки"})
+                return
+            # гостя нельзя позвать, если он уже на другом острове или в полёте
+            # (иначе один игрок оказывается гостем на двух островах сразу)
+            gname = dest.get("name", "")
+            for i3 in islands_state.values():
+                if i3["chat"] != chat_id or i3 is isl:
+                    continue
+                g3 = i3.get("guest")
+                if not (g3 and (g3["user"] == to_user
+                                or viewer_matches(g3["user"], to_user, gname, chat_id))):
+                    continue
+                if g3["leg"] == "staying":
+                    self._json_response(409, {"error": (
+                        f"{g3.get('name', 'он')} уже гостит на острове "
+                        f"«{i3.get('name', '?')}» у {i3.get('owner_name', '?')} — "
+                        "сначала пусть улетит домой"
+                    )})
+                else:
+                    self._json_response(409, {"error": (
+                        f"{g3.get('name', 'он')} уже в полёте — дождись посадки, потом зови"
+                    )})
                 return
             guest_name = dest.get("name", to_user)
             isl["guest"] = {
