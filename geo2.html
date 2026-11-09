@@ -2431,7 +2431,9 @@
       walkerMarker.bindPopup('🥾 Твой человечек — следопыт');
     }
     walkerMarker.setLatLng([d.me.lat, d.me.lon]);
-    if (walkerOn) map.panTo([d.me.lat, d.me.lon]);
+    // следим за человечком мягко: подъезжаем, только если он ушёл за край экрана
+    if (walkerOn && !map.getBounds().contains([d.me.lat, d.me.lon]))
+      map.panTo([d.me.lat, d.me.lon], {animate: true});
     const seen = {};
     (d.others || []).forEach(o => {
       seen[o.name] = true;
@@ -2499,7 +2501,7 @@
     const ok = await walkerPoll();
     if (!ok || !walkerMe) { walkerOn = false; return; }  // ошибку уже показал walkerPoll — режим не застревает
     walkerCtrlEl.style.display = 'flex';
-    map.flyTo([walkerMe.lat, walkerMe.lon], Math.max(map.getZoom(), 4));
+    map.flyTo([walkerMe.lat, walkerMe.lon], 6, {duration: 1.2});  // фокус на своём человечке — не ищем его по карте
     status('🥾 Человечек на суше России! Кликни по суше, чтобы идти • 🍲 готовь пищу • 🚉 вокзалы');
     clearInterval(walkerPollTimer);
     walkerPollTimer = setInterval(walkerPoll, 3000);
