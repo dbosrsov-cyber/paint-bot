@@ -2388,6 +2388,7 @@
   let walkerOn = false, walkerPollTimer = null;
   let walkerMe = null, walkerMarker = null;
   const walkerOthers = {}, walkerStMarks = {};
+  let walkerStationsData = [];  // список вокзалов из /walkerstate — для кнопок переезда
   function walkerIcon(emoji, opacity) {
     return L.divIcon({
       html: '<div style="font-size:26px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))'
@@ -2443,17 +2444,27 @@
     });
     if (!walkerOn) return true;
     (d.stations || []).forEach(s => {
+      walkerStationsData = d.stations || [];
       if (!walkerStMarks[s.key]) {
         // вокзалы полупрозрачные — не перекрывают человечков рядом
         const mk = L.marker([s.lat, s.lon], {icon: walkerIcon('🚉', 0.45)}).addTo(map);
-        // окно вокзала с кнопкой переезда доступно, только когда перс подошёл в 10 км
+        // окно вокзала с кнопками переезда доступно, только когда перс подошёл в 10 км
         mk.on('click', () => {
           const near = walkerMe && haversineKm(
             {lat: walkerMe.lat, lon: walkerMe.lon}, {lat: s.lat, lon: s.lon}) <= 10;
           if (!near) { status('🚉 До вокзала «' + s.name + '» далеко — подойди ближе 10 км'); return; }
-          mk.bindPopup('<b>🚉 Вокзал «' + s.name + '»</b><br>'
-            + '<button style="margin-top:6px;padding:7px 10px;font-size:14px;border-radius:10px;width:100%;"'
-            + ' onclick="window.walkerDoStation(\'' + s.key + '\')">Поехать 🚆</button>').openPopup();
+          // кнопка на каждый вокзал — выбор направления; свой вокзал отмечен
+          let btns = '';
+          (walkerStationsData || []).forEach(t => {
+            const cur = t.key === s.key;
+            btns += '<button style="padding:7px 10px;font-size:14px;border-radius:10px;"'
+              + (cur ? ' disabled' : '')
+              + ' onclick="window.walkerDoStation(\'' + t.key + '\')">🚆 ' + t.name
+              + (cur ? ' — ты здесь' : '') + '</button>';
+          });
+          mk.bindPopup('<b>🚉 Вокзал «' + s.name + '»</b><br><i>Куда едем?</i>'
+            + '<div style="display:flex;flex-direction:column;gap:6px;margin-top:6px;">'
+            + btns + '</div>').openPopup();
         });
         walkerStMarks[s.key] = mk;
       }
@@ -2545,6 +2556,7 @@
     const d = await r.json().catch(() => ({}));
     if (d.error) { status('⚠️ ' + d.error); return; }
     status('🚉 Приехал: вокзал «' + d.name + '»');
+    map.closePopup();
     walkerPoll();
   };
   setInterval(() => { if (walkerOn) walkerUpdateCtrl(); }, 1000);
