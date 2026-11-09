@@ -13,6 +13,7 @@ import asyncio
 import datetime
 import html
 import hashlib
+import heapq
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, parse_qsl
@@ -1008,6 +1009,190 @@ def sifa_random_water(area):
     return 25.0, -40.0   # Средина Атлантики — гарантированная вода
 
 
+# ---------- Следопыт: человечек по суше России, Пища, вокзалы (клад — фаза 2) ----------
+WALKER_SPEED_KM_PER_MIN = 30.0   # «прогулочный» темп игры, не реализм
+WALKER_ENERGY_MAX = 800.0        # запас хода, км
+WALKER_FOOD_ENERGY = 250.0       # 1 единица Пищи -> +250 км энергии
+WALKER_START_FOOD = 5            # стартовый запас Пищи у нового следопыта
+FOOD_COOK_SEC = 3600             # готовка: 1 единица раз в час (плавающий кулдаун)
+FOOD_DAILY_MAX = 24              # не больше 24 единиц в сутки (сброс в 00:00 МСК)
+FOOD_MAX_STOCK = 10              # вместимость «сумки» с едой
+WALKER_FILE = "walker.json"
+# территория: Россия, lat 41..82; lon 19..180 и -180..-169 (Чукотка через антимеридиан)
+# формат области как у Сифы: [lat_min, lon_min, lat_max, lon_max], lon_max > 180 = переход
+WALKER_AREA = (41.0, 19.0, 82.0, 191.0)
+WALKER_STATIONS = [
+    {"key": "msk", "name": "Москва",      "lat": 55.7558,  "lon": 37.6173},
+    {"key": "nsk", "name": "Новосибирск", "lat": 55.0302,  "lon": 82.9204},
+    {"key": "chk", "name": "Чукотка",     "lat": 64.7348,  "lon": -170.3103},
+]
+WALKER_SPAWN_STATION = "chk"     # все следопыты стартуют у Чукотки
+
+
+def walker_area_ok(lat: float, lon: float) -> bool:
+    return sifa_area_ok(WALKER_AREA, lat, lon)
+
+
+def _walker_land_point(lat: float, lon: float):
+    """Ближайшая к (lat, lon) точка СУШИ по маске (для вокзалов у побережья)."""
+    if sifa_is_land(lat, lon):
+        return round(lat, 6), round(lon, 6)
+    for r in range(1, 40):
+        for dr in range(-r, r + 1):
+            for dc in (-r, r):
+                tlat, tlon = lat + dr * 0.25, lon + dc * 0.25
+                if sifa_is_land(tlat, tlon):
+                    return round(tlat, 6), round(tlon, 6)
+    return None
+
+
+WALKER_FORD_MAX = 4   # сколько ВОДНЫХ клеток подряд можно пройти «вброд» (переправа)
+
+
+def walker_land_route(lat1, lon1, lat2, lon2):
+    """Маршрут по суше в пределах WALKER_AREA: поворотные точки [[lat, lon], ...] —
+    без стартовой, с финишной. До WALKER_FORD_MAX водных клеток подряд разрешено
+    (узкие перешейки/проливы, например Чукотка↔материк). None — пути нет."""
+    step = 0.25
+    lat0, lon0 = WALKER_AREA[0], WALKER_AREA[1]
+    rows = int((WALKER_AREA[2] - lat0) / step) + 1
+    cols = int(((WALKER_AREA[3] - lon0) % 360.0) / step) + 1
+
+    def cell_of(lat, lon):
+        r = min(rows - 1, max(0, int((lat - lat0) / step)))
+        u = (lon - lon0) % 360.0
+        c = min(cols - 1, int(u / step))
+        return r, c
+
+    def center_of(r, c):
+        return lat0 + (r + 0.5) * step, ((lon0 + (c + 0.5) * step + 180.0) % 360.0) - 180.0
+
+    def land_cell(r, c):
+        clat, clon = center_of(r, c)
+        return sifa_is_land(clat, clon)
+
+    r1, c1 = cell_of(lat1, lon1)
+    r2, c2 = cell_of(lat2, lon2)
+    if (r1, c1) == (r2, c2):
+        return [[round(lat2, 6), round(lon2, 6)]]
+    if not land_cell(r2, c2):
+        return None
+    n = rows * cols
+    nrun = WALKER_FORD_MAX + 1          # состояние = клетка + число подряд идущих водных клеток на пути к ней
+    start = r1 * cols + c1
+    goal = r2 * cols + c2
+    def sid(idx, run):
+        return idx * nrun + run
+    # A* по километражу между центрами клеток: диагональ дороже горизонтали/вертикали,
+    # поэтому путь идёт прямо, а не зигзагом (обычный BFS по шагам «дорисовывал» ~2x километраж).
+    # Водная клетка проходима «вброд», но с большим штрафом (не более WALKER_FORD_MAX подряд).
+    start_c = center_of(r1, c1)
+    prev = array('i', [-2]) * (n * nrun)
+    gdist = array('d', [1e18]) * (n * nrun)   # float64! float32 округляет вниз, и stale-check губит валидные состояния
+    hq = []
+    _heap_counter = [0]
+    def hpush(item):
+        heapq.heappush(hq, item)
+    hpush((haversine_km(start_c[0], start_c[1], lat2, lon2), 0.0, 0, sid(start, 0)))
+    gdist[sid(start, 0)] = 0.0
+    prev[sid(start, 0)] = -1
+    found_state = -1
+    while hq:
+        _, g, _, cs = heapq.heappop(hq)
+        if g > gdist[cs] + 1e-6:
+            continue
+        cur, run = divmod(cs, nrun)
+        if cur == goal:
+            found_state = cs
+            break
+        cr, cc = divmod(cur, cols)
+        for dr in (-1, 0, 1):
+            for dc in (-1, 0, 1):
+                if not dr and not dc:
+                    continue
+                nr, nc = cr + dr, cc + dc
+                if nr < 0 or nr >= rows or nc < 0 or nc >= cols:
+                    continue
+                ni = nr * cols + nc
+                # стартовую клетку пропускаем даже если маска промахнулась
+                water = not land_cell(nr, nc) and ni != start
+                nrun_next = run + 1 if water else 0
+                if nrun_next > WALKER_FORD_MAX:
+                    continue
+                nlat, nlon = center_of(nr, nc)
+                clat, clon = center_of(cr, cc)
+                w = haversine_km(clat, clon, nlat, nlon)
+                if water:
+                    w *= 5.0
+                ng = g + w
+                ns = sid(ni, nrun_next)
+                if ng < gdist[ns]:
+                    gdist[ns] = ng
+                    prev[ns] = cs
+                    _heap_counter[0] += 1
+                    hpush((ng + haversine_km(nlat, nlon, lat2, lon2), ng, _heap_counter[0], ns))
+    if found_state < 0:
+        return None
+    cells = []
+    cs = found_state
+    while cs != -1:
+        cur, _ = divmod(cs, nrun)
+        cells.append(cur)
+        cs = prev[cs]
+    cells.reverse()
+    pts = []
+    for i in range(1, len(cells)):
+        pr, pc = divmod(cells[i - 1], cols)
+        r, c = divmod(cells[i], cols)
+        d = (r - pr, c - pc)
+        if i == len(cells) - 1:
+            pts.append([round(lat2, 6), round(lon2, 6)])
+        else:
+            nr, nc = divmod(cells[i + 1], cols)
+            if (nr - r, nc - c) != d:
+                clat, clon = center_of(r, c)
+                pts.append([round(clat, 6), round(clon, 6)])
+    return pts
+
+
+def _walker_route_km(lat1, lon1, pts) -> float:
+    total = 0.0
+    alat, alon = lat1, lon1
+    for wp in pts:
+        total += haversine_km(alat, alon, wp[0], wp[1])
+        alat, alon = wp[0], wp[1]
+    return total
+
+
+def walker_progress(w: dict) -> bool:
+    """Продвинуть следопыта по маршруту (лениво). True — прибыл (энергия списана)."""
+    if not w.get("route"):
+        return False
+    now = time.time()
+    traveled_km = (now - w["nav_ts"]) / 60.0 * WALKER_SPEED_KM_PER_MIN
+    total_km = _walker_route_km(w["nav_from_lat"], w["nav_from_lon"], w["route"])
+    alat, alon = w["nav_from_lat"], w["nav_from_lon"]
+    left = traveled_km
+    for wp in w["route"]:
+        seg = haversine_km(alat, alon, wp[0], wp[1])
+        if seg <= 0:
+            alat, alon = wp[0], wp[1]
+            continue
+        if left < seg:
+            f = left / seg
+            w["lat"] = round(alat + (wp[0] - alat) * f, 6)
+            w["lon"] = round(alon + (wp[1] - alon) * f, 6)
+            return False
+        left -= seg
+        alat, alon = wp[0], wp[1]
+    w["lat"], w["lon"] = round(alat, 6), round(alon, 6)
+    w["energy"] = max(0.0, w.get("energy", 0.0) - total_km)
+    w["route"] = None
+    w["nav_from_lat"] = w["nav_from_lon"] = None
+    w["ts"] = now
+    return True
+
+
 # ---------- Корабли (Галеоны): верфь, плавание, абордаж и КНБ ----------
 SHIP_COST_WOOD = 10            # постройка Галеона на верфи — 10 дерева
 SHIP_SPEED_KM_PER_MIN = 5000.0 # скорость корабля
@@ -1472,6 +1657,58 @@ def _sifa_entry(chat_id: int) -> dict:
 sifa_state = {}               # chat_id -> {user_key: {"lat","lon","heading","ts","name"}}
 sifa_lock = threading.Lock()
 _sifa_last_save = 0.0
+
+
+walker_state = {}             # chat_id -> {user_key: {"lat","lon","energy","name","tid","route",...}}
+walker_lock = threading.Lock()
+_walker_last_save = 0.0
+
+
+def walker_save_to_github(force: bool = False) -> None:
+    global _walker_last_save
+    if not geo_token():
+        return
+    now = time.time()
+    if not force and now - _walker_last_save < SIFA_SAVE_INTERVAL_SEC:
+        return
+    _walker_last_save = now
+    _save_json_to_github(WALKER_FILE, walker_state, walker_lock, "walker")
+
+
+def walker_load_from_github() -> None:
+    loaded = _load_json_from_github(WALKER_FILE, "walker")
+    if loaded:
+        total = 0
+        for cid, ships in loaded.items():
+            walker_state[int(cid)] = ships
+            total += len(ships)
+        print(f"[paint_bot] walker: загружено {total} следопытов из Git", flush=True)
+
+
+_walker_station_pts = None
+
+
+def _walker_station_point(station: dict):
+    """Координаты вокзала, подвинутые на ближайшую сушу (кэшируется на процесс)."""
+    global _walker_station_pts
+    if _walker_station_pts is None:
+        _walker_station_pts = {}
+        for s in WALKER_STATIONS:
+            _walker_station_pts[s["key"]] = _walker_land_point(s["lat"], s["lon"]) \
+                or (s["lat"], s["lon"])
+    return _walker_station_pts[station["key"]]
+
+
+def _walker_spawn(name: str, tid: str) -> dict:
+    """Новый следопыт: все стартуют у вокзала Чукотка, энергия полная."""
+    st = next(s for s in WALKER_STATIONS if s["key"] == WALKER_SPAWN_STATION)
+    lat, lon = _walker_station_point(st)
+    w = {"lat": lat, "lon": lon, "energy": WALKER_ENERGY_MAX,
+         "name": name, "route": None, "nav_from_lat": None, "nav_from_lon": None,
+         "nav_ts": 0.0, "ts": time.time()}
+    if tid and str(tid).isdigit():
+        w["tid"] = tid
+    return w
 
 
 def sifa_save_to_github(force: bool = False) -> None:
@@ -2558,7 +2795,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-09-1621"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-09-1851"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -3817,6 +4054,63 @@ class AppHandler(BaseHTTPRequestHandler):
             if need_save:
                 sifa_save_to_github()
             self._json_response(200, {"ships": ships, "area": area, "me": me, "logs": logs})
+        elif url.path == "/walkerstate":
+            chat_id = int(params.get("chat", ["0"])[0])
+            viewer = params.get("user", [""])[0]
+            viewer_name = params.get("name", [""])[0][:64]
+            now = time.time()
+            today = datetime.datetime.now(MSK_TZ).strftime("%Y-%m-%d")
+            me = None
+            others = []
+            need_wsave = False
+            need_gsave = False
+            with walker_lock:
+                walkers = walker_state.setdefault(chat_id, {})
+                with geo_lock:
+                    mkey = resolve_marker_key(chat_id, viewer, viewer_name)
+                    if mkey is None:
+                        self._json_response(403, {"error": "сначала поставь метку на карте"})
+                        return
+                    w = walkers.get(mkey)
+                    if w is None:
+                        w = _walker_spawn(viewer_name or mkey, viewer)
+                        walkers[mkey] = w
+                        marker = geo_state[chat_id][mkey]
+                        if "food" not in marker:
+                            marker["food"] = WALKER_START_FOOD
+                            marker["food_day"] = today
+                            marker["food_cooked"] = 0
+                            need_gsave = True
+                        need_wsave = True
+                        logline(f"walker spawn chat={chat_id} user={mkey!r}")
+                    if walker_progress(w):
+                        need_wsave = True
+                    marker = geo_state[chat_id].get(mkey) or {}
+                    if marker.get("food_day") != today:
+                        marker["food_day"] = today
+                        marker["food_cooked"] = 0
+                        need_gsave = True
+                    me = {"lat": w["lat"], "lon": w["lon"],
+                          "energy": round(w.get("energy", 0.0), 1),
+                          "moving": bool(w.get("route")),
+                          "food": marker.get("food", 0),
+                          "cook_in": max(0, int(marker.get("food_ready_ts", 0.0) - now)),
+                          "cooked_left": FOOD_DAILY_MAX - marker.get("food_cooked", 0)}
+                    for u, o in walkers.items():
+                        if u == mkey:
+                            continue
+                        if walker_progress(o):
+                            need_wsave = True
+                        others.append({"lat": o["lat"], "lon": o["lon"],
+                                       "name": o.get("name", "?")})
+            if need_wsave:
+                walker_save_to_github()
+            if need_gsave:
+                geo_save_to_github()
+            stations = [{"key": s["key"], "name": s["name"],
+                         "lat": _walker_station_point(s)[0],
+                         "lon": _walker_station_point(s)[1]} for s in WALKER_STATIONS]
+            self._json_response(200, {"me": me, "others": others, "stations": stations})
         elif url.path == "/geodata":
             chat_id = int(params.get("chat", ["0"])[0])
             viewer = params.get("user", [""])[0]
@@ -4357,6 +4651,15 @@ class AppHandler(BaseHTTPRequestHandler):
         if url.path == "/sifaexit":
             self._handle_sifa_exit_post()
             return
+        if url.path == "/walkermove":
+            self._handle_walker_move_post()
+            return
+        if url.path == "/walkerfood":
+            self._handle_walker_food_post()
+            return
+        if url.path == "/walkerstation":
+            self._handle_walker_station_post()
+            return
         if url.path == "/volcano":
             self._handle_volcano_post(url)
             return
@@ -4801,6 +5104,169 @@ class AppHandler(BaseHTTPRequestHandler):
     def _handle_sifa_exit_post(self) -> None:
         """СИФА (устаревшее): корабль убрать нельзя — он остаётся навсегда."""
         self._json_response(410, {"error": "кораблик остаётся на карте навсегда"})
+
+    def _handle_walker_move_post(self) -> None:
+        """СЛЕДОПЫТ: идти к точке по суше (маршрут по маске, энергия списывается в конце)."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+            lat = float(payload["lat"])
+            lon = float(payload["lon"])
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        if not walker_area_ok(lat, lon):
+            self._json_response(422, {"error": "это за границами территории Следопыта (Россия)"})
+            return
+        if not sifa_is_land(lat, lon):
+            self._json_response(422, {"error": "человечек по воде не ходит — выбери точку на суше"})
+            return
+        name = str(payload.get("name", ""))[:64]
+        now = time.time()
+        with walker_lock:
+            with geo_lock:
+                mkey = resolve_marker_key(chat_id, user, name)
+            if mkey is None:
+                self._json_response(403, {"error": "сначала поставь метку на карте"})
+                return
+            w = walker_state.get(chat_id, {}).get(mkey)
+            if w is None:
+                self._json_response(404, {"error": "следопыта ещё нет — нажми 🚶 в панели режимов"})
+                return
+            if walker_progress(w):
+                walker_save_to_github()
+            if w.get("route"):
+                self._json_response(409, {"error": "человечек уже идёт — дождись, куда шёл"})
+                return
+            route = walker_land_route(w["lat"], w["lon"], lat, lon)
+            if not route:
+                self._json_response(422, {"error": "по суше туда не добраться — вокзал или другая цель"})
+                return
+            km = _walker_route_km(w["lat"], w["lon"], route)
+            if km > w.get("energy", 0.0) + 0.5:
+                self._json_response(403, {"error": (
+                    f"не хватит сил: путь {int(km)} км, а энергии только "
+                    f"{int(w.get('energy', 0))} — подкрепись 🍖"
+                )})
+                return
+            w["route"] = route
+            w["nav_from_lat"], w["nav_from_lon"] = w["lat"], w["lon"]
+            w["nav_ts"] = now
+            w["ts"] = now
+            walker_save_to_github()
+        logline(f"200 /walkermove chat={chat_id} user={mkey!r} km={int(km)}")
+        self._json_response(200, {"eta_min": int(km / WALKER_SPEED_KM_PER_MIN) + 1,
+                                  "km": round(km, 1)})
+
+    def _handle_walker_food_post(self) -> None:
+        """СЛЕДОПЫТ: Пища — готовка (1/час, макс 24/сутки) и приём пищи (+250 км энергии)."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+            act = str(payload.get("act", ""))
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        if act not in ("cook", "eat"):
+            self._json_response(400, {"error": "act: cook|eat"})
+            return
+        name = str(payload.get("name", ""))[:64]
+        now = time.time()
+        today = datetime.datetime.now(MSK_TZ).strftime("%Y-%m-%d")
+        if act == "cook":
+            with geo_lock:
+                mkey = resolve_marker_key(chat_id, user, name)
+                if mkey is None:
+                    self._json_response(403, {"error": "сначала поставь метку на карте"})
+                    return
+                marker = geo_state[chat_id][mkey]
+                if marker.get("food_day") != today:
+                    marker["food_day"] = today
+                    marker["food_cooked"] = 0
+                left = int(max(0.0, marker.get("food_ready_ts", 0.0) - now))
+                if left > 0:
+                    self._json_response(429, {"error": (
+                        f"плита ещё горячая — следующая порция через {left // 60 + 1} мин"),
+                        "retry_in": left})
+                    return
+                if marker.get("food_cooked", 0) >= FOOD_DAILY_MAX:
+                    self._json_response(429, {"error": "на сегодня наготовлено всё (24/24) — завтра снова"})
+                    return
+                if marker.get("food", 0) >= FOOD_MAX_STOCK:
+                    self._json_response(409, {"error": f"сумка с едой полная ({FOOD_MAX_STOCK}/{FOOD_MAX_STOCK})"})
+                    return
+                marker["food"] = marker.get("food", 0) + 1
+                marker["food_cooked"] = marker.get("food_cooked", 0) + 1
+                marker["food_ready_ts"] = now + FOOD_COOK_SEC
+                geo_save_to_github()
+            logline(f"200 /walkerfood cook chat={chat_id} user={mkey!r}")
+            self._json_response(200, {"food": marker["food"], "cooked_today": marker["food_cooked"]})
+            return
+        # eat
+        with walker_lock:
+            with geo_lock:
+                mkey = resolve_marker_key(chat_id, user, name)
+            if mkey is None:
+                self._json_response(403, {"error": "сначала поставь метку на карте"})
+                return
+            w = walker_state.get(chat_id, {}).get(mkey)
+            if w is None:
+                self._json_response(404, {"error": "следопыта ещё нет — нажми 🚶 в панели режимов"})
+                return
+            with geo_lock:
+                marker = geo_state[chat_id][mkey]
+                if w.get("energy", 0.0) >= WALKER_ENERGY_MAX - 0.5:
+                    self._json_response(409, {"error": "человечек сыт — энергия и так полная"})
+                    return
+                if marker.get("food", 0) <= 0:
+                    self._json_response(404, {"error": "сумка пустая — готовь пищу по кнопке 🍲"})
+                    return
+                marker["food"] = marker.get("food", 0) - 1
+                w["energy"] = min(WALKER_ENERGY_MAX, w.get("energy", 0.0) + WALKER_FOOD_ENERGY)
+                w["ts"] = now
+            walker_save_to_github()
+            geo_save_to_github()
+        logline(f"200 /walkerfood eat chat={chat_id} user={mkey!r} energy={int(w['energy'])}")
+        self._json_response(200, {"energy": round(w["energy"], 1), "food": marker["food"]})
+
+    def _handle_walker_station_post(self) -> None:
+        """СЛЕДОПЫТ: переезд на вокзал — мгновенно, сколько угодно раз, бесплатно."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+            skey = str(payload.get("station", ""))
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        station = next((s for s in WALKER_STATIONS if s["key"] == skey), None)
+        if station is None:
+            self._json_response(404, {"error": "нет такого вокзала"})
+            return
+        name = str(payload.get("name", ""))[:64]
+        with walker_lock:
+            with geo_lock:
+                mkey = resolve_marker_key(chat_id, user, name)
+            if mkey is None:
+                self._json_response(403, {"error": "сначала поставь метку на карте"})
+                return
+            w = walker_state.get(chat_id, {}).get(mkey)
+            if w is None:
+                self._json_response(404, {"error": "следопыта ещё нет — нажми 🚶 в панели режимов"})
+                return
+            slat, slon = _walker_station_point(station)
+            w["lat"], w["lon"] = slat, slon
+            w["route"] = None
+            w["nav_from_lat"] = w["nav_from_lon"] = None
+            w["ts"] = time.time()
+            walker_save_to_github()
+        logline(f"200 /walkerstation chat={chat_id} user={mkey!r} station={skey!r}")
+        self._json_response(200, {"lat": slat, "lon": slon, "name": station["name"]})
 
     def _handle_volcano_post(self, url):
         """Извержение: пользователь целится меткой адресата — от вулкана летит розовая какашка."""
@@ -6559,6 +7025,14 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(f"📊 Твоя статистика:\nИгр: {st['games']}\nПобед: {st['wins']}\nЛучший результат: {best}")
 
 
+async def cmd_klad(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/klad — повтор подсказок по кладу (зарезервировано; квест стартует позже)."""
+    if not chat_allowed(update.effective_chat):
+        return
+    await update.message.reply_text(
+        "🏴‍☠️ Клад пока не заложен. Следопыт готовится к первому походу — жди анонса в чате!")
+
+
 async def on_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, guess: str) -> None:
     """Ход в соло-игре: ответ игрока против компьютера (guess — уже разобранный ch-формат)."""
     remember_user(update.effective_user)
@@ -7193,6 +7667,7 @@ def main() -> None:
     submarine_load_from_github()
     islands_load_from_github()
     sifa_load_from_github()
+    walker_load_from_github()
     ships_load_from_github()
     wrecks_load_from_github()
     duels_load_from_github()
@@ -7223,6 +7698,7 @@ def main() -> None:
     app.add_handler(CommandHandler("secret", cmd_secret))
     app.add_handler(CommandHandler("stop", cmd_stop))
     app.add_handler(CommandHandler("stats", cmd_stats))
+    app.add_handler(CommandHandler("klad", cmd_klad))
     app.add_handler(CommandHandler("helpsum", cmd_help))
     app.add_handler(CommandHandler("myid", cmd_myid))
     app.add_handler(CommandHandler("geo2", cmd_geo2))
