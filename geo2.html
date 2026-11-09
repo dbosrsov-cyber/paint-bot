@@ -277,16 +277,6 @@
   </div>
 </div>
 <div id="walkerCtrl">
-  <div id="walkerInfo"></div>
-  <div style="display:flex;gap:6px;">
-    <button id="walkerCookBtn" style="flex:1;" title="1 порция в час, до 24 в сутки">🍲 Готовить</button>
-    <button id="walkerEatBtn" style="flex:1;" title="+250 км энергии">🍖 Есть</button>
-  </div>
-  <div style="display:flex;gap:6px;">
-    <button data-station="bry" style="flex:1;" title="Вокзал Брянск">🚉 БРЯ</button>
-    <button data-station="nsk" style="flex:1;" title="Вокзал Новосибирск">🚉 НСК</button>
-    <button data-station="yak" style="flex:1;" title="Вокзал Якутск">🚉 ЯКТ</button>
-  </div>
   <button id="walkerHideBtn" title="Выйти из режима (человечек останется на карте)">✕ Выйти</button>
 </div>
 <div id="shipDuelModal" class="modal" style="display:none;"></div>
@@ -379,10 +369,10 @@
     <ul>
       <li>🥾 Кнопка 🚶 посылает твоего человечка по суше России — все стартуют в 100 км от Новосибирска</li>
       <li>🧭 Кликни по суше — человечек сам проложит путь и пойдёт; энергия 800 км тратится в конце пути</li>
-      <li>🍲 Пища готовится 1 порция в час (до 24 в сутки, сброс в полночь), в сумке помещается 10</li>
+      <li>🍲 Кликни по своему персу: там энергия, пища и кнопки 🍲/🍖. Пища готовится 1 порция в час (до 24 в сутки, сброс в полночь), в сумке помещается 10</li>
       <li>🍖 1 порция = +250 км энергии — поесть нельзя на полном баке</li>
-      <li>🚉 Вокзалы Брянск / Новосибирск / Якутск — переезжай мгновенно и бесплатно, сколько угодно раз</li>
-      <li>🚶 В режиме видны все следопыты: свои 🥾, чужие 🚶 — кликни, чтобы узнать ник</li>
+      <li>🚉 Вокзалы Брянск / Новосибирск / Якутск — подойди к вокзалу ближе 10 км и кликни по нему: переезд мгновенный и бесплатный</li>
+      <li>🚶 В режиме видны все следопыты: свои и чужие — все 🚶; клик по чужому показывает ник</li>
       <li>🏴‍☠️ Квест «Клад»: где-то на суше России зарыт клад — команда /klad повторяет загадку и подсказки</li>
       <li>⏳ Клад живёт 7 дней: не найдут — сгорит и зароют новый; находчику +10 ☄️ ЗП, +10 💗 и сувенир 🏴‍☠️</li>
     </ul>
@@ -567,6 +557,10 @@
   const isSumaiBeta = realUserKey() === 'Sumai'
     || (tgUser && tgUser.username === 'Sumai')
     || nameInput.value.trim() === 'Sumai';
+  // следопыт — пока только для Sumai (бета): кнопку 🚶 прячем от остальных
+  if (!isSumaiBeta) {
+    document.getElementById('walkerBtn').style.display = 'none';
+  }
   if (isSumaiBeta && chat === '-1004400745434') {
     document.getElementById('personaBtn').style.display = '';
     document.getElementById('eventsBtn').style.display = '';
@@ -2429,7 +2423,7 @@
     walkerMe = d.me;
     if (!walkerMarker) {
       walkerMarker = L.marker([d.me.lat, d.me.lon], {icon: walkerIcon('🚶')}).addTo(map);
-      walkerMarker.bindPopup('🚶 Твой человечек — следопыт');
+      walkerMarker.bindPopup('');   // содержимое строит walkerUpdateCtrl
     }
     walkerMarker.setLatLng([d.me.lat, d.me.lon]);
     // следим за человечком мягко: подъезжаем, только если он ушёл за край экрана
@@ -2452,7 +2446,15 @@
       if (!walkerStMarks[s.key]) {
         // вокзалы полупрозрачные — не перекрывают человечков рядом
         const mk = L.marker([s.lat, s.lon], {icon: walkerIcon('🚉', 0.45)}).addTo(map);
-        mk.bindPopup('🚉 Вокзал «' + s.name + '» — мгновенный бесплатный переезд');
+        // окно вокзала с кнопкой переезда доступно, только когда перс подошёл в 10 км
+        mk.on('click', () => {
+          const near = walkerMe && haversineKm(
+            {lat: walkerMe.lat, lon: walkerMe.lon}, {lat: s.lat, lon: s.lon}) <= 10;
+          if (!near) { status('🚉 До вокзала «' + s.name + '» далеко — подойди ближе 10 км'); return; }
+          mk.bindPopup('<b>🚉 Вокзал «' + s.name + '»</b><br>'
+            + '<button style="margin-top:6px;padding:7px 10px;font-size:14px;border-radius:10px;width:100%;"'
+            + ' onclick="window.walkerDoStation(\'' + s.key + '\')">Поехать 🚆</button>').openPopup();
+        });
         walkerStMarks[s.key] = mk;
       }
     });
@@ -2460,19 +2462,24 @@
     return true;
   }
   function walkerUpdateCtrl() {
-    if (!walkerMe) return;
-    const el = document.getElementById('walkerInfo');
+    if (!walkerMe || !walkerMarker) return;
     const cookIn = walkerMe.cook_in || 0;
-    el.innerHTML = '⚡ Энергия: <b>' + Math.round(walkerMe.energy) + '</b>/800 км'
-      + (walkerMe.moving ? '<br>🚶 Идёт…' : '<br>🧭 Кликни по суше — пойдёт')
+    const cookDis = cookIn > 0 || (walkerMe.food || 0) >= 10 || (walkerMe.cooked_left || 0) <= 0;
+    const eatDis = (walkerMe.food || 0) <= 0 || (walkerMe.energy || 0) >= 800;
+    // вся информация и пищевые кнопки — во всплывающем окне своего перса
+    walkerMarker.setPopupContent(
+      '⚡ Энергия: <b>' + Math.round(walkerMe.energy) + '</b>/800 км<br>'
+      + (walkerMe.moving ? '🚶 Идёт…' : '🧭 Кликни по суше — пойдёт')
       + '<br>🍲 Пища: <b>' + walkerMe.food + '</b>/10'
       + (cookIn > 0 ? ' • готовится ' + walkerFmtLeft(cookIn) : '')
-      + '<br>🍳 Осталось сегодня: ' + walkerMe.cooked_left + '/24';
-    const cookBtn = document.getElementById('walkerCookBtn');
-    cookBtn.textContent = cookIn > 0 ? '🍲 ' + walkerFmtLeft(cookIn) : '🍲 Готовить';
-    cookBtn.disabled = cookIn > 0 || (walkerMe.food || 0) >= 10 || (walkerMe.cooked_left || 0) <= 0;
-    document.getElementById('walkerEatBtn').disabled =
-      (walkerMe.food || 0) <= 0 || (walkerMe.energy || 0) >= 800;
+      + '<br>🍳 Осталось сегодня: ' + walkerMe.cooked_left + '/24'
+      + '<div style="display:flex;gap:6px;margin-top:8px;">'
+      + '<button style="flex:1;padding:7px 4px;font-size:14px;border-radius:10px;"'
+      + (cookDis ? ' disabled' : '') + ' onclick="window.walkerDoCook()">🍲 '
+      + (cookIn > 0 ? walkerFmtLeft(cookIn) : 'Готовить') + '</button>'
+      + '<button style="flex:1;padding:7px 4px;font-size:14px;border-radius:10px;"'
+      + (eatDis ? ' disabled' : '') + ' onclick="window.walkerDoEat()">🍖 Есть</button>'
+      + '</div>');
   }
   async function walkerSend(lat, lon) {
     const r = await fetch('/walkermove', {
@@ -2504,12 +2511,13 @@
     if (!ok || !walkerMe) { walkerOn = false; return; }  // ошибку уже показал walkerPoll — режим не застревает
     walkerCtrlEl.style.display = 'flex';
     map.flyTo([walkerMe.lat, walkerMe.lon], 6, {duration: 1.2});  // фокус на своём человечке — не ищем его по карте
-    status('🥾 Человечек на суше России! Кликни по суше, чтобы идти • 🍲 готовь пищу • 🚉 вокзалы');
+    status('🥾 Человечек на суше России! Кликни по суше — пойдёт • по своему персу — пища и статус • к вокзалу подойди в 10 км');
     clearInterval(walkerPollTimer);
     walkerPollTimer = setInterval(walkerPoll, 3000);
   };
   document.getElementById('walkerHideBtn').onclick = () => { if (walkerOn) walkerBtn.onclick(); };
-  document.getElementById('walkerCookBtn').onclick = async () => {
+  // обработчики вызываются из всплывающих окон (inline onclick) — должны быть глобальными
+  window.walkerDoCook = async () => {
     const r = await fetch('/walkerfood', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({chat: chat, user: myKey(), name: userName(), act: 'cook'})
@@ -2519,7 +2527,7 @@
                    : '🍲 Порция готова! В сумке ' + d.food + '/10, сегодня ' + d.cooked_today + '/24');
     walkerPoll();
   };
-  document.getElementById('walkerEatBtn').onclick = async () => {
+  window.walkerDoEat = async () => {
     const r = await fetch('/walkerfood', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({chat: chat, user: myKey(), name: userName(), act: 'eat'})
@@ -2529,19 +2537,16 @@
                    : '🍖 Энергия ' + Math.round(d.energy) + '/800, еды осталось ' + d.food);
     walkerPoll();
   };
-  document.querySelectorAll('#walkerCtrl button[data-station]').forEach(btn => {
-    btn.onclick = async () => {
-      const r = await fetch('/walkerstation', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({chat: chat, user: myKey(), name: userName(),
-                              station: btn.getAttribute('data-station')})
-      });
-      const d = await r.json().catch(() => ({}));
-      if (d.error) { status('⚠️ ' + d.error); return; }
-      status('🚉 Приехал: вокзал «' + d.name + '»');
-      walkerPoll();
-    };
-  });
+  window.walkerDoStation = async (key) => {
+    const r = await fetch('/walkerstation', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName(), station: key})
+    });
+    const d = await r.json().catch(() => ({}));
+    if (d.error) { status('⚠️ ' + d.error); return; }
+    status('🚉 Приехал: вокзал «' + d.name + '»');
+    walkerPoll();
+  };
   setInterval(() => { if (walkerOn) walkerUpdateCtrl(); }, 1000);
   window.islandPoop = async () => {
     const r = await fetch('/islandpoop', {
