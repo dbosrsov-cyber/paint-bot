@@ -1026,7 +1026,8 @@ WALKER_STATIONS = [
     {"key": "nsk", "name": "Новосибирск", "lat": 55.0302,  "lon": 82.9204},
     {"key": "yak", "name": "Якутск",      "lat": 62.0355,  "lon": 129.6755},
 ]
-WALKER_SPAWN_STATION = "yak"     # все следопыты стартуют у Якутска
+WALKER_SPAWN_STATION = "nsk"     # база спавна — вокзал Новосибирска
+WALKER_SPAWN_KM = 100.0          # человечки появляются в ~100 км от вокзала (к северу)
 
 
 def walker_area_ok(lat: float, lon: float) -> bool:
@@ -1846,16 +1847,49 @@ def _walker_station_point(station: dict):
     return _walker_station_pts[station["key"]]
 
 
-def _walker_spawn(name: str, tid: str) -> dict:
-    """Новый следопыт: все стартуют у вокзала Якутск, энергия полная."""
+def _walker_spawn_point():
+    """Точка спавна: ~100 км к северу от вокзала Новосибирск, снап на сушу."""
     st = next(s for s in WALKER_STATIONS if s["key"] == WALKER_SPAWN_STATION)
-    lat, lon = _walker_station_point(st)
+    blat, blon = _walker_station_point(st)
+    return _walker_land_point(blat + WALKER_SPAWN_KM / 111.32, blon) or (blat, blon)
+
+
+def _walker_spawn(name: str, tid: str) -> dict:
+    """Новый следопыт: старт в 100 км от вокзала Новосибирск, энергия полная."""
+    lat, lon = _walker_spawn_point()
     w = {"lat": lat, "lon": lon, "energy": WALKER_ENERGY_MAX,
          "name": name, "route": None, "nav_from_lat": None, "nav_from_lon": None,
          "nav_ts": 0.0, "ts": time.time()}
     if tid and str(tid).isdigit():
         w["tid"] = tid
     return w
+
+
+def apply_walker_reloc_2026_11_09() -> None:
+    """Разовый перенос (2026-11-09): все человечки — на точку спавна
+    (в 100 км от вокзала Новосибирск), Sumai — на вокзал Брянска. Маршруты сброшены."""
+    tag = "walker_reloc_2026-11-09"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    spawn = _walker_spawn_point()
+    bry = next(s for s in WALKER_STATIONS if s["key"] == "bry")
+    bry_pt = _walker_station_point(bry)
+    moved = 0
+    with walker_lock:
+        for walkers in walker_state.values():
+            for k, w in walkers.items():
+                lat, lon = bry_pt if k == "Sumai" else spawn
+                w["lat"], w["lon"] = round(lat, 6), round(lon, 6)
+                w["route"] = None
+                w["nav_from_lat"] = w["nav_from_lon"] = None
+                w["nav_ts"] = 0.0
+                w["ts"] = time.time()
+                moved += 1
+    if moved:
+        walker_save_to_github(force=True)
+    logline(f"walker reloc: перенесено {moved} человечек (Sumai -> Брянск)")
+    meteor_save_to_github()
 
 
 def sifa_save_to_github(force: bool = False) -> None:
@@ -2948,7 +2982,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-09-2150"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-09-2155"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -7906,6 +7940,7 @@ def main() -> None:
     apply_anon_rename_dasha()
     apply_tatev_coowner()
     apply_andrey_island_rename()
+    apply_walker_reloc_2026_11_09()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
