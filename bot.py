@@ -2982,7 +2982,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-09-2330"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-09-2340"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -4705,6 +4705,9 @@ class AppHandler(BaseHTTPRequestHandler):
                         isl["next_storm_ts"] = now + random.uniform(5400, 9000)
                         _storm = isl["storm"]
                         changed = True
+                        # сначала сохраняем, потом шлём: рестарт между отправкой и
+                        # концом запроса иначе терял состояние и слал уведомление повторно
+                        islands_save_to_github()
                         try:
                             tg_send_with_cleanup(
                                 chat_id,
