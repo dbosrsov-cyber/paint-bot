@@ -1917,6 +1917,22 @@ def apply_sumai_walker_bryansk_2026_11_10() -> None:
     meteor_save_to_github()
 
 
+def apply_regen_klad_2026_11_10() -> None:
+    """Разовый (2026-11-10): перезарыть клад в «Другом измерении» — свежий план подсказок."""
+    tag = "regen_klad_2026-11-10"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    entry = klad_new(-1002304715333, save=False)  # «Другое измерение»
+    if entry:
+        klad_save_to_github(force=True)
+        logline(f"klad regen: новый клад {entry['lat']:.2f}, {entry['lon']:.2f}, "
+                f"подсказок {len(entry['hints'])}")
+    else:
+        logline("klad regen: клад не создан (зона/суше?)")
+    meteor_save_to_github()
+
+
 def sifa_save_to_github(force: bool = False) -> None:
     global _sifa_last_save
     if not geo_token():
@@ -3007,7 +3023,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-10-0030"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-10-0040"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -8103,6 +8119,7 @@ def main() -> None:
     apply_andrey_island_rename()
     apply_walker_reloc_2026_11_09()
     apply_sumai_walker_bryansk_2026_11_10()
+    apply_regen_klad_2026_11_10()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
