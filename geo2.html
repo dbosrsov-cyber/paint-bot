@@ -93,6 +93,12 @@
   #walkerInfo { padding:6px 10px; font-size:13px; border-radius:12px; line-height:1.55;
     background:rgba(30,60,45,.88); color:#d9f2e3; border:1px solid rgba(110,231,183,.4);
     backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
+  /* кнопка «Отправить» маршрута Следопыта */
+  #walkerGoBtn { position:fixed; left:50%; transform:translateX(-50%); bottom:110px; z-index:3000;
+    display:none; padding:12px 30px; font-size:17px; font-weight:bold; border-radius:16px;
+    background:rgba(30,60,45,.9); color:#d9f2e3; border:1px solid rgba(110,231,183,.5);
+    backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); cursor:pointer; }
+  #walkerGoBtn:active { background:rgba(45,212,140,.5); color:#fff; }
   #sifaAreaBar { position:fixed; right:12px; bottom:470px; z-index:3000; display:none;
     flex-direction:column; gap:6px; width:168px; padding:8px; border-radius:14px;
     background:rgba(30,45,60,.92); border:1px solid rgba(125,211,252,.4);
@@ -288,6 +294,7 @@
     </div>
   </div>
 </div>
+<button id="walkerGoBtn">🚶 Отправить</button>
 <div id="shipDuelModal" class="modal" style="display:none;"></div>
 <div id="shipWatchModal" class="modal" style="display:none;"></div>
 <div id="sifaAreaBar">
@@ -2498,7 +2505,7 @@
     // вся информация и пищевые кнопки — во всплывающем окне своего перса
     walkerMarker.setPopupContent(
       '⚡ Энергия: <b>' + Math.round(walkerMe.energy) + '</b>/800 км<br>'
-      + (walkerMe.moving ? '🚶 Идёт…' : '🧭 Кликни по суше — пойдёт')
+      + (walkerMe.moving ? '🚶 Идёт…' : '🧭 Кликни по суше — пунктир, «Отправить» — в путь')
       + '<br>🍲 Пища: <b>' + walkerMe.food + '</b>/10'
       + (cookIn > 0 ? ' • готовится ' + walkerFmtLeft(cookIn) : '')
       + '<br>🍳 Осталось сегодня: ' + walkerMe.cooked_left + '/24'
@@ -2513,6 +2520,26 @@
       + ' onclick="window.walkerDoHints()" title="Подсказки по текущему кладу">🧩 Клад</button>'
       + '</div>');
   }
+  // план маршрута: пунктир + флажок; движение начинается только по кнопке «Отправить»
+  let walkerPlanLine = null, walkerPlanFlag = null, walkerPlanTarget = null;
+  function walkerPlanClear() {
+    if (walkerPlanLine) { map.removeLayer(walkerPlanLine); walkerPlanLine = null; }
+    if (walkerPlanFlag) { map.removeLayer(walkerPlanFlag); walkerPlanFlag = null; }
+    walkerPlanTarget = null;
+    document.getElementById('walkerGoBtn').style.display = 'none';
+  }
+  function walkerPlan(lat, lon) {
+    if (!walkerMe) return;
+    walkerPlanClear();
+    walkerPlanTarget = [lat, lon];
+    walkerPlanLine = L.polyline(
+      [[walkerMe.lat, walkerMe.lon], [lat, lon]],
+      {dashArray: '8 8', opacity: 0.55, weight: 3}).addTo(map);
+    walkerPlanFlag = L.marker([lat, lon], {icon: L.divIcon({
+      html: '<div style="font-size:24px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))">🚩</div>',
+      className: 'emoji-marker', iconSize: [26, 26], iconAnchor: [5, 24]})}).addTo(map);
+    document.getElementById('walkerGoBtn').style.display = 'block';
+  }
   async function walkerSend(lat, lon) {
     const r = await fetch('/walkermove', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
@@ -2520,15 +2547,20 @@
     });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) { status('⚠️ ' + (d.error || 'не вышло отправить человечка')); return; }
+    walkerPlanClear();   // движение началось — пунктир, флажок и кнопка убираются
     status('🥾 Человечек отправился: ' + d.km + ' км, прибудет примерно через ' + d.eta_min + ' мин');
     walkerPoll();
   }
+  document.getElementById('walkerGoBtn').onclick = () => {
+    if (walkerPlanTarget) walkerSend(walkerPlanTarget[0], walkerPlanTarget[1]);
+  };
   const walkerBtn = document.getElementById('walkerBtn');
   const walkerExitBtn = document.getElementById('walkerExitBtn');
   const walkerExitModal = document.getElementById('walkerExitModal');
   function walkerExit() {   // выходим: дверь прячем, чужие маркеры и вокзала убираем, свой остаётся на карте
     walkerOn = false;
     walkerExitBtn.style.display = 'none';
+    walkerPlanClear();
     clearInterval(walkerPollTimer); walkerPollTimer = null;
     Object.values(walkerOthers).forEach(m => map.removeLayer(m));
     Object.keys(walkerOthers).forEach(k => delete walkerOthers[k]);
@@ -2544,7 +2576,7 @@
     if (!ok || !walkerMe) { walkerOn = false; return; }  // ошибку уже показал walkerPoll — режим не застревает
     walkerExitBtn.style.display = '';
     map.flyTo([walkerMe.lat, walkerMe.lon], 6, {duration: 1.2});  // фокус на своём человечке — не ищем его по карте
-    status('🥾 Человечек на суше России! Кликни по суше — пойдёт • по своему персу — пища и статус • к вокзалу подойди в 10 км');
+    status('🥾 Человечек на суше России! Кликни по суше — пунктир с флажком, «Отправить» — в путь • по своему персу — пища и статус • к вокзалу подойди в 10 км');
     clearInterval(walkerPollTimer);
     walkerPollTimer = setInterval(walkerPoll, 3000);
   };
@@ -2554,11 +2586,18 @@
     if (walkerOn) walkerExit();
   };
   document.getElementById('walkerExitNo').onclick = () => { walkerExitModal.style.display = 'none'; };
-  // подсказки по кладу: только те, что бот уже анонсировал по таймеру (walkerKladHints)
+  // подсказки по кладу: объекты {off, text} — off = через сколько секунд от закладки
   window.walkerDoHints = () => {
     if (!walkerKladHints.length) return;
     document.getElementById('kladHintsList').innerHTML = walkerKladHints
-      .map((t, i) => '<div style="margin-bottom:8px;"><b>🧩 ' + (i + 1) + '.</b> ' + t + '</div>')
+      .map((h, i) => {
+        const t = (h && h.text != null) ? h.text : h;
+        const off = (h && h.off != null)
+          ? (h.off >= 3600 ? 'через ' + Math.round(h.off / 3600) + ' ч'
+                           : 'через ' + Math.round(h.off / 60) + ' мин') : '';
+        return '<div style="margin-bottom:8px;"><b>🧩 ' + (i + 1) + '.</b>'
+          + (off ? ' <span style="opacity:.7;">(' + off + ')</span>' : '') + ' ' + t + '</div>';
+      })
       .join('');
     document.getElementById('kladHintsModal').style.display = 'flex';
   };
@@ -2919,7 +2958,7 @@
 
   map.on('click', e => {
     if (sifaAreaMode) { sifaPickArea(e.latlng); return; }
-    if (walkerOn) { walkerSend(e.latlng.lat, e.latlng.lng); return; }
+    if (walkerOn) { walkerPlan(e.latlng.lat, e.latlng.lng); return; }
     if (shipNavMode) { shipNavMode = false; shipNavPick(e.latlng.lat, e.latlng.lng); return; }
     if (distMode) {
       pickPoint({lat: e.latlng.lat, lon: e.latlng.lng, name: 'точка на карте'});
