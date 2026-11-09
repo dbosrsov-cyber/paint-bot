@@ -1193,6 +1193,150 @@ def walker_progress(w: dict) -> bool:
     return True
 
 
+# ---------- Поиск клада: клад на суше России, подсказки каждые 12 ч, жизнь 7 дней ----------
+KLAD_FILE = "klad.json"
+KLAD_LIFE_SEC = 7 * 86400          # неделя — потом сгорает и зарывается новый
+KLAD_HINT_STEP_SEC = 12 * 3600
+KLAD_FIND_KM = 30.0                # радиус находки от зарытой точки
+klad_state = {}
+klad_lock = threading.Lock()
+
+
+def _klad_random_point():
+    """Случайная точка СУШИ в пределах территории следопыта."""
+    for _ in range(80):
+        lat = random.uniform(WALKER_AREA[0] + 1.0, WALKER_AREA[2] - 1.0)
+        u = random.uniform(WALKER_AREA[1], WALKER_AREA[3])
+        lon = u - 360.0 if u > 180.0 else u
+        p = _walker_land_point(lat, lon)
+        if p:
+            return p
+    return None
+
+
+def klad_new(chat_id: int, save: bool = True):
+    """Зарыть новый клад: случайная суша + нарастающие подсказки. Счётчик находок сохраняется."""
+    p = _klad_random_point()
+    if not p:
+        return None
+    lat, lon = p
+    now = time.time()
+    dists = [haversine_km(lat, lon, s["lat"], s["lon"]) for s in WALKER_STATIONS]
+    si = int(min(range(len(dists)), key=lambda j: dists[j]))
+    ns = "севернее" if lat >= 60.0 else "южнее"
+    ew = "восточнее" if (((lon - 90.0 + 540.0) % 360.0) - 180.0) > 0 else "западнее"
+    hints = [
+        [0, "🏴‍☠️ Клад зарыт где-то на суше России! Ищи человечком 🚶 — клад найдётся, если окажешься в 30 км от точки. Повторить подсказки: /klad"],
+        [12 * 3600, f"🧭 Широта клада {ns} 60° параллели"],
+        [24 * 3600, f"🧭 Долгота клада {ew} 90° восточной долготы"],
+        [48 * 3600, f"🚉 Ближайший вокзал: «{WALKER_STATIONS[si]['name']}»"],
+        [96 * 3600, f"📏 Клад примерно в {max(1, round(dists[si] / 50) * 50)} км от вокзала «{WALKER_STATIONS[si]['name']}»"],
+        [144 * 3600, f"🗺 Широта клада ≈ {lat:.1f}° (погрешность ±0.3°)"],
+        [156 * 3600, f"🗺 Долгота клада ≈ {lon:.1f}° (погрешность ±0.5°)"],
+    ]
+    old = klad_state.get(chat_id) or {}
+    entry = {"lat": lat, "lon": lon, "created_ts": now,
+             "expires_ts": now + KLAD_LIFE_SEC, "hints": hints,
+             "announced": 1,   # стартовая подсказка анонсируется сразу
+             "founds": dict(old.get("founds") or {})}
+    klad_state[chat_id] = entry
+    if save:
+        klad_save_to_github(force=True)
+    return entry
+
+
+def klad_ensure(chat_id: int):
+    """Клад чата есть и жив? Иначе зарываем новый."""
+    now = time.time()
+    entry = klad_state.get(chat_id)
+    if entry and now < entry["expires_ts"]:
+        return entry
+    return klad_new(chat_id)
+
+
+def klad_on_arrival(chat_id: int, mkey: str, w: dict) -> bool:
+    """Человечек ТОЛЬКО ЧТО прибыл: в 30 км от клада — находка! Награда и новый клад."""
+    if w.get("route"):
+        return False
+    with klad_lock:
+        entry = klad_state.get(chat_id)
+        if not entry or time.time() >= entry["expires_ts"]:
+            return False
+        if haversine_km(w["lat"], w["lon"], entry["lat"], entry["lon"]) > KLAD_FIND_KM:
+            return False
+        with geo_lock:
+            marker = geo_state.get(chat_id, {}).get(mkey) or {}
+            marker["poops"] = marker.get("poops", 0) + 10
+            marker.setdefault("souvenirs", []).append("🏴‍☠️")
+            name = marker.get("name") or mkey
+            tid = marker.get("tid")
+            stardust_earn(chat_id, mkey, 10)
+            geo_save_to_github()
+        founds = dict(entry.get("founds") or {})
+        founds[mkey] = founds.get(mkey, 0) + 1
+        new_entry = klad_new(chat_id, save=False)
+        if new_entry:
+            new_entry["founds"] = founds
+            klad_save_to_github(force=True)
+        else:
+            klad_state.pop(chat_id, None)
+    try:
+        who = tg_mention(int(tid), name) if tid else name
+        tg_send_message_id(chat_id,
+            f"🏴‍☠️ <b>{who}</b> нашёл КЛАД! В сумке: +10 ☄️ ЗП, +10 💗 и сувенир 🏴‍☠️. "
+            "Старый клад выкопан — на карте зарыт НОВЫЙ, поиск начался заново!",
+            html_mode=True)
+        if new_entry:
+            tg_send_message_id(chat_id, new_entry["hints"][0][1])
+    except Exception as e:
+        print(f"[paint_bot] анонс клада не ушёл: {e!r}", flush=True)
+    return True
+
+
+async def klad_sweep_job(context) -> None:
+    """Клад: сгорел (7 дней) — новый; появилась свежая подсказка — анонс в чат."""
+    now = time.time()
+    with klad_lock:
+        items = [(c, e) for c, e in klad_state.items() if e]
+    for chat_id, entry in items:
+        if now >= entry["expires_ts"]:
+            with klad_lock:
+                new_entry = klad_new(chat_id)
+            if new_entry:
+                tg_send_message_id(chat_id,
+                    "⌛ Клад, который никто не нашёл, сгорел в земле… "
+                    "Но следопыты уже зарыли НОВЫЙ!\n" + new_entry["hints"][0][1])
+            continue
+        idx = sum(1 for o, _ in entry["hints"] if entry["created_ts"] + o <= now)
+        if idx > int(entry.get("announced", 0)):
+            entry["announced"] = idx
+            klad_save_to_github(force=True)
+            if idx - 1 < len(entry["hints"]):
+                tg_send_message_id(chat_id, "🧩 Свежая подсказка о кладе:\n" + entry["hints"][idx - 1][1])
+
+
+_klad_last_save = 0.0
+
+
+def klad_save_to_github(force: bool = False) -> None:
+    global _klad_last_save
+    if not geo_token():
+        return
+    now = time.time()
+    if not force and now - _klad_last_save < SIFA_SAVE_INTERVAL_SEC:
+        return
+    _klad_last_save = now
+    _save_json_to_github(KLAD_FILE, klad_state, klad_lock, "klad")
+
+
+def klad_load_from_github() -> None:
+    loaded = _load_json_from_github(KLAD_FILE, "klad")
+    if loaded:
+        for cid, entry in loaded.items():
+            klad_state[int(cid)] = entry
+        print(f"[paint_bot] klad: загружено {len(loaded)} чатов из Git", flush=True)
+
+
 # ---------- Корабли (Галеоны): верфь, плавание, абордаж и КНБ ----------
 SHIP_COST_WOOD = 10            # постройка Галеона на верфи — 10 дерева
 SHIP_SPEED_KM_PER_MIN = 5000.0 # скорость корабля
@@ -2577,6 +2721,12 @@ async def weekly_stats_job(context) -> None:
             else:
                 who = geo_mention(chat_id, k, nm)
         row("🐬", "Сифа недели", "раз получал титул Сифы", v, who)
+
+        # 12. Клады: найдено (счётчик копится с введения квеста)
+        kl = klad_state.get(chat_id) or {}
+        v, k = top(kl.get("founds") or {})
+        row("🏴‍☠️", "Величайший следопыт", "найдено кладов", v,
+            geo_mention(chat_id, k, k) if k else None)
     except Exception as e:
         logline(f"weekly_stats: ошибка сбора статистики: {e!r}")
         return
@@ -2795,7 +2945,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-09-1851"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-09-1921"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -4064,6 +4214,7 @@ class AppHandler(BaseHTTPRequestHandler):
             others = []
             need_wsave = False
             need_gsave = False
+            spawn_klad = None
             with walker_lock:
                 walkers = walker_state.setdefault(chat_id, {})
                 with geo_lock:
@@ -4083,8 +4234,12 @@ class AppHandler(BaseHTTPRequestHandler):
                             need_gsave = True
                         need_wsave = True
                         logline(f"walker spawn chat={chat_id} user={mkey!r}")
+                        # первый следопыт в чате — зарываем клад и анонсируем квест
+                        spawn_klad = klad_ensure(chat_id)
                     if walker_progress(w):
                         need_wsave = True
+                        if klad_on_arrival(chat_id, mkey, w):
+                            need_gsave = True
                     marker = geo_state[chat_id].get(mkey) or {}
                     if marker.get("food_day") != today:
                         marker["food_day"] = today
@@ -4107,6 +4262,12 @@ class AppHandler(BaseHTTPRequestHandler):
                 walker_save_to_github()
             if need_gsave:
                 geo_save_to_github()
+            if spawn_klad is not None:
+                # анонс клада — вне всех локов
+                try:
+                    tg_send_message_id(chat_id, spawn_klad["hints"][0][1])
+                except Exception as e:
+                    print(f"[paint_bot] анонс клада не ушёл: {e!r}", flush=True)
             stations = [{"key": s["key"], "name": s["name"],
                          "lat": _walker_station_point(s)[0],
                          "lon": _walker_station_point(s)[1]} for s in WALKER_STATIONS]
@@ -5137,6 +5298,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             if walker_progress(w):
                 walker_save_to_github()
+                klad_on_arrival(chat_id, mkey, w)
             if w.get("route"):
                 self._json_response(409, {"error": "человечек уже идёт — дождись, куда шёл"})
                 return
@@ -7026,11 +7188,51 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_klad(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/klad — повтор подсказок по кладу (зарезервировано; квест стартует позже)."""
+    """/klad — квест «Поиск клада»: загадка, доступные подсказки, тепло/холодно."""
     if not chat_allowed(update.effective_chat):
         return
-    await update.message.reply_text(
-        "🏴‍☠️ Клад пока не заложен. Следопыт готовится к первому походу — жди анонса в чате!")
+    chat_id = update.message.chat_id
+    now = time.time()
+    with klad_lock:
+        entry = klad_state.get(chat_id)
+        if not entry or now >= entry["expires_ts"]:
+            entry = klad_new(chat_id)
+    if not entry:
+        await update.message.reply_text("🏴‍☠️ Клад сейчас недоступен — попробуй позже.")
+        return
+    lines = ["🏴‍☠️ <b>Клад на суше России</b>", ""]
+    left = max(0.0, entry["expires_ts"] - now)
+    days = int(left // 86400)
+    hours = int((left % 86400) // 3600)
+    lines.append(f"⏳ Клад сгорит через {days} дн {hours} ч (если раньше не найдут).")
+    for off, text in entry["hints"]:
+        if entry["created_ts"] + off <= now:
+            lines.append(text)
+    nxt = next((off for off, _ in entry["hints"] if entry["created_ts"] + off > now), None)
+    if nxt is not None:
+        lines.append(f"…следующая подсказка через {int((entry['created_ts'] + nxt - now) // 3600)} ч")
+    # тепло/холодно от позиции моего человечка (только если он уже есть)
+    uid = str(update.effective_user.id)
+    found = False
+    with walker_lock:
+        with geo_lock:
+            mkey = resolve_marker_key(chat_id, uid, "")
+        w = walker_state.get(chat_id, {}).get(mkey) if mkey else None
+        if w is not None:
+            if walker_progress(w):
+                found = klad_on_arrival(chat_id, mkey, w)
+            if not found:
+                dist = haversine_km(w["lat"], w["lon"], entry["lat"], entry["lon"])
+                temp = ("🔥🔥 жгётся" if dist < 300 else "🔥 горячо" if dist < 800
+                        else "❄ прохладно" if dist < 1500 else "🥶 холодно")
+                lines.append(f"🚶 Твой человечек: ~{max(10, int(round(dist, -2)))} км до клада — {temp}")
+    if found:
+        await update.message.reply_text(
+            "🏴‍☠️ Твой человечек только что ВЫКОПАЛ КЛАД! +10 ☄️ ЗП, +10 💗 и сувенир 🏴‍☠️ "
+            "уже в сумке — загляни в «Мой сундук». Новый клад уже зарыт: жди подсказок!")
+        return
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML",
+                                    disable_web_page_preview=True)
 
 
 async def on_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, guess: str) -> None:
@@ -7668,6 +7870,7 @@ def main() -> None:
     islands_load_from_github()
     sifa_load_from_github()
     walker_load_from_github()
+    klad_load_from_github()
     ships_load_from_github()
     wrecks_load_from_github()
     duels_load_from_github()
@@ -7738,6 +7941,8 @@ def main() -> None:
     app.job_queue.run_repeating(geo_sweep_job, interval=60.0, first=45.0)
     # сага: слезливое напоминание, если 8ч никто не пишет главу (сага не начата — молчим)
     app.job_queue.run_repeating(saga_nag_job, interval=1800.0, first=120.0)
+    # клад: сгорел (7 дней) — новый; появилась подсказка (каждые 12 ч) — анонс в чат
+    app.job_queue.run_repeating(klad_sweep_job, interval=3600.0, first=300.0)
     app.run_polling()
 
 
