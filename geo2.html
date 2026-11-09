@@ -90,13 +90,6 @@
   #sifaCtrl button:active { background:rgba(45,212,191,.5); color:#fff; }
   #sifaFreezeInfo { display:none; padding:6px 10px; font-size:13px; border-radius:12px;
     background:rgba(60,30,40,.88); color:#ffd9e2; border:1px solid rgba(255,120,150,.4); }
-  #walkerCtrl { position:fixed; right:12px; bottom:150px; z-index:3000; display:none;
-    flex-direction:column; gap:6px; width:178px; }
-  #walkerCtrl button { padding:9px 6px; font-size:15px; border-radius:14px;
-    background:rgba(30,60,45,.88); color:#d9f2e3; border:1px solid rgba(110,231,183,.35);
-    backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
-  #walkerCtrl button:disabled { opacity:.45; }
-  #walkerCtrl button:active { background:rgba(45,212,140,.5); color:#fff; }
   #walkerInfo { padding:6px 10px; font-size:13px; border-radius:12px; line-height:1.55;
     background:rgba(30,60,45,.88); color:#d9f2e3; border:1px solid rgba(110,231,183,.4);
     backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
@@ -248,6 +241,7 @@
   <button id="distBtn" title="Измерить расстояние">📏</button>
   <button id="sifaBtn" title="Сифа — догонялки на касатках">🐬</button>
   <button id="walkerBtn" title="Следопыт — человечек по суше России">🚶</button>
+  <button id="walkerExitBtn" title="Выйти из режима Следопыт" style="display:none;">🚪</button>
   <button id="shipBtn" title="Мой Галеон — найти на карте" style="display:none;">⛵</button>
   <button id="sifaAreaBtn" title="Задать границы игры «Сифа» (кликни 4 угла)" style="display:none;">🚧</button>
   <button id="islandBuyBtn" title="Купить остров (10 ЗП)">🏝️</button>
@@ -276,8 +270,14 @@
     <button id="sifaHideBtn" title="Выйти из игры (касатка останется на карте)" style="flex:2;">✕ Выйти</button>
   </div>
 </div>
-<div id="walkerCtrl">
-  <button id="walkerHideBtn" title="Выйти из режима (человечек останется на карте)">✕ Выйти</button>
+<div id="walkerExitModal" class="modal" style="display:none;">
+  <div class="modal-card" style="text-align:center;">
+    <div style="font-size:16px;margin-bottom:14px;">Выйти из режима Следопыт?</div>
+    <div style="display:flex;gap:10px;">
+      <button id="walkerExitYes" style="flex:1;padding:10px;border-radius:12px;font-size:15px;cursor:pointer;">Да</button>
+      <button id="walkerExitNo" class="btn-cancel" style="flex:1;padding:10px;border-radius:12px;font-size:15px;cursor:pointer;border:none;">Нет</button>
+    </div>
+  </div>
 </div>
 <div id="shipDuelModal" class="modal" style="display:none;"></div>
 <div id="shipWatchModal" class="modal" style="display:none;"></div>
@@ -374,7 +374,7 @@
       <li>🚉 Вокзалы Брянск / Новосибирск / Якутск — подойди к вокзалу ближе 10 км и кликни по нему: переезд мгновенный и бесплатный</li>
       <li>🚶 В режиме видны все следопыты: свои и чужие — все 🚶; клик по чужому показывает ник</li>
       <li>🏴‍☠️ Квест «Клад»: где-то на суше России зарыт клад — команда /klad повторяет загадку и подсказки</li>
-      <li>⏳ Клад живёт 7 дней: не найдут — сгорит и зароют новый; находчику +10 ☄️ ЗП, +10 💗 и сувенир 🏴‍☠️</li>
+      <li>⏳ Клад живёт 7 дней: не найдут — сгорит и зароют новый; находчику +10 ☄️ ЗП, +10 💗, +10 💩 и сувенир 🏴‍☠️</li>
     </ul>
     <div style="display:flex;justify-content:flex-end;">
       <button id="helpCloseBtn" class="btn-cancel">Закрыть</button>
@@ -2503,30 +2503,36 @@
     walkerPoll();
   }
   const walkerBtn = document.getElementById('walkerBtn');
-  const walkerCtrlEl = document.getElementById('walkerCtrl');
+  const walkerExitBtn = document.getElementById('walkerExitBtn');
+  const walkerExitModal = document.getElementById('walkerExitModal');
+  function walkerExit() {   // выходим: дверь прячем, чужие маркеры и вокзала убираем, свой остаётся на карте
+    walkerOn = false;
+    walkerExitBtn.style.display = 'none';
+    clearInterval(walkerPollTimer); walkerPollTimer = null;
+    Object.values(walkerOthers).forEach(m => map.removeLayer(m));
+    Object.keys(walkerOthers).forEach(k => delete walkerOthers[k]);
+    Object.values(walkerStMarks).forEach(m => map.removeLayer(m));
+    Object.keys(walkerStMarks).forEach(k => delete walkerStMarks[k]);
+    status('🥾 Ты вышел из режима Следопыта');
+  }
   walkerBtn.onclick = async () => {
-    if (walkerOn) {   // выходим: панель и чужие маркеры убираем, свой остаётся на карте
-      walkerOn = false;
-      walkerCtrlEl.style.display = 'none';
-      clearInterval(walkerPollTimer); walkerPollTimer = null;
-      Object.values(walkerOthers).forEach(m => map.removeLayer(m));
-      Object.keys(walkerOthers).forEach(k => delete walkerOthers[k]);
-      Object.values(walkerStMarks).forEach(m => map.removeLayer(m));
-      Object.keys(walkerStMarks).forEach(k => delete walkerStMarks[k]);
-      status('🥾 Ты вышел из режима Следопыта');
-      return;
-    }
+    if (walkerOn) { walkerExitModal.style.display = 'flex'; return; }  // подтверждение — через 🚪
     status('🥾 Готовим человечка…');
     walkerOn = true;
     const ok = await walkerPoll();
     if (!ok || !walkerMe) { walkerOn = false; return; }  // ошибку уже показал walkerPoll — режим не застревает
-    walkerCtrlEl.style.display = 'flex';
+    walkerExitBtn.style.display = '';
     map.flyTo([walkerMe.lat, walkerMe.lon], 6, {duration: 1.2});  // фокус на своём человечке — не ищем его по карте
     status('🥾 Человечек на суше России! Кликни по суше — пойдёт • по своему персу — пища и статус • к вокзалу подойди в 10 км');
     clearInterval(walkerPollTimer);
     walkerPollTimer = setInterval(walkerPoll, 3000);
   };
-  document.getElementById('walkerHideBtn').onclick = () => { if (walkerOn) walkerBtn.onclick(); };
+  walkerExitBtn.onclick = () => { if (walkerOn) walkerExitModal.style.display = 'flex'; };
+  document.getElementById('walkerExitYes').onclick = () => {
+    walkerExitModal.style.display = 'none';
+    if (walkerOn) walkerExit();
+  };
+  document.getElementById('walkerExitNo').onclick = () => { walkerExitModal.style.display = 'none'; };
   // обработчики вызываются из всплывающих окон (inline onclick) — должны быть глобальными
   window.walkerDoCook = async () => {
     const r = await fetch('/walkerfood', {
