@@ -2982,7 +2982,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-09-2350"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-10-0000"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -4315,7 +4315,15 @@ class AppHandler(BaseHTTPRequestHandler):
             stations = [{"key": s["key"], "name": s["name"],
                          "lat": _walker_station_point(s)[0],
                          "lon": _walker_station_point(s)[1]} for s in WALKER_STATIONS]
-            self._json_response(200, {"me": me, "others": others, "stations": stations})
+            # подсказки текущего клада — только те, что бот уже анонсировал по таймеру
+            klad_hints = []
+            with klad_lock:
+                entry = klad_state.get(chat_id)
+                if entry and time.time() < entry["expires_ts"]:
+                    announced = max(1, int(entry.get("announced", 0)))
+                    klad_hints = [t for _, t in entry["hints"][:announced]]
+            self._json_response(200, {"me": me, "others": others, "stations": stations,
+                                      "klad_hints": klad_hints})
         elif url.path == "/geodata":
             chat_id = int(params.get("chat", ["0"])[0])
             viewer = params.get("user", [""])[0]
@@ -4349,6 +4357,8 @@ class AppHandler(BaseHTTPRequestHandler):
                         changed = True
                         # уведомление адресату в чат Telegram (один раз, при доставке;
                         # читать письмо можно в течение часа — столько же живёт уведомление)
+                        letters_save_to_github()  # до уведомления — рестарт не дублирует
+                        geo_save_to_github()        # счётчик «получено» адресата
                         try:
                             tg_send_with_cleanup(
                                 chat_id,
@@ -4517,6 +4527,8 @@ class AppHandler(BaseHTTPRequestHandler):
                         changed = True
                         # уведомление адресату в чат (один раз, при доставке); отправитель анонимен;
                         # какашка исчезает с карты через 5 минут — уведомление живёт час
+                        volcano_save_to_github()  # до уведомления — рестарт не дублирует
+                        geo_save_to_github()      # счётчик какашек адресата
                         try:
                             tg_send_with_cleanup(
                                 chat_id,
@@ -4568,6 +4580,8 @@ class AppHandler(BaseHTTPRequestHandler):
                         changed = True
                         # уведомление адресату в чат (один раз, при доставке);
                         # автоудаление через 10 минут (по требованию владельца)
+                        submarine_save_to_github()  # подарок — до уведомления
+                        geo_save_to_github()        # счётчик подарков адресата
                         try:
                             tg_send_with_cleanup(
                                 chat_id,
