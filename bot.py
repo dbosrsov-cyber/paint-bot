@@ -1277,9 +1277,11 @@ def klad_on_arrival(chat_id: int, mkey: str, w: dict) -> bool:
         new_entry = klad_new(chat_id, save=False)
         if new_entry:
             new_entry["founds"] = founds
-            klad_save_to_github(force=True)
         else:
             klad_state.pop(chat_id, None)
+    # сохранение ВНЕ klad_lock: _save_json_to_github сам берёт этот же Lock,
+    # а threading.Lock не реентерабелен — сохранение под локом вешало бы поток навсегда
+    klad_save_to_github(force=True)
     try:
         who = tg_mention(int(tid), name) if tid else name
         tg_send_message_id(chat_id,
@@ -1301,8 +1303,9 @@ async def klad_sweep_job(context) -> None:
     for chat_id, entry in items:
         if now >= entry["expires_ts"]:
             with klad_lock:
-                new_entry = klad_new(chat_id)
+                new_entry = klad_new(chat_id, save=False)  # save под klad_lock = самодедлок
             if new_entry:
+                klad_save_to_github(force=True)
                 tg_send_message_id(chat_id,
                     "⌛ Клад, который никто не нашёл, сгорел в земле… "
                     "Но следопыты уже зарыли НОВЫЙ!\n" + new_entry["hints"][0][1])
@@ -2945,7 +2948,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-09-1921"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-09-2115"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -4217,6 +4220,8 @@ class AppHandler(BaseHTTPRequestHandler):
             spawn_klad = None
             with walker_lock:
                 walkers = walker_state.setdefault(chat_id, {})
+                spawned = False
+                arrived = False
                 with geo_lock:
                     mkey = resolve_marker_key(chat_id, viewer, viewer_name)
                     if mkey is None:
@@ -4233,13 +4238,11 @@ class AppHandler(BaseHTTPRequestHandler):
                             marker["food_cooked"] = 0
                             need_gsave = True
                         need_wsave = True
+                        spawned = True
                         logline(f"walker spawn chat={chat_id} user={mkey!r}")
-                        # первый следопыт в чате — зарываем клад и анонсируем квест
-                        spawn_klad = klad_ensure(chat_id)
                     if walker_progress(w):
                         need_wsave = True
-                        if klad_on_arrival(chat_id, mkey, w):
-                            need_gsave = True
+                        arrived = True
                     marker = geo_state[chat_id].get(mkey) or {}
                     if marker.get("food_day") != today:
                         marker["food_day"] = today
@@ -4258,6 +4261,13 @@ class AppHandler(BaseHTTPRequestHandler):
                             need_wsave = True
                         others.append({"lat": o["lat"], "lon": o["lon"],
                                        "name": o.get("name", "?")})
+                # geo_lock отпущен — порядок локов walker → klad → geo не нарушаем:
+                # klad_ensure/klad_on_arrival сами берут klad_lock (и geo_lock внутри)
+                if spawned:
+                    # первый следопыт в чате — зарываем клад и анонсируем квест
+                    spawn_klad = klad_ensure(chat_id)
+                if arrived and klad_on_arrival(chat_id, mkey, w):
+                    need_gsave = True
             if need_wsave:
                 walker_save_to_github()
             if need_gsave:
@@ -7193,10 +7203,14 @@ async def cmd_klad(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
     chat_id = update.message.chat_id
     now = time.time()
+    need_save = False
     with klad_lock:
         entry = klad_state.get(chat_id)
         if not entry or now >= entry["expires_ts"]:
-            entry = klad_new(chat_id)
+            entry = klad_new(chat_id, save=False)  # save под klad_lock = самодедлок
+            need_save = entry is not None
+    if need_save:
+        klad_save_to_github(force=True)
     if not entry:
         await update.message.reply_text("🏴‍☠️ Клад сейчас недоступен — попробуй позже.")
         return
