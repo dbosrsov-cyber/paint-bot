@@ -1200,7 +1200,7 @@ KLAD_LIFE_SEC = 7 * 86400          # неделя — потом сгорает 
 KLAD_HINT_STEP_SEC = 12 * 3600
 KLAD_FIND_KM = 30.0                # радиус находки от зарытой точки
 klad_state = {}
-klad_lock = threading.Lock()
+klad_lock = threading.RLock()   # реентерабельный: save-паттерн берёт этот же лок внутри _save_json_to_github
 
 
 def _klad_random_point():
@@ -1803,12 +1803,12 @@ def _sifa_entry(chat_id: int) -> dict:
         sifa_state[chat_id] = entry
     return entry
 sifa_state = {}               # chat_id -> {user_key: {"lat","lon","heading","ts","name"}}
-sifa_lock = threading.Lock()
+sifa_lock = threading.RLock()   # реентерабельный: save-паттерн берёт этот же лок внутри _save_json_to_github
 _sifa_last_save = 0.0
 
 
 walker_state = {}             # chat_id -> {user_key: {"lat","lon","energy","name","tid","route",...}}
-walker_lock = threading.Lock()
+walker_lock = threading.RLock()   # реентерабельный: save-паттерн берёт этот же лок внутри _save_json_to_github
 _walker_last_save = 0.0
 
 
@@ -2982,7 +2982,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-09-2155"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-09-2240"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
