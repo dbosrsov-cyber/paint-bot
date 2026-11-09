@@ -279,6 +279,15 @@
     </div>
   </div>
 </div>
+<div id="kladHintsModal" class="modal" style="display:none;">
+  <div class="modal-card">
+    <b style="font-size:16px;">🧩 Подсказки по кладу</b>
+    <div id="kladHintsList" style="margin-top:10px;font-size:14px;line-height:1.6;max-height:50vh;overflow-y:auto;"></div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px;">
+      <button id="kladHintsCloseBtn" class="btn-cancel" style="padding:8px 16px;border-radius:12px;border:none;cursor:pointer;">Закрыть</button>
+    </div>
+  </div>
+</div>
 <div id="shipDuelModal" class="modal" style="display:none;"></div>
 <div id="shipWatchModal" class="modal" style="display:none;"></div>
 <div id="sifaAreaBar">
@@ -2389,6 +2398,7 @@
   let walkerMe = null, walkerMarker = null;
   const walkerOthers = {}, walkerStMarks = {};
   let walkerStationsData = [];  // список вокзалов из /walkerstate — для кнопок переезда
+  let walkerKladHints = [];     // подсказки клада, уже анонсированные ботом
   function walkerIcon(emoji, opacity) {
     return L.divIcon({
       html: '<div style="font-size:26px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))'
@@ -2422,6 +2432,7 @@
       return false;
     }
     walkerMe = d.me;
+    walkerKladHints = d.klad_hints || [];
     if (!walkerMarker) {
       walkerMarker = L.marker([d.me.lat, d.me.lon], {icon: walkerIcon('🚶')}).addTo(map);
       walkerMarker.bindPopup('');   // содержимое строит walkerUpdateCtrl
@@ -2490,6 +2501,9 @@
       + (cookIn > 0 ? walkerFmtLeft(cookIn) : 'Готовить') + '</button>'
       + '<button style="flex:1;padding:7px 4px;font-size:14px;border-radius:10px;"'
       + (eatDis ? ' disabled' : '') + ' onclick="window.walkerDoEat()">🍖 Есть</button>'
+      + '<button style="flex:1;padding:7px 4px;font-size:14px;border-radius:10px;"'
+      + (walkerKladHints.length ? '' : ' disabled')
+      + ' onclick="window.walkerDoHints()" title="Подсказки по текущему кладу">🧩 Клад</button>'
       + '</div>');
   }
   async function walkerSend(lat, lon) {
@@ -2533,6 +2547,17 @@
     if (walkerOn) walkerExit();
   };
   document.getElementById('walkerExitNo').onclick = () => { walkerExitModal.style.display = 'none'; };
+  // подсказки по кладу: только те, что бот уже анонсировал по таймеру (walkerKladHints)
+  window.walkerDoHints = () => {
+    if (!walkerKladHints.length) return;
+    document.getElementById('kladHintsList').innerHTML = walkerKladHints
+      .map((t, i) => '<div style="margin-bottom:8px;"><b>🧩 ' + (i + 1) + '.</b> ' + t + '</div>')
+      .join('');
+    document.getElementById('kladHintsModal').style.display = 'flex';
+  };
+  document.getElementById('kladHintsCloseBtn').onclick = () => {
+    document.getElementById('kladHintsModal').style.display = 'none';
+  };
   // обработчики вызываются из всплывающих окон (inline onclick) — должны быть глобальными
   window.walkerDoCook = async () => {
     const r = await fetch('/walkerfood', {
