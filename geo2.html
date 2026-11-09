@@ -2416,6 +2416,13 @@
     const now = Date.now();
     if (now - walkerErrTs > 15000) { walkerErrTs = now; status(t); }
   }
+  // точка отображения человечка: стоишь на вокзале — сдвигаем чуть правее,
+  // чтобы полупрозрачный эмодзи вокзала не перекрывал человечка
+  function walkerDispLatLng(lat, lon) {
+    const atStation = (walkerStationsData || []).some(s =>
+      haversineKm({lat, lon}, {lat: s.lat, lon: s.lon}) <= 1.2);
+    return atStation ? [lat, lon + 0.006] : [lat, lon];
+  }
   async function walkerPoll() {
     let r, d = {};
     try {
@@ -2433,11 +2440,12 @@
     }
     walkerMe = d.me;
     walkerKladHints = d.klad_hints || [];
+    walkerStationsData = d.stations || [];
     if (!walkerMarker) {
-      walkerMarker = L.marker([d.me.lat, d.me.lon], {icon: walkerIcon('🚶')}).addTo(map);
+      walkerMarker = L.marker(walkerDispLatLng(d.me.lat, d.me.lon), {icon: walkerIcon('🚶')}).addTo(map);
       walkerMarker.bindPopup('');   // содержимое строит walkerUpdateCtrl
     }
-    walkerMarker.setLatLng([d.me.lat, d.me.lon]);
+    walkerMarker.setLatLng(walkerDispLatLng(d.me.lat, d.me.lon));
     // следим за человечком мягко: подъезжаем, только если он ушёл за край экрана
     if (walkerOn && !map.getBounds().contains([d.me.lat, d.me.lon]))
       map.panTo([d.me.lat, d.me.lon], {animate: true});
@@ -2445,17 +2453,16 @@
     (d.others || []).forEach(o => {
       seen[o.name] = true;
       if (!walkerOthers[o.name]) {
-        const mk = L.marker([o.lat, o.lon], {icon: walkerIcon('🚶')}).addTo(map);
+        const mk = L.marker(walkerDispLatLng(o.lat, o.lon), {icon: walkerIcon('🚶')}).addTo(map);
         mk.bindPopup('🚶 ' + (o.name || 'Следопыт'));
         walkerOthers[o.name] = mk;
-      } else walkerOthers[o.name].setLatLng([o.lat, o.lon]);
+      } else walkerOthers[o.name].setLatLng(walkerDispLatLng(o.lat, o.lon));
     });
     Object.keys(walkerOthers).forEach(k => {
       if (!seen[k]) { map.removeLayer(walkerOthers[k]); delete walkerOthers[k]; }
     });
     if (!walkerOn) return true;
     (d.stations || []).forEach(s => {
-      walkerStationsData = d.stations || [];
       if (!walkerStMarks[s.key]) {
         // вокзалы полупрозрачные — не перекрывают человечков рядом
         const mk = L.marker([s.lat, s.lon], {icon: walkerIcon('🚉', 0.45)}).addTo(map);
