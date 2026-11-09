@@ -1268,6 +1268,7 @@ def klad_on_arrival(chat_id: int, mkey: str, w: dict) -> bool:
         with geo_lock:
             marker = geo_state.get(chat_id, {}).get(mkey) or {}
             marker["poops"] = marker.get("poops", 0) + 10
+            marker["diamonds"] = marker.get("diamonds", 0) + 10  # измиры — главный клад
             marker.setdefault("souvenirs", []).append("🏴‍☠️")
             name = marker.get("name") or mkey
             tid = marker.get("tid")
@@ -1286,7 +1287,8 @@ def klad_on_arrival(chat_id: int, mkey: str, w: dict) -> bool:
     try:
         who = tg_mention(int(tid), name) if tid else name
         tg_send_message_id(chat_id,
-            f"🏴‍☠️ <b>{who}</b> нашёл КЛАД! В сумке: +10 ☄️ ЗП, +10 💗 и сувенир 🏴‍☠️. "
+            f"🏴‍☠️ <b>{who}</b> нашёл КЛАД! В сумке: +10 💎 измиров, +10 ☄️ ЗП, "
+            "+10 💗 и сувенир 🏴‍☠️. "
             "Старый клад выкопан — на карте зарыт НОВЫЙ, поиск начался заново!",
             html_mode=True)
         if new_entry:
@@ -2493,6 +2495,27 @@ async def volcano_spawn_job(context) -> None:
             logline(f"volcano spawned chat={chat_id}, но уведомление не ушло: {e!r}")
 
 
+WALKER_RELEASE_ANNOUNCE_TAG = "walker_release_announce_2026-11-10"
+
+
+async def walker_release_announce_job(context) -> None:
+    """Разовый анонс релиза «Следопыта» (10.11.2026, 08:00 МСК). Сообщение НЕ удаляется."""
+    if meteor_credits.get(WALKER_RELEASE_ANNOUNCE_TAG):
+        return
+    meteor_credits[WALKER_RELEASE_ANNOUNCE_TAG] = True
+    meteor_save_to_github()
+    try:
+        await context.bot.send_message(
+            -1002304715333,  # «Другое измерение»
+            "🥾 Доброе утро! На карте ГЕО2 появилась новая игра «Следопыт»: твой личный "
+            "человечек 🚶 ходит по суше России — ест 🍖, тратит энергию ⚡, скачет по "
+            "вокзалам 🚉 и охотится за зарытым кладом 🏴‍☠️ (а в нём — 💎 измиры!).\n\n"
+            "Кнопка 🚶 на панели карты. Подсказки о кладе бот выдаёт по таймеру — "
+            "терпение и пантофли приветствуются 😄")
+    except Exception as e:
+        logline(f"анонс релиза Следопыта не ушёл: {e!r}")
+
+
 SAGA_NAG_PHRASES = [
     "📜😢 Пергамент плачет, перышко дрожит… 8 часов никто не продолжает Сагу! "
     "История замирает на самом интересном месте. Не бросайте её в беде — "
@@ -3023,7 +3046,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-10-0040"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-10-0050"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -8152,6 +8175,10 @@ def main() -> None:
     app.job_queue.run_repeating(paint_periodic_sweep, interval=15.0)
     # автобэкап меток и писем: каждый день в 01:00 по Москве
     app.job_queue.run_daily(backup_job, time=datetime.time(1, 0, tzinfo=MSK_TZ))
+    # разовый анонс релиза «Следопыта»: 10.11.2026 в 08:00 по Москве (сообщение не удаляется)
+    app.job_queue.run_once(
+        walker_release_announce_job,
+        when=datetime.datetime(2026, 11, 10, 8, 0, tzinfo=MSK_TZ))
     # итоги недели: каждую пятницу в 16:00 по Москве в «Другое измерение» (не удаляются)
     app.job_queue.run_daily(weekly_stats_job, time=datetime.time(16, 0, tzinfo=MSK_TZ),
                             days=(4,))
