@@ -2982,7 +2982,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-09-2310"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-09-2320"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -6803,6 +6803,7 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         old = solo_games.pop(key, None)
         solo_games[key] = {"type": "bulls", "secret": make_secret(), "attempts": 0, "history": []}
         player_stats(query.from_user.id)["games"] += 1
+        bc_save_to_github()  # партия и счётчик — переживут рестарт
         note = "\n\n♻️ Прежняя игра завершена." if old is not None else ""
         await query.edit_message_text(INTRO_BULLS + note)
         return
@@ -7073,6 +7074,7 @@ def end_duel(chat_id: int, user_id: int) -> str | None:
     if duel is None or user_id not in duel["players"]:
         return None
     del duels[chat_id]
+    bc_save_to_github()
     return "⚔️ Дуэль прервана по договорённости. Новая — /playsum @игрок"
 
 
@@ -7089,6 +7091,7 @@ def end_solo(chat_id: int, user_id: int) -> str | None:
     game = solo_games.pop((chat_id, user_id), None)
     if game is None:
         return None
+    bc_save_to_github()
     if game["type"] == "bulls":
         return f"😔 Сдаёшься? Загаданное число было: {game['secret']}.\nНовая игра — /startsum"
     return "Игра завершена.\nНовая игра — /startsum"
@@ -7306,6 +7309,7 @@ async def on_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, guess: st
             st["best"] = game["attempts"]
         mids = game.get("msg_ids", [])
         del solo_games[key]
+        bc_save_to_github()  # победа + статистика — на диск
         msg = await update.message.reply_text(
             f"🎉 Победа! Число {game['secret']} угадано за {game['attempts']} попыток.\nСыграть ещё — /startsum"
         )
@@ -7319,6 +7323,7 @@ async def on_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, guess: st
         msg = await update.message.reply_text(
             f"{guess} → 🐂 {bulls} · 🐄 {cows} (попытка {game['attempts']})", reply_markup=kb)
         game.setdefault("msg_ids", []).append(msg.message_id)
+        bc_save_to_github()  # ход — на диск
 
 
 # ---------- Дуэли Пользователь–Пользователь ----------
@@ -7372,7 +7377,9 @@ async def cmd_play(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "opponent_id": opponent_id,
         "opponent_name": None,  # подставим при принятии, когда увидим пользователя
         "job": job,
+        "expires_at": time.time() + CHALLENGE_TTL_SECONDS,
     }
+    bc_save_to_github()  # вызов — на диск
     keyboard = InlineKeyboardMarkup(
         [
             [
@@ -7393,6 +7400,7 @@ async def expire_challenge(context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = context.job.chat_id
     if chat_id in pending_challenges:
         del pending_challenges[chat_id]
+        bc_save_to_github()
         try:
             await context.bot.send_message(chat_id, "⌛ Вызов на дуэль истёк. Сыграть заново — /playsum @игрок")
         except BadRequest:
@@ -7418,6 +7426,7 @@ async def on_challenge_button(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     challenge["job"].schedule_removal()
     del pending_challenges[chat_id]
+    bc_save_to_github()  # вызов снят — на диск
 
     if query.data == "duel:decline":
         await query.answer("Отказано")
@@ -7438,6 +7447,7 @@ async def on_challenge_button(update: Update, context: ContextTypes.DEFAULT_TYPE
         "turn": 0,
         "attempts": {challenge["challenger_id"]: 0, opponent.id: 0},
     }
+    bc_save_to_github()  # дуэль — на диск
 
     # просим числа в личке
     for uid in players:
@@ -7483,6 +7493,7 @@ async def cmd_secret(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         player = duel["players"].get(user.id)
         if player is not None and player["secret"] is None:
             player["secret"] = guess
+            bc_save_to_github()  # число загадано — на диск
             await update.message.reply_text("✅ Число принято. Ждём противника…" )
             if all(p["secret"] is not None for p in duel["players"].values()):
                 first = duel["players"][duel["order"][0]]["name"]
@@ -7525,6 +7536,7 @@ async def on_duel_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, gues
         loser_id = opponent_id
         mids = duel.get("msg_ids", [])
         del duels[chat_id]
+        bc_save_to_github()  # победа + статистика — на диск
         msg = await update.message.reply_text(
             f"🏆 {players[user.id]['name']} угадал число {opponent_secret} за {duel['attempts'][user.id]} попыток!\n"
             f"Победа! {players[user.id]['name']} : {duel['attempts'][user.id]} — {duel['attempts'][loser_id]} : {players[loser_id]['name']}\n"
@@ -7546,6 +7558,7 @@ async def on_duel_guess(update: Update, context: ContextTypes.DEFAULT_TYPE, gues
         reply_markup=kb,
     )
     duel.setdefault("msg_ids", []).append(msg.message_id)
+    bc_save_to_github()  # ход — на диск
 
 
 async def on_bc_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -7721,6 +7734,82 @@ def anon_load_from_github() -> None:
         anon_mode.update(int(u) for u in (loaded.get("mode") or []) if str(u).lstrip('-').isdigit())
         anon_blocked = bool(loaded.get("blocked", False))
         print(f"[paint_bot] anon: режим включён у {len(anon_mode)} uid", flush=True)
+
+
+# ---------- «Быки и коровы»: партии и статистика переживают рестарты ----------
+# соло-игры, дуэли, ожидающие вызовы и статистика — в data-репо (bc.json)
+BC_FILE = "bc.json"
+bc_lock = threading.Lock()
+
+
+def bc_save_to_github() -> None:
+    """Снапшот соло-игр, дуэлей, вызовов и статистики. Вызывать вне bc_lock."""
+    payload = {
+        "solo": {f"{c}|{u}": g for (c, u), g in solo_games.items()},
+        "duels": {str(c): d for c, d in duels.items()},
+        "pending": {
+            str(c): {
+                "challenger_id": d["challenger_id"],
+                "challenger_name": d["challenger_name"],
+                "opponent_id": d["opponent_id"],
+                "opponent_name": d["opponent_name"],
+                "expires_at": d.get("expires_at", 0),
+            }
+            for c, d in pending_challenges.items()
+        },
+        "stats": {str(u): s for u, s in stats.items()},
+    }
+    _save_json_to_github(BC_FILE, payload, bc_lock, "bc")
+
+
+def bc_load_from_github() -> None:
+    """Восстановить партии, дуэли, вызовы и статистику после рестарта.
+
+    Возвращает список chat_id непросроченных вызовов — им в main() заново
+    ставятся таймеры истечения (Job нельзя сериализовать)."""
+    loaded = _load_json_from_github(BC_FILE, "bc")
+    if not loaded:
+        return []
+    now = time.time()
+    for k, g in (loaded.get("solo") or {}).items():
+        try:
+            chat_s, user_s = k.split("|")
+            solo_games[(int(chat_s), int(user_s))] = g
+        except (ValueError, AttributeError):
+            continue
+    for k, d in (loaded.get("duels") or {}).items():
+        try:
+            cid = int(k)
+        except (ValueError, AttributeError):
+            continue
+        try:
+            d["players"] = {int(u): p for u, p in (d.get("players") or {}).items()}
+            d["attempts"] = {int(u): n for u, n in (d.get("attempts") or {}).items()}
+            d["order"] = [int(u) for u in d.get("order") or []]
+            duels[cid] = d
+        except (ValueError, AttributeError, TypeError):
+            continue
+    restore_timers = []
+    for k, d in (loaded.get("pending") or {}).items():
+        try:
+            cid = int(k)
+        except (ValueError, AttributeError):
+            continue
+        if d.get("expires_at", 0) <= now:
+            continue  # вызов уже истёк — просто пропускаем
+        pending_challenges[cid] = dict(d)
+        pending_challenges[cid]["job"] = None
+        restore_timers.append(cid)
+    for k, s in (loaded.get("stats") or {}).items():
+        try:
+            uid = int(k)
+        except (ValueError, AttributeError):
+            continue
+        stats[uid] = {"games": int(s.get("games", 0)), "wins": int(s.get("wins", 0)),
+                      "best": s.get("best")}
+    print(f"[paint_bot] bc: соло {len(solo_games)}, дуэлей {len(duels)}, "
+          f"вызовов {len(pending_challenges)}, статистика {len(stats)} uid", flush=True)
+    return restore_timers
 
 
 def anon_is_member(user_id: int) -> bool:
@@ -7943,6 +8032,7 @@ def main() -> None:
     walker_load_from_github()
     klad_load_from_github()
     anon_load_from_github()
+    bc_restore_timers = bc_load_from_github()
     ships_load_from_github()
     wrecks_load_from_github()
     duels_load_from_github()
@@ -8016,6 +8106,15 @@ def main() -> None:
     app.job_queue.run_repeating(saga_nag_job, interval=1800.0, first=120.0)
     # клад: сгорел (7 дней) — новый; появилась подсказка (каждые 12 ч) — анонс в чат
     app.job_queue.run_repeating(klad_sweep_job, interval=3600.0, first=300.0)
+    # «Быки и коровы»: таймеры истечения вызовов, переживших рестарт (Job не сериализуется)
+    for cid in bc_restore_timers:
+        if cid not in pending_challenges:
+            continue
+        left = pending_challenges[cid].get("expires_at", 0) - time.time()
+        if left <= 0:
+            pending_challenges.pop(cid, None)
+            continue
+        pending_challenges[cid]["job"] = app.job_queue.run_once(expire_challenge, left, chat_id=cid)
     app.run_polling()
 
 
