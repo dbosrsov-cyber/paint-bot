@@ -398,7 +398,7 @@
       <li>🚉 Вокзалы Брянск / Новосибирск / Якутск — подойди к вокзалу ближе 10 км и кликни по нему: переезд мгновенный и бесплатный</li>
       <li>🚶 В режиме видны все следопыты: свои и чужие — все 🚶; клик по чужому показывает ник</li>
       <li>🏴‍☠️ Квест «Клад»: где-то на суше России зарыт клад — команда /klad повторяет загадку и подсказки</li>
-      <li>⏳ Клад живёт 7 дней: не найдут — сгорит и зароют новый; находчику +10 ☄️ ЗП, +10 💗, +10 💩 и сувенир 🏴‍☠️</li>
+      <li>⏳ Клад живёт 7 дней: не найдут — сгорит и зароют новый; находчику +10 💎 измиров, +10 ☄️ ЗП, +10 💗, +10 💩 и сувенир 🏴‍☠️</li>
     </ul>
     <div style="display:flex;justify-content:flex-end;">
       <button id="helpCloseBtn" class="btn-cancel">Закрыть</button>
@@ -581,10 +581,7 @@
   const isSumaiBeta = realUserKey() === 'Sumai'
     || (tgUser && tgUser.username === 'Sumai')
     || nameInput.value.trim() === 'Sumai';
-  // следопыт — пока только для Sumai (бета): кнопку 🚶 прячем от остальных
-  if (!isSumaiBeta) {
-    document.getElementById('walkerBtn').style.display = 'none';
-  }
+  // следопыт открыт для всех
   if (isSumaiBeta && chat === '-1004400745434') {
     document.getElementById('personaBtn').style.display = '';
     document.getElementById('eventsBtn').style.display = '';
@@ -715,7 +712,8 @@
       const got = m.got || 0, read = m.read || 0;
       html += '<br><i>📮 письма — в Почтовом Ящике рядом с меткой</i>'
         + '<br>📬 получено ' + got + ' • прочитано ' + read + ' • непрочитано ' + (got - read)
-        + '<br><br>☄️ моя ЗвезднаяПыль: <b>' + (m.zp || 0) + '</b>'
+        + '<br><br>💎 мои Измиры: <b>' + (m.diamonds || 0) + '</b>'
+        + '<br>☄️ моя ЗвезднаяПыль: <b>' + (m.zp || 0) + '</b>'
         + '<br>💩 мои Какашки: <b>' + (m.poops || 0) + '</b>';
       const myIsl = (lastIslands || []).find(i => (i.owners || [i.owner]).indexOf(myKey()) >= 0);
       if (myIsl) {
@@ -2575,6 +2573,7 @@
     Object.keys(walkerOthers).forEach(k => delete walkerOthers[k]);
     Object.values(walkerStMarks).forEach(m => map.removeLayer(m));
     Object.keys(walkerStMarks).forEach(k => delete walkerStMarks[k]);
+    if (walkerMarker) { map.removeLayer(walkerMarker); walkerMarker = null; walkerMe = null; }
     status('🥾 Ты вышел из режима Следопыта');
   }
   walkerBtn.onclick = async () => {
@@ -2774,7 +2773,8 @@
     const me = (lastMarkers || []).find(mm => mm.user === myKey());
     if (!me) { status('🧰 Сундук появится после того, как поставишь метку'); return; }
     document.getElementById('chestBody').innerHTML =
-      '💩 Какашки: <b>' + (me.poops || 0) + '</b>'
+      '💎 Измиры: <b>' + (me.diamonds || 0) + '</b>'
+      + '<br>💩 Какашки: <b>' + (me.poops || 0) + '</b>'
       + '<br>🪵 Дерево: <b>' + (me.wood || 0) + '</b>'
       + '<br>☄️ ЗвёзднаяПыль: <b>' + (me.zp || 0) + '</b>'
       + '<br>🎁 Подарки: ' + ((me.gift_pics && me.gift_pics.length)
