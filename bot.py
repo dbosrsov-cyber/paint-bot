@@ -2982,7 +2982,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-09-2300"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-09-2310"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -7700,8 +7700,27 @@ ANON_PREFIX_HTML = ('<blockquote>🕶️ Пользователь чата от�
 # Telegram не даёт менять размер/цвет шрифта: blockquote — самый «блеклый» вариант оформления
 anon_mode = set()        # uid, у кого включён режим
 anon_blocked = False     # глобальная блокировка (/anonstop)
-anon_last = {}           # uid -> ts последней успешной отправки
+anon_last = {}           # uid -> ts последней успешной отправки (в памяти — после рестарта ок)
 anon_member_cache = {}   # uid -> (ts, is_member)
+
+# состояние режима — в data-репо: рестарт сервера больше не отбирает включённый /anonON
+ANON_FILE = "anon.json"
+anon_lock = threading.Lock()
+
+
+def anon_save_to_github() -> None:
+    """Кто включил режим + глобальная блокировка. Вызывать вне anon_lock."""
+    payload = {"mode": sorted(anon_mode), "blocked": anon_blocked}
+    _save_json_to_github(ANON_FILE, payload, anon_lock, "anon")
+
+
+def anon_load_from_github() -> None:
+    global anon_blocked
+    loaded = _load_json_from_github(ANON_FILE, "anon")
+    if loaded:
+        anon_mode.update(int(u) for u in (loaded.get("mode") or []) if str(u).lstrip('-').isdigit())
+        anon_blocked = bool(loaded.get("blocked", False))
+        print(f"[paint_bot] anon: режим включён у {len(anon_mode)} uid", flush=True)
 
 
 def anon_is_member(user_id: int) -> bool:
@@ -7751,6 +7770,7 @@ async def cmd_anon_on(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await anon_report_admin(context.bot, user, extra="Команда: /anonON\n")
         return
     anon_mode.add(user.id)
+    anon_save_to_github()   # персистентно — переживёт рестарт сервера
     await update.message.reply_text(
         "\U0001F576️ Режим анонимных сообщений ВКЛЮЧЁН.\n"
         "Всё, что ты напишешь мне в ЛС (текст, фото, видео, голосовые, кружки, стикеры), "
@@ -7764,6 +7784,7 @@ async def cmd_anon_off(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     anon_mode.discard(update.effective_user.id)
     anon_last.pop(update.effective_user.id, None)
+    anon_save_to_github()
     await update.message.reply_text("\U0001F576️ Режим анонимных сообщений выключен.")
 
 
@@ -7774,6 +7795,7 @@ async def cmd_anon_stop(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     anon_blocked = True
     anon_mode.clear()
+    anon_save_to_github()
     await update.message.reply_text(
         "\U0001F576️ Анонимный режим ЗАБЛОКИРОВАН администратором. Активные сессии сброшены.")
 
@@ -7784,6 +7806,7 @@ async def cmd_anon_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if update.effective_chat.id != ANON_GROUP_ID or update.effective_user.id not in ANON_ADMINS:
         return
     anon_blocked = False
+    anon_save_to_github()
     await update.message.reply_text("\U0001F576️ Анонимный режим разблокирован.")
 
 
@@ -7919,6 +7942,7 @@ def main() -> None:
     sifa_load_from_github()
     walker_load_from_github()
     klad_load_from_github()
+    anon_load_from_github()
     ships_load_from_github()
     wrecks_load_from_github()
     duels_load_from_github()
