@@ -335,7 +335,7 @@
       <li>☄️ Собирать ЗвёзднуюПыль из свежих метеоритных воронок</li>
       <li>🌋 Ванильный Вулкан: извергнись — и Розовая Какашка полетит к соседу</li>
       <li>🐳 Похотливый Кит: отправь участнику подарок — он откроет сюрприз 🔞</li>
-      <li>🌩 Шторм выбрасывает на остров дерево — спеши собрать (15 минут)</li>
+      <li>🌩 Шторм выбрасывает на остров дерево (+2 🪵, 15 минут на сбор) — собрать можно лишь раз за шторм, даже если трясёт несколько островов</li>
       <li>🏆 Каждую пятницу в 16:00 по Москве в чате публикуются «Итоги недели» — 11 номинаций, ссылки на героев внутри</li>
     </ul>
     <b>🏝️ Острова и Галеоны</b>
@@ -1289,7 +1289,7 @@
       if (isl.guest) html += '<br>' + (legTxt[isl.guest.leg] || '');
       if (isl.guest && isl.guest.user === myKey() && isl.guest.leg === 'staying'
           && (isl.storm_left || 0) > 0 && !isl.storm_collected) {
-        html += '<br><button onclick="islandStorm()">🌲 Собрать дерево (+3)</button>';
+        html += '<br><button onclick="islandStorm()">🌲 Собрать дерево (+2)</button>';
       }
       html += '<br>';
     }
@@ -1894,7 +1894,7 @@
     sBtn.textContent = stormDone
       ? '🌲 Дерево собрано ✓'
       : (stormLeft
-        ? '🌲 Собрать дерево (+3) • осталось ' + Math.ceil(stormLeft / 60) + ' мин'
+        ? '🌲 Собрать дерево (+2) • осталось ' + Math.ceil(stormLeft / 60) + ' мин'
         : '🌲 Собрать дерево (нет шторма)');
     // выпнуть гостя: активно, если гость торчит на острове дольше суток
     const kBtn = document.getElementById('actKickBtn');
@@ -1937,7 +1937,7 @@
       body: JSON.stringify({chat: chat, user: myKey(), name: userName()})
     });
     const data = await r.json().catch(() => ({}));
-    if (r.ok) status('🌲 +' + (data.got || 3) + ' дерева! В мешке: ' + data.wood + ' 🪵');
+    if (r.ok) status('🌲 +' + (data.got || 2) + ' дерева! В мешке: ' + data.wood + ' 🪵');
     else status('⚠️ ' + (data.error || 'не собралось'));
     load();
   };
