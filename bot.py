@@ -1009,11 +1009,11 @@ def sifa_random_water(area):
     return 25.0, -40.0   # Средина Атлантики — гарантированная вода
 
 
-# ---------- Следопыт: человечек по суше России, Пища, вокзалы (клад — фаза 2) ----------
+# ---------- Кладоискатель: человечек по суше России, Пища, вокзалы (клад — фаза 2) ----------
 WALKER_SPEED_KM_PER_MIN = 30.0   # «прогулочный» темп игры, не реализм
 WALKER_ENERGY_MAX = 800.0        # запас хода, км
 WALKER_FOOD_ENERGY = 250.0       # 1 единица Пищи -> +250 км энергии
-WALKER_START_FOOD = 5            # стартовый запас Пищи у нового следопыта
+WALKER_START_FOOD = 5            # стартовый запас Пищи у нового кладоискателя
 FOOD_COOK_SEC = 3600             # готовка: 1 единица раз в час (плавающий кулдаун)
 FOOD_DAILY_MAX = 24              # не больше 24 единиц в сутки (сброс в 00:00 МСК)
 FOOD_MAX_STOCK = 10              # вместимость «сумки» с едой
@@ -1166,7 +1166,7 @@ def _walker_route_km(lat1, lon1, pts) -> float:
 
 
 def walker_progress(w: dict) -> bool:
-    """Продвинуть следопыта по маршруту (лениво). True — прибыл (энергия списана)."""
+    """Продвинуть кладоискателя по маршруту (лениво). True — прибыл (энергия списана)."""
     if not w.get("route"):
         return False
     now = time.time()
@@ -1204,7 +1204,7 @@ klad_lock = threading.RLock()   # реентерабельный: save-патт�
 
 
 def _klad_random_point():
-    """Случайная точка СУШИ в пределах территории следопыта."""
+    """Случайная точка СУШИ в пределах территории кладоискателя."""
     for _ in range(80):
         lat = random.uniform(WALKER_AREA[0] + 1.0, WALKER_AREA[2] - 1.0)
         u = random.uniform(WALKER_AREA[1], WALKER_AREA[3])
@@ -1267,12 +1267,9 @@ def klad_on_arrival(chat_id: int, mkey: str, w: dict) -> bool:
             return False
         with geo_lock:
             marker = geo_state.get(chat_id, {}).get(mkey) or {}
-            marker["poops"] = marker.get("poops", 0) + 10
-            marker["diamonds"] = marker.get("diamonds", 0) + 10  # измиры — главный клад
-            marker.setdefault("souvenirs", []).append("🏴‍☠️")
+            marker["diamonds"] = marker.get("diamonds", 0) + 10  # награда за клад — только измиры
             name = marker.get("name") or mkey
             tid = marker.get("tid")
-            stardust_earn(chat_id, mkey, 10)
             geo_save_to_github()
         founds = dict(entry.get("founds") or {})
         founds[mkey] = founds.get(mkey, 0) + 1
@@ -1287,8 +1284,7 @@ def klad_on_arrival(chat_id: int, mkey: str, w: dict) -> bool:
     try:
         who = tg_mention(int(tid), name) if tid else name
         tg_send_message_id(chat_id,
-            f"🏴‍☠️ <b>{who}</b> нашёл КЛАД! В сумке: +10 💎 измиров, +10 ☄️ ЗП, "
-            "+10 💗 и сувенир 🏴‍☠️. "
+            f"🏴‍☠️ <b>{who}</b> нашёл КЛАД! В сумке: +10 💎 измиров. "
             "Старый клад выкопан — на карте зарыт НОВЫЙ, поиск начался заново!",
             html_mode=True)
         if new_entry:
@@ -1311,7 +1307,7 @@ async def klad_sweep_job(context) -> None:
                 klad_save_to_github(force=True)
                 tg_send_message_id(chat_id,
                     "⌛ Клад, который никто не нашёл, сгорел в земле… "
-                    "Но следопыты уже зарыли НОВЫЙ!\n" + new_entry["hints"][0][1])
+                    "Но кладоискатели уже зарыли НОВЫЙ!\n" + new_entry["hints"][0][1])
             continue
         idx = sum(1 for o, _ in entry["hints"] if entry["created_ts"] + o <= now)
         if idx > int(entry.get("announced", 0)):
@@ -1832,7 +1828,7 @@ def walker_load_from_github() -> None:
         for cid, ships in loaded.items():
             walker_state[int(cid)] = ships
             total += len(ships)
-        print(f"[paint_bot] walker: загружено {total} следопытов из Git", flush=True)
+        print(f"[paint_bot] walker: загружено {total} кладоискателей из Git", flush=True)
 
 
 _walker_station_pts = None
@@ -1857,7 +1853,7 @@ def _walker_spawn_point():
 
 
 def _walker_spawn(name: str, tid: str) -> dict:
-    """Новый следопыт: старт в 100 км от вокзала Новосибирск, энергия полная."""
+    """Новый кладоискатель: старт в 100 км от вокзала Новосибирск, энергия полная."""
     lat, lon = _walker_spawn_point()
     w = {"lat": lat, "lon": lon, "energy": WALKER_ENERGY_MAX,
          "name": name, "route": None, "nav_from_lat": None, "nav_from_lon": None,
@@ -2499,7 +2495,7 @@ WALKER_RELEASE_ANNOUNCE_TAG = "walker_release_announce_2026-11-10"
 
 
 async def walker_release_announce_job(context) -> None:
-    """Разовый анонс релиза «Следопыта» (10.11.2026, 08:00 МСК). Сообщение НЕ удаляется."""
+    """Разовый анонс релиза «Кладоискателя» (10.11.2026, 08:00 МСК). Сообщение НЕ удаляется."""
     if meteor_credits.get(WALKER_RELEASE_ANNOUNCE_TAG):
         return
     meteor_credits[WALKER_RELEASE_ANNOUNCE_TAG] = True
@@ -2507,13 +2503,12 @@ async def walker_release_announce_job(context) -> None:
     try:
         await context.bot.send_message(
             -1002304715333,  # «Другое измерение»
-            "🥾 Доброе утро! На карте ГЕО2 появилась новая игра «Следопыт»: твой личный "
-            "человечек 🚶 ходит по суше России — ест 🍖, тратит энергию ⚡, скачет по "
-            "вокзалам 🚉 и охотится за зарытым кладом 🏴‍☠️ (а в нём — 💎 измиры!).\n\n"
-            "Кнопка 🚶 на панели карты. Подсказки о кладе бот выдаёт по таймеру — "
-            "терпение и пантофли приветствуются 😄")
+            "🥾 Внимание, доброе утро! На карте ГЕО2 начинается бета-тест новой игры "
+            "«Кладоискатель»: твой личный человечек 🚶 ходит по суше России — ест 🍖, "
+            "тратит энергию ⚡, скачет по вокзалам 🚉 и охотится за зарытым кладом 🏴‍☠️ "
+            "(а в нём — 💎 измиры!).")
     except Exception as e:
-        logline(f"анонс релиза Следопыта не ушёл: {e!r}")
+        logline(f"анонс релиза Кладоискателя не ушёл: {e!r}")
 
 
 SAGA_NAG_PHRASES = [
@@ -2826,7 +2821,7 @@ async def weekly_stats_job(context) -> None:
         # 12. Клады: найдено (счётчик копится с введения квеста)
         kl = klad_state.get(chat_id) or {}
         v, k = top(kl.get("founds") or {})
-        row("🏴‍☠️", "Величайший следопыт", "найдено кладов", v,
+        row("🏴‍☠️", "Величайший кладоискатель", "найдено кладов", v,
             geo_mention(chat_id, k, k) if k else None)
     except Exception as e:
         logline(f"weekly_stats: ошибка сбора статистики: {e!r}")
@@ -3046,7 +3041,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-10-0050"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-10-0100"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -4362,7 +4357,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 # geo_lock отпущен — порядок локов walker → klad → geo не нарушаем:
                 # klad_ensure/klad_on_arrival сами берут klad_lock (и geo_lock внутри)
                 if spawned:
-                    # первый следопыт в чате — зарываем клад и анонсируем квест
+                    # первый кладоискатель в чате — зарываем клад и анонсируем квест
                     spawn_klad = klad_ensure(chat_id)
                 if arrived and klad_on_arrival(chat_id, mkey, w):
                     need_gsave = True
@@ -5397,7 +5392,7 @@ class AppHandler(BaseHTTPRequestHandler):
         self._json_response(410, {"error": "кораблик остаётся на карте навсегда"})
 
     def _handle_walker_move_post(self) -> None:
-        """СЛЕДОПЫТ: идти к точке по суше (маршрут по маске, энергия списывается в конце)."""
+        """КЛАДОИСКАТЕЛЬ: идти к точке по суше (маршрут по маске, энергия списывается в конце)."""
         try:
             length = int(self.headers.get("Content-Length", 0))
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
@@ -5409,7 +5404,7 @@ class AppHandler(BaseHTTPRequestHandler):
             self._json_response(400, {"error": "bad request"})
             return
         if not walker_area_ok(lat, lon):
-            self._json_response(422, {"error": "это за границами территории Следопыта (Россия)"})
+            self._json_response(422, {"error": "это за границами территории Кладоискательа (Россия)"})
             return
         if not sifa_is_land(lat, lon):
             self._json_response(422, {"error": "человечек по воде не ходит — выбери точку на суше"})
@@ -5424,7 +5419,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             w = walker_state.get(chat_id, {}).get(mkey)
             if w is None:
-                self._json_response(404, {"error": "следопыта ещё нет — нажми 🚶 в панели режимов"})
+                self._json_response(404, {"error": "кладоискателя ещё нет — нажми 🚶 в панели режимов"})
                 return
             if walker_progress(w):
                 walker_save_to_github()
@@ -5453,7 +5448,7 @@ class AppHandler(BaseHTTPRequestHandler):
                                   "km": round(km, 1)})
 
     def _handle_walker_food_post(self) -> None:
-        """СЛЕДОПЫТ: Пища — готовка (1/час, макс 24/сутки) и приём пищи (+250 км энергии)."""
+        """КЛАДОИСКАТЕЛЬ: Пища — готовка (1/час, макс 24/сутки) и приём пищи (+250 км энергии)."""
         try:
             length = int(self.headers.get("Content-Length", 0))
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
@@ -5507,7 +5502,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             w = walker_state.get(chat_id, {}).get(mkey)
             if w is None:
-                self._json_response(404, {"error": "следопыта ещё нет — нажми 🚶 в панели режимов"})
+                self._json_response(404, {"error": "кладоискателя ещё нет — нажми 🚶 в панели режимов"})
                 return
             with geo_lock:
                 marker = geo_state[chat_id][mkey]
@@ -5526,7 +5521,7 @@ class AppHandler(BaseHTTPRequestHandler):
         self._json_response(200, {"energy": round(w["energy"], 1), "food": marker["food"]})
 
     def _handle_walker_station_post(self) -> None:
-        """СЛЕДОПЫТ: переезд на вокзал — мгновенно, сколько угодно раз, бесплатно."""
+        """КЛАДОИСКАТЕЛЬ: переезд на вокзал — мгновенно, сколько угодно раз, бесплатно."""
         try:
             length = int(self.headers.get("Content-Length", 0))
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
@@ -5549,7 +5544,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             w = walker_state.get(chat_id, {}).get(mkey)
             if w is None:
-                self._json_response(404, {"error": "следопыта ещё нет — нажми 🚶 в панели режимов"})
+                self._json_response(404, {"error": "кладоискателя ещё нет — нажми 🚶 в панели режимов"})
                 return
             slat, slon = _walker_station_point(station)
             w["lat"], w["lon"] = slat, slon
@@ -8175,7 +8170,7 @@ def main() -> None:
     app.job_queue.run_repeating(paint_periodic_sweep, interval=15.0)
     # автобэкап меток и писем: каждый день в 01:00 по Москве
     app.job_queue.run_daily(backup_job, time=datetime.time(1, 0, tzinfo=MSK_TZ))
-    # разовый анонс релиза «Следопыта»: 10.11.2026 в 08:00 по Москве (сообщение не удаляется)
+    # разовый анонс релиза «Кладоискателя»: 10.11.2026 в 08:00 по Москве (сообщение не удаляется)
     app.job_queue.run_once(
         walker_release_announce_job,
         when=datetime.datetime(2026, 11, 10, 8, 0, tzinfo=MSK_TZ))
