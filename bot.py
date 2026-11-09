@@ -1022,11 +1022,11 @@ WALKER_FILE = "walker.json"
 # формат области как у Сифы: [lat_min, lon_min, lat_max, lon_max], lon_max > 180 = переход
 WALKER_AREA = (41.0, 19.0, 82.0, 191.0)
 WALKER_STATIONS = [
-    {"key": "msk", "name": "Москва",      "lat": 55.7558,  "lon": 37.6173},
+    {"key": "bry", "name": "Брянск",      "lat": 53.2521,  "lon": 34.3717},
     {"key": "nsk", "name": "Новосибирск", "lat": 55.0302,  "lon": 82.9204},
-    {"key": "chk", "name": "Чукотка",     "lat": 64.7348,  "lon": -170.3103},
+    {"key": "yak", "name": "Якутск",      "lat": 62.0355,  "lon": 129.6755},
 ]
-WALKER_SPAWN_STATION = "chk"     # все следопыты стартуют у Чукотки
+WALKER_SPAWN_STATION = "yak"     # все следопыты стартуют у Якутска
 
 
 def walker_area_ok(lat: float, lon: float) -> bool:
@@ -1847,7 +1847,7 @@ def _walker_station_point(station: dict):
 
 
 def _walker_spawn(name: str, tid: str) -> dict:
-    """Новый следопыт: все стартуют у вокзала Чукотка, энергия полная."""
+    """Новый следопыт: все стартуют у вокзала Якутск, энергия полная."""
     st = next(s for s in WALKER_STATIONS if s["key"] == WALKER_SPAWN_STATION)
     lat, lon = _walker_station_point(st)
     w = {"lat": lat, "lon": lon, "energy": WALKER_ENERGY_MAX,
@@ -2948,7 +2948,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-09-2140"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-09-2150"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
