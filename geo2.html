@@ -93,6 +93,14 @@
   #walkerInfo { padding:6px 10px; font-size:13px; border-radius:12px; line-height:1.55;
     background:rgba(30,60,45,.88); color:#d9f2e3; border:1px solid rgba(110,231,183,.4);
     backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
+  /* кнопка выхода из режима Следопыт — встает на место панели, которая прячется */
+  #walkerExitBtn { position:fixed; left:10px; top:50%; transform:translateY(-50%); z-index:1100;
+    width:42px; height:42px; padding:0; border-radius:12px; font-size:20px; line-height:1;
+    background:var(--card); color:var(--text); border:1px solid rgba(140,160,180,.25); cursor:pointer;
+    display:none; align-items:center; justify-content:center; box-shadow:0 4px 18px var(--shadow); }
+  #walkerExitBtn:hover { border-color:var(--accent); }
+  .dark-ui #walkerExitBtn { background:rgba(30,45,60,.6); color:#bfe3f7; border-color:rgba(125,211,252,.22); }
+  .dark-ui #walkerExitBtn:hover { border-color:#2dd4bf; color:#fff; }
   /* кнопка «Отправить» маршрута Следопыта */
   #walkerGoBtn { position:fixed; left:50%; transform:translateX(-50%); bottom:110px; z-index:3000;
     display:none; padding:12px 30px; font-size:17px; font-weight:bold; border-radius:16px;
@@ -247,7 +255,6 @@
   <button id="distBtn" title="Измерить расстояние">📏</button>
   <button id="sifaBtn" title="Сифа — догонялки на касатках">🐬</button>
   <button id="walkerBtn" title="Следопыт — человечек по суше России">🚶</button>
-  <button id="walkerExitBtn" title="Выйти из режима Следопыт" style="display:none;">🚪</button>
   <button id="shipBtn" title="Мой Галеон — найти на карте" style="display:none;">⛵</button>
   <button id="sifaAreaBtn" title="Задать границы игры «Сифа» (кликни 4 угла)" style="display:none;">🚧</button>
   <button id="islandBuyBtn" title="Купить остров (10 ЗП)">🏝️</button>
@@ -294,6 +301,7 @@
     </div>
   </div>
 </div>
+<button id="walkerExitBtn" title="Выйти из режима Следопыт">🏃</button>
 <button id="walkerGoBtn">🚶 Отправить</button>
 <div id="shipDuelModal" class="modal" style="display:none;"></div>
 <div id="shipWatchModal" class="modal" style="display:none;"></div>
@@ -2557,9 +2565,10 @@
   const walkerBtn = document.getElementById('walkerBtn');
   const walkerExitBtn = document.getElementById('walkerExitBtn');
   const walkerExitModal = document.getElementById('walkerExitModal');
-  function walkerExit() {   // выходим: дверь прячем, чужие маркеры и вокзала убираем, свой остаётся на карте
+  function walkerExit() {   // выходим: панель инструментов возвращается, кнопка выхода прячется
     walkerOn = false;
     walkerExitBtn.style.display = 'none';
+    document.getElementById('toolsPanel').style.display = '';
     walkerPlanClear();
     clearInterval(walkerPollTimer); walkerPollTimer = null;
     Object.values(walkerOthers).forEach(m => map.removeLayer(m));
@@ -2574,7 +2583,8 @@
     walkerOn = true;
     const ok = await walkerPoll();
     if (!ok || !walkerMe) { walkerOn = false; return; }  // ошибку уже показал walkerPoll — режим не застревает
-    walkerExitBtn.style.display = '';
+    walkerExitBtn.style.display = 'flex';               // вместо всей панели — одна кнопка выхода
+    document.getElementById('toolsPanel').style.display = 'none';
     map.flyTo([walkerMe.lat, walkerMe.lon], 6, {duration: 1.2});  // фокус на своём человечке — не ищем его по карте
     status('🥾 Человечек на суше России! Кликни по суше — пунктир с флажком, «Отправить» — в путь • по своему персу — пища и статус • к вокзалу подойди в 10 км');
     clearInterval(walkerPollTimer);
