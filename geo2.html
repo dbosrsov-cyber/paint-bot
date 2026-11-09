@@ -2405,11 +2405,26 @@
     const m = Math.floor(s / 60); s %= 60;
     return m + ':' + String(s).padStart(2, '0');
   }
+  let walkerErrTs = 0;
+  function walkerErr(t) {  // ошибки не чаще раза в 15 с — иначе poll каждые 3 с заспамит тостами
+    const now = Date.now();
+    if (now - walkerErrTs > 15000) { walkerErrTs = now; status(t); }
+  }
   async function walkerPoll() {
-    const r = await fetch('/walkerstate?chat=' + chat + '&user='
-      + encodeURIComponent(myKey()) + '&name=' + encodeURIComponent(userName()));
-    const d = await r.json().catch(() => ({}));
-    if (!r.ok || !d.me) { if (d.error && walkerOn) status('⚠️ ' + d.error); return; }
+    let r, d = {};
+    try {
+      r = await fetch('/walkerstate?chat=' + chat + '&user='
+        + encodeURIComponent(myKey()) + '&name=' + encodeURIComponent(userName()));
+      d = await r.json().catch(() => ({}));
+    } catch (e) {
+      if (walkerOn) walkerErr('⚠️ сервер не ответил — проверь связь и нажми 🚶 ещё раз');
+      return false;
+    }
+    if (!r.ok || !d.me) {
+      if (walkerOn) walkerErr('⚠️ ' + (d.error
+        || 'сервер ответил ошибкой (HTTP ' + r.status + ') — попробуй 🚶 ещё раз'));
+      return false;
+    }
     walkerMe = d.me;
     if (!walkerMarker) {
       walkerMarker = L.marker([d.me.lat, d.me.lon], {icon: walkerIcon('🥾')}).addTo(map);
@@ -2429,7 +2444,7 @@
     Object.keys(walkerOthers).forEach(k => {
       if (!seen[k]) { map.removeLayer(walkerOthers[k]); delete walkerOthers[k]; }
     });
-    if (!walkerOn) return;
+    if (!walkerOn) return true;
     (d.stations || []).forEach(s => {
       if (!walkerStMarks[s.key]) {
         const mk = L.marker([s.lat, s.lon], {icon: walkerIcon('🚉')}).addTo(map);
@@ -2438,6 +2453,7 @@
       }
     });
     walkerUpdateCtrl();
+    return true;
   }
   function walkerUpdateCtrl() {
     if (!walkerMe) return;
@@ -2480,8 +2496,8 @@
     }
     status('🥾 Готовим человечка…');
     walkerOn = true;
-    await walkerPoll();
-    if (!walkerMe) { walkerOn = false; return; }
+    const ok = await walkerPoll();
+    if (!ok || !walkerMe) { walkerOn = false; return; }  // ошибку уже показал walkerPoll — режим не застревает
     walkerCtrlEl.style.display = 'flex';
     map.flyTo([walkerMe.lat, walkerMe.lon], Math.max(map.getZoom(), 4));
     status('🥾 Человечек на суше России! Кликни по суше, чтобы идти • 🍲 готовь пищу • 🚉 вокзалы');
