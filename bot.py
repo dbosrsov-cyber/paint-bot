@@ -3007,7 +3007,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-10-0020"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-10-0030"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -4340,13 +4340,13 @@ class AppHandler(BaseHTTPRequestHandler):
             stations = [{"key": s["key"], "name": s["name"],
                          "lat": _walker_station_point(s)[0],
                          "lon": _walker_station_point(s)[1]} for s in WALKER_STATIONS]
-            # подсказки текущего клада — только те, что бот уже анонсировал по таймеру
+            # подсказки текущего клада: весь план с таймингом (просмотр для теста;
+            # анонсы в чат идут по своему расписанию — здесь ничего не отправляем)
             klad_hints = []
             with klad_lock:
                 entry = klad_state.get(chat_id)
                 if entry and time.time() < entry["expires_ts"]:
-                    announced = max(1, int(entry.get("announced", 0)))
-                    klad_hints = [t for _, t in entry["hints"][:announced]]
+                    klad_hints = [{"off": int(o), "text": t} for o, t in entry["hints"]]
             self._json_response(200, {"me": me, "others": others, "stations": stations,
                                       "klad_hints": klad_hints})
         elif url.path == "/geodata":
