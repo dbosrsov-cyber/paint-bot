@@ -1892,6 +1892,31 @@ def apply_walker_reloc_2026_11_09() -> None:
     meteor_save_to_github()
 
 
+def apply_sumai_walker_bryansk_2026_11_10() -> None:
+    """Разовый перенос (2026-11-10): человечек Sumai — на вокзал Брянска. Маршрут сброшен."""
+    tag = "sumai_walker_bryansk_2026-11-10"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    bry = next(s for s in WALKER_STATIONS if s["key"] == "bry")
+    blat, blon = _walker_station_point(bry)
+    moved = False
+    with walker_lock:
+        for walkers in walker_state.values():
+            w = walkers.get("Sumai")
+            if w is not None:
+                w["lat"], w["lon"] = round(blat, 6), round(blon, 6)
+                w["route"] = None
+                w["nav_from_lat"] = w["nav_from_lon"] = None
+                w["nav_ts"] = 0.0
+                w["ts"] = time.time()
+                moved = True
+    if moved:
+        walker_save_to_github(force=True)
+    logline(f"sumai walker -> Брянск: {'перенесён' if moved else 'не найден'}")
+    meteor_save_to_github()
+
+
 def sifa_save_to_github(force: bool = False) -> None:
     global _sifa_last_save
     if not geo_token():
@@ -2982,7 +3007,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-10-0000"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-10-0010"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -8077,6 +8102,7 @@ def main() -> None:
     apply_tatev_coowner()
     apply_andrey_island_rename()
     apply_walker_reloc_2026_11_09()
+    apply_sumai_walker_bryansk_2026_11_10()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
