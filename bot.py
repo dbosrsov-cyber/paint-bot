@@ -1506,7 +1506,7 @@ def ship_water_route(lat1, lon1, lat2, lon2):
     return pts
 # ---------- Морской Рынок: локация в океане (Карское море, 79°N 70°E) ----------
 MARKET_LAT, MARKET_LON = 79.0, 70.0   # позиция одинакова для всех чатов, владелец — свой на чат
-MARKET_GIFT_COST = 5                  # обмен: 5 открытых подарков -> +1 ЗП, +1 дерева, +1 какашка
+MARKET_GIFT_COST = 5                  # обмен: 5 открытых подарков -> +1 ЗП, +1 дерева, +1 какашка, +1 измир
 MARKET_FILE = "market.json"
 # потопленные корабли с карты не исчезают: висят «мемориальными рифами»,
 # пока капитан не спустит на воду новый Галеон (запись перезаписывается)
@@ -3282,7 +3282,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-10-1630"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-10-1640"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -6273,6 +6273,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 if marker is not None:
                     marker["wood"] = marker.get("wood", 0) + 1
                     marker["poops"] = marker.get("poops", 0) + 1
+                    marker["diamonds"] = marker.get("diamonds", 0) + 1
                 stardust_earn(chat_id, mkey, 1)
                 submarine_save_to_github()
                 geo_save_to_github()
