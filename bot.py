@@ -3155,7 +3155,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-10-1510"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-10-1520"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -7505,26 +7505,8 @@ async def cmd_klad(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     nxt = next((off for off, _ in entry["hints"] if entry["created_ts"] + off > now), None)
     if nxt is not None:
         lines.append(f"…следующая подсказка через {int((entry['created_ts'] + nxt - now) // 3600)} ч")
-    # тепло/холодно от позиции моего человечка (только если он уже есть)
-    uid = str(update.effective_user.id)
-    found = False
-    with walker_lock:
-        with geo_lock:
-            mkey = resolve_marker_key(chat_id, uid, "")
-        w = walker_state.get(chat_id, {}).get(mkey) if mkey else None
-        if w is not None:
-            if walker_progress(w):
-                found = klad_on_arrival(chat_id, mkey, w)
-            if not found:
-                dist = haversine_km(w["lat"], w["lon"], entry["lat"], entry["lon"])
-                temp = ("🔥🔥 жгётся" if dist < 300 else "🔥 горячо" if dist < 800
-                        else "❄ прохладно" if dist < 1500 else "🥶 холодно")
-                lines.append(f"🚶 Твой человечек: ~{max(10, int(round(dist, -2)))} км до клада — {temp}")
-    if found:
-        await update.message.reply_text(
-            "🏴‍☠️ Твой человечек только что ВЫКОПАЛ КЛАД! +10 ☄️ ЗП, +10 💗 и сувенир 🏴‍☠️ "
-            "уже в сумке — загляни в «Мой сундук». Новый клад уже зарыт: жди подсказок!")
-        return
+    # расстояние до клада здесь не показываем: «горячо/холодно» — кнопкой 👃 Понюхать
+    # у своего человечка (раз в 10 минут). Находка засчитывается по завершении пешего шага.
     await update.message.reply_text("\n".join(lines), parse_mode="HTML",
                                     disable_web_page_preview=True)
 
