@@ -3295,7 +3295,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-10-1650"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-10-1700"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -5536,6 +5536,8 @@ class AppHandler(BaseHTTPRequestHandler):
             sk = resolve_ship_key(ships, user, name)
             ship = ships.get(sk) if sk else None
             if ship is None:
+                logline(f"/sifamove 404 chat={chat_id} user={user!r} name={name!r} "
+                        f"ships={list(ships)[:8]}")
                 self._json_response(404, {"error": "касатки ещё нет — нажми 🐬 в панели"})
                 return
             if now < ship.get("frozen_until", 0):
@@ -5544,13 +5546,17 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             jump = haversine_km(ship["lat"], ship["lon"], lat, lon)
             if jump > SIFA_MAX_JUMP_KM:
+                logline(f"/sifamove 409 jump={jump:.0f}км chat={chat_id} user={user!r} "
+                        f"name={name!r} ship=({ship['lat']:.2f},{ship['lon']:.2f}) -> ({lat:.2f},{lon:.2f})")
                 self._json_response(409, {"error": "слишком резкий скачок"})
                 return
             if sifa_is_land(lat, lon):
+                logline(f"/sifamove 422 суша chat={chat_id} user={user!r} name={name!r} -> ({lat:.2f},{lon:.2f})")
                 self._json_response(422, {"error": "кораблик не плавает по суше"})
                 return
             area = entry.get("area")
             if area and not sifa_area_ok(area, lat, lon):
+                logline(f"/sifamove 422 вне зоны chat={chat_id} user={user!r} name={name!r} -> ({lat:.2f},{lon:.2f})")
                 self._json_response(422, {"error": "за границами игры «Сифа»"})
                 return
             ship.update({"lat": lat, "lon": lon, "heading": heading, "ts": now})
@@ -5587,6 +5593,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 _sifa_grant(entry, ships, _rnd.choice(list(ships)))
             _sifa_note_holder(entry, ships, now)
         wood_total = 0
+        mk = None
         if wood_picked:
             with geo_lock:
                 mk = resolve_marker_key(chat_id, user, name)
@@ -5595,6 +5602,9 @@ class AppHandler(BaseHTTPRequestHandler):
                     marker["wood"] = marker.get("wood", 0) + wood_picked
                     wood_total = marker["wood"]
                     geo_save_to_github()
+            # диагностика начисления дерева: mk=None — бревно взято, а сундук не найден
+            logline(f"/sifamove wood chat={chat_id} user={user!r} name={name!r} sk={sk!r} "
+                    f"picked={wood_picked} mk={mk!r} wood_total={wood_total}")
         sifa_save_to_github()
         self._json_response(200, {"ok": True, "teleported": teleported,
                                   "lat": ship["lat"], "lon": ship["lon"],
