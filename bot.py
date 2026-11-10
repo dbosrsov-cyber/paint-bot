@@ -1260,7 +1260,7 @@ def klad_new(chat_id: int, save: bool = True):
     ns = "севернее" if lat >= 60.0 else "южнее"
     ew = "восточнее" if (((lon - 90.0 + 540.0) % 360.0) - 180.0) > 0 else "западнее"
     hints = [
-        [0, "🏴‍☠️ Клад зарыт где-то на суше России! Ищи человечком 🚶 — клад найдётся, если окажешься в 30 км от точки. Повторить подсказки: /klad"],
+        [0, "🏴‍☠️ Клад зарыт где-то на суше России! Ищи человечком 🚶 — окажешься в 30 км от точки, на месте клада появится кнопка ⛏️ Копать: кто первый нажмёт, тот и выкопает. Повторить подсказки: /klad"],
         [12 * 3600, f"🧭 Широта клада {ns} 60° параллели"],
         [24 * 3600, f"🧭 Долгота клада {ew} 90° восточной долготы"],
         [48 * 3600, f"🚉 Ближайший вокзал: «{WALKER_STATIONS[si]['name']}»"],
@@ -1289,7 +1289,8 @@ def klad_ensure(chat_id: int):
 
 
 def klad_on_arrival(chat_id: int, mkey: str, w: dict) -> bool:
-    """Человечек ТОЛЬКО ЧТО прибыл: в 30 км от клада — находка! Награда и новый клад."""
+    """Копать (⛏️): человечек в 30 км от клада — выкапывает. Награда, пир и новый клад.
+    Первый нажавший выигрывает: второй уже меряет расстояние до НОВОГО клада."""
     if w.get("route"):
         return False
     with klad_lock:
@@ -3162,7 +3163,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-10-1530"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-10-1540"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -4432,10 +4433,10 @@ class AppHandler(BaseHTTPRequestHandler):
             need_wsave = False
             need_gsave = False
             spawn_klad = None
+            klad_dig = None   # точка клада — отдаём только когда перс в радиусе 30 км
             with walker_lock:
                 walkers = walker_state.setdefault(chat_id, {})
                 spawned = False
-                arrived = False
                 with geo_lock:
                     mkey = resolve_marker_key(chat_id, viewer, viewer_name)
                     if mkey is None:
@@ -4456,7 +4457,6 @@ class AppHandler(BaseHTTPRequestHandler):
                         logline(f"walker spawn chat={chat_id} user={mkey!r}")
                     if walker_progress(w):
                         need_wsave = True
-                        arrived = True
                     marker = geo_state[chat_id].get(mkey) or {}
                     if marker.get("food_day") != today:
                         marker["food_day"] = today
@@ -4478,12 +4478,18 @@ class AppHandler(BaseHTTPRequestHandler):
                         others.append({"lat": o["lat"], "lon": o["lon"],
                                        "name": o.get("name", "?")})
                 # geo_lock отпущен — порядок локов walker → klad → geo не нарушаем:
-                # klad_ensure/klad_on_arrival сами берут klad_lock (и geo_lock внутри)
+                # klad_ensure сам берёт klad_lock (и geo_lock внутри)
                 if spawned:
                     # первый кладоискатель в чате — зарываем клад и анонсируем квест
                     spawn_klad = klad_ensure(chat_id)
-                if arrived and klad_on_arrival(chat_id, mkey, w):
-                    need_gsave = True
+                # авто-находки по прибытии нет: в радиусе 30 км на месте клада появляется
+                # кнопка ⛏️ Копать — клад выкапывает первый нажавший (/walkerdig)
+                with klad_lock:
+                    entry = klad_state.get(chat_id)
+                    if (entry and now < entry["expires_ts"] and w is not None
+                            and haversine_km(w["lat"], w["lon"], entry["lat"], entry["lon"])
+                                <= KLAD_FIND_KM):
+                        klad_dig = {"lat": entry["lat"], "lon": entry["lon"]}
             if need_wsave:
                 walker_save_to_github()
             if need_gsave:
@@ -4505,7 +4511,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 if entry and time.time() < entry["expires_ts"]:
                     klad_hints = [{"off": int(o), "text": t} for o, t in entry["hints"]]
             self._json_response(200, {"me": me, "others": others, "stations": stations,
-                                      "klad_hints": klad_hints})
+                                      "klad_hints": klad_hints, "klad_dig": klad_dig})
         elif url.path == "/geodata":
             chat_id = int(params.get("chat", ["0"])[0])
             viewer = params.get("user", [""])[0]
@@ -5069,6 +5075,9 @@ class AppHandler(BaseHTTPRequestHandler):
         if url.path == "/walkersniff":
             self._handle_walker_sniff_post()
             return
+        if url.path == "/walkerdig":
+            self._handle_walker_dig_post()
+            return
         if url.path == "/walkerstation":
             self._handle_walker_station_post()
             return
@@ -5549,7 +5558,6 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             if walker_progress(w):
                 walker_save_to_github()
-                klad_on_arrival(chat_id, mkey, w)
             if w.get("route"):
                 self._json_response(409, {"error": "человечек уже идёт — дождись, куда шёл"})
                 return
@@ -5670,7 +5678,6 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             if walker_progress(w):
                 walker_save_to_github()
-                klad_on_arrival(chat_id, mkey, w)
             wait = int(max(0.0, w.get("sniff_ts", 0.0) + WALKER_SNIFF_CD_SEC - now))
             if wait > 0:
                 self._json_response(200, {"ok": False, "wait": wait})
@@ -5688,6 +5695,37 @@ class AppHandler(BaseHTTPRequestHandler):
         self._json_response(200, {"ok": True, "km": round(km, 1),
                                   "text": walker_sniff_text(km),
                                   "wait": int(WALKER_SNIFF_CD_SEC)})
+
+    def _handle_walker_dig_post(self) -> None:
+        """КЛАДОИСКАТЕЛЬ: ⛏️ Копать — кнопка на месте клада (видна в радиусе 30 км).
+        Клад выкапывает первый нажавший: награда, пир и новый клад — как при находке."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        name = str(payload.get("name", ""))[:64]
+        with walker_lock:
+            with geo_lock:
+                mkey = resolve_marker_key(chat_id, user, name)
+            if mkey is None:
+                self._json_response(403, {"error": "сначала поставь метку на карте"})
+                return
+            w = walker_state.get(chat_id, {}).get(mkey)
+            if w is None:
+                self._json_response(404, {"error": "кладоискателя ещё нет — нажми 🚶 в панели режимов"})
+                return
+            if walker_progress(w):
+                walker_save_to_github()
+            if not klad_on_arrival(chat_id, mkey, w):
+                self._json_response(409, {"error": "⛏️ Тут пусто: клад уже выкопали, "
+                                                    "или ты дальше 30 км от точки"})
+                return
+        logline(f"200 /walkerdig chat={chat_id} user={mkey!r}")
+        self._json_response(200, {"ok": True})
 
     def _handle_walker_station_post(self) -> None:
         """КЛАДОИСКАТЕЛЬ: переезд на вокзал — мгновенно, сколько угодно раз, бесплатно."""
