@@ -2451,6 +2451,31 @@
   let walkerKladHints = [];     // подсказки клада, уже анонсированные ботом
   let walkerSniffText = '';     // последний результат «Понюхать» — показываем в попапе Перса
   let walkerSniffUntil = 0;     // локальный счётчик кулдауна «Понюхать» (unix-секунды)
+  // ⛏️ Копать: точка клада приходит с сервера, только когда перс в радиусе 30 км;
+  // маркер с кнопкой виден лишь на близком зуме (уровень улиц и сооружений)
+  const WALKER_DIG_MIN_ZOOM = 16;
+  let walkerDigSite = null;     // {lat, lon} — пришло с сервера (мы в радиусе 30 км)
+  let walkerDigMark = null;     // L.marker с кнопкой «Копать»
+  function walkerDigUpdate() {
+    const show = !!(walkerOn && walkerDigSite && map.getZoom() >= WALKER_DIG_MIN_ZOOM);
+    if (show && !walkerDigMark) {
+      walkerDigMark = L.marker([walkerDigSite.lat, walkerDigSite.lon], {icon: L.divIcon({
+        html: '<div style="font-size:26px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))">⛏️</div>',
+        className: 'emoji-marker', iconSize: [30, 30], iconAnchor: [15, 15], popupAnchor: [0, -14]})})
+        .addTo(map);
+      walkerDigMark.on('click', () => {
+        walkerDigMark.bindPopup('<b>⛏️ Здесь под землёй что-то звенит…</b>'
+          + '<div style="display:flex;gap:6px;margin-top:6px;">'
+          + '<button style="flex:1;padding:8px 6px;font-size:15px;border-radius:10px;"'
+          + ' onclick="window.walkerDoDig()">⛏️ Копать</button></div>').openPopup();
+      });
+    } else if (show && walkerDigMark) {
+      walkerDigMark.setLatLng([walkerDigSite.lat, walkerDigSite.lon]);
+    } else if (!show && walkerDigMark) {
+      map.removeLayer(walkerDigMark); walkerDigMark = null;
+    }
+  }
+  map.on('zoomend', walkerDigUpdate);
   function walkerIcon(emoji, opacity) {
     return L.divIcon({
       html: '<div style="font-size:26px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))'
@@ -2493,6 +2518,8 @@
     walkerMe = d.me;
     walkerKladHints = d.klad_hints || [];
     walkerStationsData = d.stations || [];
+    walkerDigSite = d.klad_dig || null;   // сервер шлёт точку, только когда мы в 30 км
+    walkerDigUpdate();
     if (!walkerMarker) {
       walkerMarker = L.marker(walkerDispLatLng(d.me.lat, d.me.lon), {icon: walkerIcon('🚶')}).addTo(map);
       walkerMarker.bindPopup('');   // содержимое строит walkerUpdateCtrl
@@ -2622,6 +2649,8 @@
     Object.keys(walkerStMarks).forEach(k => delete walkerStMarks[k]);
     if (walkerMarker) { map.removeLayer(walkerMarker); walkerMarker = null; walkerMe = null; }
     walkerSniffText = ''; walkerSniffUntil = 0;
+    if (walkerDigMark) { map.removeLayer(walkerDigMark); walkerDigMark = null; }
+    walkerDigSite = null;
     load();   // вернуть на карту всё, что прятали в тихом режиме
     status('🥾 Ты вышел из режима Кладоискателя');
   }
@@ -2703,6 +2732,23 @@
     }
     walkerUpdateCtrl();
     if (walkerMarker) walkerMarker.openPopup();
+  };
+  window.walkerDoDig = async () => {
+    const r = await fetch('/walkerdig', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName()})
+    });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.ok) {
+      if (walkerDigMark) { map.removeLayer(walkerDigMark); walkerDigMark = null; }
+      walkerDigSite = null;
+      status('⛏️ 🏴‍☠️ КЛАД ВЫКОПАН! Подробности — в анонсе чата');
+      if (walkerMarker) walkerMarker.closePopup();
+    } else {
+      status('⛏️ ' + (d.error || 'не вышло выкопать'));
+      if (walkerDigMark) walkerDigMark.closePopup();
+    }
+    walkerPoll();   // обновим состояние: новый клад, награды, счётчики
   };
   window.walkerDoStation = async (key) => {
     const r = await fetch('/walkerstation', {
