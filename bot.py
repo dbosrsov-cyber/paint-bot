@@ -1014,6 +1014,7 @@ WALKER_SPEED_KM_PER_MIN = 30.0   # «прогулочный» темп игры,
 WALKER_ENERGY_MAX = 800.0        # запас хода, км
 WALKER_FOOD_ENERGY = 250.0       # 1 единица Пищи -> +250 км энергии
 WALKER_START_FOOD = 5            # стартовый запас Пищи у нового кладоискателя
+WALKER_SNIFF_CD_SEC = 600.0      # «Понюхать» — раз в 10 минут
 FOOD_COOK_SEC = 3600             # готовка: 1 единица раз в час (плавающий кулдаун)
 FOOD_DAILY_MAX = 24              # не больше 24 единиц в сутки (сброс в 00:00 МСК)
 FOOD_MAX_STOCK = 10              # вместимость «сумки» с едой
@@ -1192,6 +1193,24 @@ def walker_progress(w: dict) -> bool:
     w["nav_from_lat"] = w["nav_from_lon"] = None
     w["ts"] = now
     return True
+
+
+WALKER_SNIFF_BANDS = (   # (до км включительно, текст диапазона, статус горячо/холодно)
+    (30.0,   "меньше 30 км",   "🔥 ГОРЯЧО! Под ногами несёт кладом!"),
+    (80.0,   "30–80 км",        "♨️ Жарковато — где-то рядом"),
+    (200.0,  "80–200 км",       "🌤 Тепло, недалеко"),
+    (500.0,  "200–500 км",      "🌥 Прохладно…"),
+    (1200.0, "500–1200 км",     "❄️ Холодно, клад далеко"),
+    (1e9,    "больше 1200 км",  "🥶 Ледяная пустынь — клад где-то очень далеко"),
+)
+
+
+def walker_sniff_text(km: float) -> str:
+    """Размытый ответ «Понюхать»: диапазон расстояния + температура поиска."""
+    for top, band, status in WALKER_SNIFF_BANDS:
+        if km < top:
+            return f"{status} — примерно {band}"
+    return WALKER_SNIFF_BANDS[-1][2]
 
 
 # ---------- Поиск клада: клад на суше России, подсказки каждые 12 ч, жизнь 7 дней ----------
@@ -3098,7 +3117,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-10-1440"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-10-1450"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -4403,7 +4422,9 @@ class AppHandler(BaseHTTPRequestHandler):
                           "moving": bool(w.get("route")),
                           "food": marker.get("food", 0),
                           "cook_in": max(0, int(marker.get("food_ready_ts", 0.0) - now)),
-                          "cooked_left": FOOD_DAILY_MAX - marker.get("food_cooked", 0)}
+                          "cooked_left": FOOD_DAILY_MAX - marker.get("food_cooked", 0),
+                          "sniff_wait": max(0, int(w.get("sniff_ts", 0.0)
+                                                   + WALKER_SNIFF_CD_SEC - now))}
                     for u, o in walkers.items():
                         if u == mkey:
                             continue
@@ -5000,6 +5021,9 @@ class AppHandler(BaseHTTPRequestHandler):
         if url.path == "/walkerfood":
             self._handle_walker_food_post()
             return
+        if url.path == "/walkersniff":
+            self._handle_walker_sniff_post()
+            return
         if url.path == "/walkerstation":
             self._handle_walker_station_post()
             return
@@ -5576,6 +5600,49 @@ class AppHandler(BaseHTTPRequestHandler):
             geo_save_to_github()
         logline(f"200 /walkerfood eat chat={chat_id} user={mkey!r} energy={int(w['energy'])}")
         self._json_response(200, {"energy": round(w["energy"], 1), "food": marker["food"]})
+
+    def _handle_walker_sniff_post(self) -> None:
+        """КЛАДОИСКАТЕЛЬ: «Понюхать» — раз в 10 минут: размытое расстояние до клада + горячо/холодно."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        name = str(payload.get("name", ""))[:64]
+        now = time.time()
+        with walker_lock:
+            with geo_lock:
+                mkey = resolve_marker_key(chat_id, user, name)
+            if mkey is None:
+                self._json_response(403, {"error": "сначала поставь метку на карте"})
+                return
+            w = walker_state.get(chat_id, {}).get(mkey)
+            if w is None:
+                self._json_response(404, {"error": "кладоискателя ещё нет — нажми 🚶 в панели режимов"})
+                return
+            if walker_progress(w):
+                walker_save_to_github()
+                klad_on_arrival(chat_id, mkey, w)
+            wait = int(max(0.0, w.get("sniff_ts", 0.0) + WALKER_SNIFF_CD_SEC - now))
+            if wait > 0:
+                self._json_response(200, {"ok": False, "wait": wait})
+                return
+            with klad_lock:
+                entry = klad_state.get(chat_id)
+                if not entry or now >= entry["expires_ts"]:
+                    self._json_response(200, {"ok": False, "error": "клада сейчас нет — не пахнет"})
+                    return
+                km = haversine_km(w["lat"], w["lon"], entry["lat"], entry["lon"])
+            w["sniff_ts"] = now
+            w["ts"] = now
+            walker_save_to_github()
+        logline(f"200 /walkersniff chat={chat_id} user={mkey!r} km={int(km)}")
+        self._json_response(200, {"ok": True, "km": round(km, 1),
+                                  "text": walker_sniff_text(km),
+                                  "wait": int(WALKER_SNIFF_CD_SEC)})
 
     def _handle_walker_station_post(self) -> None:
         """КЛАДОИСКАТЕЛЬ: переезд на вокзал — мгновенно, сколько угодно раз, бесплатно."""
