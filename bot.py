@@ -1203,14 +1203,28 @@ klad_state = {}
 klad_lock = threading.RLock()   # реентерабельный: save-паттерн берёт этот же лок внутри _save_json_to_github
 
 
+def _klad_reachable(lat: float, lon: float) -> bool:
+    """Клад достижим пешком от хотя бы одного вокзала (с учётом бродов)?
+    Без этой проверки клад мог зарыться на острове вроде Командорских —
+    суша по маске есть, а дойти человечек не может."""
+    order = sorted(WALKER_STATIONS,
+                   key=lambda s: haversine_km(lat, lon, s["lat"], s["lon"]))
+    for s in order:
+        sp = _walker_station_point(s)
+        if sp and walker_land_route(sp[0], sp[1], lat, lon):
+            return True
+    return False
+
+
 def _klad_random_point():
-    """Случайная точка СУШИ в пределах территории кладоискателя."""
-    for _ in range(80):
+    """Случайная точка СУШИ в пределах территории кладоискателя,
+    обязательно ДОСТИЖИМАЯ пешком от какого-нибудь вокзала."""
+    for _ in range(30):
         lat = random.uniform(WALKER_AREA[0] + 1.0, WALKER_AREA[2] - 1.0)
         u = random.uniform(WALKER_AREA[1], WALKER_AREA[3])
         lon = u - 360.0 if u > 180.0 else u
         p = _walker_land_point(lat, lon)
-        if p:
+        if p and _klad_reachable(p[0], p[1]):
             return p
     return None
 
@@ -1928,6 +1942,49 @@ def apply_regen_klad_2026_11_10() -> None:
                 f"подсказок {len(entry['hints'])}")
     else:
         logline("klad regen: клад не создан (зона/суше?)")
+    meteor_save_to_github()
+
+
+def apply_klad_rebury_walkers_2026_11_10() -> None:
+    """Разовый (2026-11-10, дневной): перезарыть клад «Другого измерения» (на этот раз
+    гарантированно достижимый пешком), всех человечков — на вокзал Новосибирска
+    с полной энергией, анонс в чат."""
+    tag = "klad_rebury_walkers_2026-11-10"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    nsk = next(s for s in WALKER_STATIONS if s["key"] == "nsk")
+    nlat, nlon = _walker_station_point(nsk)
+    moved = 0
+    with walker_lock:
+        for walkers in walker_state.values():
+            for w in walkers.values():
+                w["lat"], w["lon"] = round(nlat, 6), round(nlon, 6)
+                w["energy"] = WALKER_ENERGY_MAX
+                w["route"] = None
+                w["nav_from_lat"] = w["nav_from_lon"] = None
+                w["nav_ts"] = 0.0
+                w["ts"] = time.time()
+                moved += 1
+    if moved:
+        walker_save_to_github(force=True)
+    entry = klad_new(-1002304715333, save=False)  # «Другое измерение»
+    if entry:
+        klad_save_to_github(force=True)
+        logline(f"klad rebury: новый клад {entry['lat']:.2f}, {entry['lon']:.2f}, "
+                f"подсказок {len(entry['hints'])}, персонажей на Новосибирске {moved}")
+    else:
+        logline(f"klad rebury: клад НЕ создан (зона/суше?), персонажей перенесено {moved}")
+    try:
+        tg_send_message_id(-1002304715333,
+            "🏴‍☠️ <b>Внимание, кладоискатели!</b> Старый клад зарыли на острове, куда "
+            "человечек без корабля не добирается (а корабли в эту экспедицию не нанимали). "
+            "Клад перезарыт — на этот раз точно на ходовой суше. Свежие подсказки уже "
+            "доступны: жми 🧩 на своём человечке. Всем персонажам выдана полная энергия, "
+            "всех доставили на вокзал Новосибирска. Удачи в поисках! 🗺",
+            html_mode=True)
+    except Exception as e:
+        print(f"[paint_bot] анонс перезарытия клада не ушёл: {e!r}", flush=True)
     meteor_save_to_github()
 
 
@@ -3041,7 +3098,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-10-0100"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-10-1410"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -8138,6 +8195,7 @@ def main() -> None:
     apply_walker_reloc_2026_11_09()
     apply_sumai_walker_bryansk_2026_11_10()
     apply_regen_klad_2026_11_10()
+    apply_klad_rebury_walkers_2026_11_10()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
