@@ -390,7 +390,7 @@
       <li>🏝️ Купить остров: строить постройки, приглашать гостей, получать сувениры</li>
       <li>⚓ Верфь (3 ур.) строит Галеоны — абордаж и морские бои в КНБ до 3 побед</li>
       <li>⛵ Галеон плывёт только по воде и сам огибает сушу — цель ставь на воде; если водного пути нет, курс не примется</li>
-      <li>🎪 Морской Рынок: захвати его (предварительно потопив галеон владельца!) и меняй 10 эмодзи подарков Кита (5 пар) на +1 ☄️ +1 🪵 +1 💩</li>
+      <li>🎪 Морской Рынок: захвати его (предварительно потопив галеон владельца!) и меняй 10 эмодзи подарков Кита (5 пар) на +1 ☄️ +1 🪵 +1 💩 +1 💎</li>
     </ul>
     <b>🐬 Море Сифы</b>
     <ul>
@@ -1106,7 +1106,7 @@
         + (mk.gifts * 2) + '</b> эмодзи (' + mk.gifts + ' шт)<br>'
         + '<span style="font-size:12px;opacity:.75">1 подарок = 2 эмодзи</span><br>'
         + '<button onclick="marketExchange()" style="background:#2f6fb2;'
-        + 'font-size:15px;padding:8px 18px;">Обменять 10 эмодзи 🎁 → +1 ☄️ +1 🪵 +1 💩</button></div>';
+        + 'font-size:15px;padding:8px 18px;">Обменять 10 эмодзи 🎁 → +1 ☄️ +1 🪵 +1 💩 +1 💎</button></div>';
     } else if (notice) {
       // ответ сервера (отказ) показываем прямо в окне рынка
       center = '<div style="max-width:420px;background:rgba(20,10,10,.88);border:1px solid #c0392b;'
@@ -1161,7 +1161,7 @@
     const r = await fetch('/marketexchange', {method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({chat: chat, user: myKey(), name: userName()})});
     const d = await r.json().catch(() => ({}));
-    if (r.ok) { status('🎪 Сделка! −10 эмодзи 🎁, +1 ☄️ +1 🪵 +1 💩'); load(); }
+    if (r.ok) { status('🎪 Сделка! −10 эмодзи 🎁, +1 ☄️ +1 🪵 +1 💩 +1 💎'); load(); }
     else status('⚠️ ' + (d.error || 'не вышло'));
   };
   function renderSubmarine(s) {
