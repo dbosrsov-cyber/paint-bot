@@ -1216,7 +1216,7 @@ def walker_sniff_text(km: float) -> str:
 # ---------- Поиск клада: клад на суше России, подсказки каждые 12 ч, жизнь 7 дней ----------
 KLAD_FILE = "klad.json"
 KLAD_LIFE_SEC = 7 * 86400          # неделя — потом сгорает и зарывается новый
-KLAD_HINT_STEP_SEC = 12 * 3600
+KLAD_HINT_STEP_SEC = 8 * 3600      # свежая подсказка каждые 8 часов (чат + кнопка 🧩)
 KLAD_FIND_KM = 30.0                # радиус находки от зарытой точки
 klad_state = {}
 klad_lock = threading.RLock()   # реентерабельный: save-паттерн берёт этот же лок внутри _save_json_to_github
@@ -1235,15 +1235,29 @@ def _klad_reachable(lat: float, lon: float) -> bool:
     return False
 
 
+def _walker_solid_land(lat: float, lon: float) -> bool:
+    """Клетка суши, вся окрестность 3×3 вокруг неё — тоже суша. Отсекает «фантомные»
+    островки маски (ячейка суши посреди воды — так клад зарылся севернее о. Врангеля,
+    в проливе) и точки на самой кромке берега: клад лежит строго на суше."""
+    for dr in (-1, 0, 1):
+        for dc in (-1, 0, 1):
+            if not sifa_is_land(lat + dr * 0.25, lon + dc * 0.25):
+                return False
+    return True
+
+
 def _klad_random_point():
-    """Случайная точка СУШИ в пределах территории кладоискателя,
-    обязательно ДОСТИЖИМАЯ пешком от какого-нибудь вокзала."""
-    for _ in range(30):
+    """Случайная точка СУШИ в пределах территории кладоискателя: строго на суше
+    (3×3 клетки суши) и ДОСТИЖИМАЯ пешком от какого-нибудь вокзала."""
+    for _ in range(60):
         lat = random.uniform(WALKER_AREA[0] + 1.0, WALKER_AREA[2] - 1.0)
         u = random.uniform(WALKER_AREA[1], WALKER_AREA[3])
         lon = u - 360.0 if u > 180.0 else u
-        p = _walker_land_point(lat, lon)
-        if p and _klad_reachable(p[0], p[1]):
+        if sifa_is_land(lat, lon):
+            p = (round(lat, 6), round(lon, 6))
+        else:
+            p = _walker_land_point(lat, lon)
+        if p and _walker_solid_land(p[0], p[1]) and _klad_reachable(p[0], p[1]):
             return p
     return None
 
@@ -1259,14 +1273,17 @@ def klad_new(chat_id: int, save: bool = True):
     si = int(min(range(len(dists)), key=lambda j: dists[j]))
     ns = "севернее" if lat >= 60.0 else "южнее"
     ew = "восточнее" if (((lon - 90.0 + 540.0) % 360.0) - 180.0) > 0 else "западнее"
+    st_name = WALKER_STATIONS[si]["name"]
     hints = [
-        [0, "🏴‍☠️ Клад зарыт где-то на суше России! Ищи человечком 🚶 — окажешься в 30 км от точки, на месте клада появится кнопка ⛏️ Копать: кто первый нажмёт, тот и выкопает. Повторить подсказки: /klad"],
-        [12 * 3600, f"🧭 Широта клада {ns} 60° параллели"],
-        [24 * 3600, f"🧭 Долгота клада {ew} 90° восточной долготы"],
-        [48 * 3600, f"🚉 Ближайший вокзал: «{WALKER_STATIONS[si]['name']}»"],
-        [96 * 3600, f"📏 Клад примерно в {max(1, round(dists[si] / 50) * 50)} км от вокзала «{WALKER_STATIONS[si]['name']}»"],
-        [144 * 3600, f"🗺 Широта клада ≈ {lat:.1f}° (погрешность ±0.3°)"],
-        [156 * 3600, f"🗺 Долгота клада ≈ {lon:.1f}° (погрешность ±0.5°)"],
+        [0, f"🏴‍☠️ Новый клад зарыт! 🚉 Ближайший к нему вокзал: «{st_name}». "
+            "Ищи человечком 🚶 — окажешься в 30 км от точки, на месте клада появится "
+            "кнопка ⛏️ Копать: кто первый нажмёт, тот и выкопает. "
+            "Свежая подсказка — каждые 8 часов. Повторить подсказки: /klad"],
+        [1 * KLAD_HINT_STEP_SEC, f"🧭 Широта клада {ns} 60° параллели"],
+        [2 * KLAD_HINT_STEP_SEC, f"🧭 Долгота клада {ew} 90° восточной долготы"],
+        [4 * KLAD_HINT_STEP_SEC, f"📏 Клад примерно в {max(1, round(dists[si] / 50) * 50)} км от вокзала «{st_name}»"],
+        [8 * KLAD_HINT_STEP_SEC, f"🗺 Широта клада ≈ {lat:.1f}° (погрешность ±0.3°)"],
+        [10 * KLAD_HINT_STEP_SEC, f"🗺 Долгота клада ≈ {lon:.1f}° (погрешность ±0.5°)"],
     ]
     old = klad_state.get(chat_id) or {}
     entry = {"lat": lat, "lon": lon, "created_ts": now,
@@ -2119,6 +2136,39 @@ def apply_all_walkers_nsk_2026_11_10() -> None:
     if moved:
         walker_save_to_github(force=True)
     logline(f"all walkers -> Новосибирск+10км: перенесено {moved}")
+    meteor_save_to_github()
+
+
+def apply_klad_land8h_nsk_2026_11_10() -> None:
+    """Разовый (2026-11-10, вечер): перезарыть клад «Другого измерения» со строгой
+    проверкой суши (3×3 клетки — точно не в проливе), подсказки переведены на шаг 8ч,
+    все человечки — в ~10 км от вокзала Новосибирска с полной энергией."""
+    tag = "klad_land8h_nsk_2026-11-10"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    nsk_pt = _walker_nsk_point()
+    moved = 0
+    with walker_lock:
+        for walkers in walker_state.values():
+            for w in walkers.values():
+                w["lat"], w["lon"] = round(nsk_pt[0], 6), round(nsk_pt[1], 6)
+                w["energy"] = WALKER_ENERGY_MAX
+                w["route"] = None
+                w["nav_from_lat"] = w["nav_from_lon"] = None
+                w["nav_ts"] = 0.0
+                w["ts"] = time.time()
+                moved += 1
+    if moved:
+        walker_save_to_github(force=True)
+    entry = klad_new(-1002304715333, save=False)  # «Другое измерение»
+    if entry:
+        klad_save_to_github(force=True)
+        logline(f"klad land8h: новый клад {entry['lat']:.3f}, {entry['lon']:.3f} "
+                f"(вокзал «{entry['hints'][0][1].split('«')[1].split('»')[0]}»), "
+                f"персонажей на Новосибирске {moved}")
+    else:
+        logline(f"klad land8h: клад НЕ создан (строгая суша?), персонажей перенесено {moved}")
     meteor_save_to_github()
 
 
@@ -3232,7 +3282,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-10-1620"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-10-1630"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -4572,13 +4622,15 @@ class AppHandler(BaseHTTPRequestHandler):
             stations = [{"key": s["key"], "name": s["name"],
                          "lat": _walker_station_point(s)[0],
                          "lon": _walker_station_point(s)[1]} for s in WALKER_STATIONS]
-            # подсказки текущего клада: весь план с таймингом (просмотр для теста;
-            # анонсы в чат идут по своему расписанию — здесь ничего не отправляем)
+            # подсказки текущего клада: только УЖЕ наступившие (свежая — каждые
+            # KLAD_HINT_STEP_SEC; анонсы в чат идут по своему расписанию)
             klad_hints = []
             with klad_lock:
                 entry = klad_state.get(chat_id)
                 if entry and time.time() < entry["expires_ts"]:
-                    klad_hints = [{"off": int(o), "text": t} for o, t in entry["hints"]]
+                    elapsed = time.time() - entry["created_ts"]
+                    klad_hints = [{"off": int(o), "text": t}
+                                  for o, t in entry["hints"] if o <= elapsed]
             self._json_response(200, {"me": me, "others": others, "stations": stations,
                                       "klad_hints": klad_hints, "klad_dig": klad_dig})
         elif url.path == "/geodata":
@@ -8400,6 +8452,7 @@ def main() -> None:
     apply_pm_food3_murmansk_2026_11_10()
     apply_all_walkers_nsk_2026_11_10()
     apply_sumai_pm_to_klad_2026_11_10()
+    apply_klad_land8h_nsk_2026_11_10()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
