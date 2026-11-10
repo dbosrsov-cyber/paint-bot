@@ -1012,6 +1012,7 @@ def sifa_random_water(area):
 # ---------- Кладоискатель: человечек по суше России, Пища, вокзалы (клад — фаза 2) ----------
 WALKER_SPEED_KM_PER_MIN = 30.0   # «прогулочный» темп игры, не реализм
 WALKER_ENERGY_MAX = 800.0        # запас хода, км
+WALKER_ENERGY_REGEN_PER_HOUR = 100.0  # пассивное восполнение энергии (+100/час), без учёта еды
 WALKER_FOOD_ENERGY = 250.0       # 1 единица Пищи -> +250 км энергии
 WALKER_START_FOOD = 5            # стартовый запас Пищи у нового кладоискателя
 WALKER_SNIFF_CD_SEC = 600.0      # «Понюхать» — раз в 10 минут
@@ -1166,11 +1167,23 @@ def _walker_route_km(lat1, lon1, pts) -> float:
     return total
 
 
+def walker_regen(w: dict, now: float) -> None:
+    """Пассивное восполнение энергии: +WALKER_ENERGY_REGEN_PER_HOUR в час до максимума,
+    независимо от еды. Отсчёт — от energy_ts (fallback: ts — последнее движение/спавн)."""
+    last = float(w.get("energy_ts") or w.get("ts") or now)
+    if now > last:
+        w["energy"] = min(WALKER_ENERGY_MAX, w.get("energy", 0.0)
+                          + (now - last) / 3600.0 * WALKER_ENERGY_REGEN_PER_HOUR)
+    w["energy_ts"] = max(last, now)
+
+
 def walker_progress(w: dict) -> bool:
-    """Продвинуть кладоискателя по маршруту (лениво). True — прибыл (энергия списана)."""
+    """Продвинуть кладоискателя по маршруту (лениво). True — прибыл (энергия списана).
+    Попутно — пассивная регенерация энергии (вызывается на каждом чтении состояния)."""
+    now = time.time()
+    walker_regen(w, now)
     if not w.get("route"):
         return False
-    now = time.time()
     traveled_km = (now - w["nav_ts"]) / 60.0 * WALKER_SPEED_KM_PER_MIN
     total_km = _walker_route_km(w["nav_from_lat"], w["nav_from_lon"], w["route"])
     alat, alon = w["nav_from_lat"], w["nav_from_lon"]
@@ -3282,7 +3295,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-10-1640"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-10-1650"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -5759,6 +5772,7 @@ class AppHandler(BaseHTTPRequestHandler):
             if w is None:
                 self._json_response(404, {"error": "кладоискателя ещё нет — нажми 🚶 в панели режимов"})
                 return
+            walker_regen(w, now)
             with geo_lock:
                 marker = geo_state[chat_id][mkey]
                 if w.get("energy", 0.0) >= WALKER_ENERGY_MAX - 0.5:
