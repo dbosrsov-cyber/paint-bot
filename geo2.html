@@ -2449,6 +2449,8 @@
   const walkerOthers = {}, walkerStMarks = {};
   let walkerStationsData = [];  // список вокзалов из /walkerstate — для кнопок переезда
   let walkerKladHints = [];     // подсказки клада, уже анонсированные ботом
+  let walkerSniffText = '';     // последний результат «Понюхать» — показываем в попапе Перса
+  let walkerSniffUntil = 0;     // локальный счётчик кулдауна «Понюхать» (unix-секунды)
   function walkerIcon(emoji, opacity) {
     return L.divIcon({
       html: '<div style="font-size:26px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))'
@@ -2545,6 +2547,7 @@
     const cookIn = walkerMe.cook_in || 0;
     const cookDis = cookIn > 0 || (walkerMe.food || 0) >= 10 || (walkerMe.cooked_left || 0) <= 0;
     const eatDis = (walkerMe.food || 0) <= 0 || (walkerMe.energy || 0) >= 800;
+    const sniffWait = Math.max(walkerMe.sniff_wait || 0, walkerSniffUntil - Date.now() / 1000);
     // вся информация и пищевые кнопки — во всплывающем окне своего перса
     walkerMarker.setPopupContent(
       '⚡ Энергия: <b>' + Math.round(walkerMe.energy) + '</b>/800 км<br>'
@@ -2552,6 +2555,8 @@
       + '<br>🍲 Пища: <b>' + walkerMe.food + '</b>/10'
       + (cookIn > 0 ? ' • готовится ' + walkerFmtLeft(cookIn) : '')
       + '<br>🍳 Осталось сегодня: ' + walkerMe.cooked_left + '/24'
+      + (walkerSniffText ? '<div style="margin-top:6px;font-size:13px;line-height:1.45;">'
+         + walkerSniffText + '</div>' : '')
       + '<div style="display:flex;gap:6px;margin-top:8px;">'
       + '<button style="flex:1;padding:7px 4px;font-size:14px;border-radius:10px;"'
       + (cookDis ? ' disabled' : '') + ' onclick="window.walkerDoCook()">🍲 '
@@ -2561,6 +2566,10 @@
       + '<button style="flex:1;padding:7px 4px;font-size:14px;border-radius:10px;"'
       + (walkerKladHints.length ? '' : ' disabled')
       + ' onclick="window.walkerDoHints()" title="Подсказки по текущему кладу">🧩 Клад</button>'
+      + '<button style="flex:1;padding:7px 4px;font-size:14px;border-radius:10px;"'
+      + (sniffWait > 0 ? ' disabled' : '')
+      + ' onclick="window.walkerDoSniff()" title="Понюхать воздух — раз в 10 минут">👃 '
+      + (sniffWait > 0 ? walkerFmtLeft(Math.ceil(sniffWait)) : 'Понюхать') + '</button>'
       + '</div>');
   }
   // план маршрута: пунктир + флажок; движение начинается только по кнопке «Отправить»
@@ -2612,6 +2621,7 @@
     Object.values(walkerStMarks).forEach(m => map.removeLayer(m));
     Object.keys(walkerStMarks).forEach(k => delete walkerStMarks[k]);
     if (walkerMarker) { map.removeLayer(walkerMarker); walkerMarker = null; walkerMe = null; }
+    walkerSniffText = ''; walkerSniffUntil = 0;
     load();   // вернуть на карту всё, что прятали в тихом режиме
     status('🥾 Ты вышел из режима Кладоискателя');
   }
@@ -2674,6 +2684,25 @@
     status(d.error ? '⚠️ ' + d.error
                    : '🍖 Энергия ' + Math.round(d.energy) + '/800, еды осталось ' + d.food);
     walkerPoll();
+  };
+  window.walkerDoSniff = async () => {
+    const r = await fetch('/walkersniff', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName()})
+    });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.ok) {
+      walkerSniffText = '👃 <i>' + d.text + '</i>';
+      walkerSniffUntil = Date.now() / 1000 + (d.wait || 600);
+      if (walkerMe) walkerMe.sniff_wait = d.wait || 600;
+    } else if (d.wait) {
+      walkerSniffUntil = Date.now() / 1000 + d.wait;
+      if (walkerMe) walkerMe.sniff_wait = d.wait;
+    } else {
+      walkerSniffText = '👃 ' + (d.error || 'пока не пахнет…');
+    }
+    walkerUpdateCtrl();
+    if (walkerMarker) walkerMarker.openPopup();
   };
   window.walkerDoStation = async (key) => {
     const r = await fetch('/walkerstation', {
