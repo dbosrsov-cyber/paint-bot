@@ -101,6 +101,14 @@
   #walkerExitBtn:hover { border-color:var(--accent); }
   .dark-ui #walkerExitBtn { background:rgba(30,45,60,.6); color:#bfe3f7; border-color:rgba(125,211,252,.22); }
   .dark-ui #walkerExitBtn:hover { border-color:#2dd4bf; color:#fff; }
+  /* кнопка выхода из игры Сифа — на том же месте, что кнопка Кладоискателя (режимы не совмещаются) */
+  #sifaExitBtn { position:fixed; left:10px; top:50%; transform:translateY(-50%); z-index:1100;
+    width:42px; height:42px; padding:0; border-radius:12px; font-size:20px; line-height:1;
+    background:var(--card); color:var(--text); border:1px solid rgba(140,160,180,.25); cursor:pointer;
+    display:none; align-items:center; justify-content:center; box-shadow:0 4px 18px var(--shadow); }
+  #sifaExitBtn:hover { border-color:var(--accent); }
+  .dark-ui #sifaExitBtn { background:rgba(30,45,60,.6); color:#bfe3f7; border-color:rgba(125,211,252,.22); }
+  .dark-ui #sifaExitBtn:hover { border-color:#2dd4bf; color:#fff; }
   /* кнопка «Отправить» маршрута Кладоискателя */
   #walkerGoBtn { position:fixed; left:50%; transform:translateX(-50%); top:56px; z-index:3000;
     display:none; padding:12px 30px; font-size:17px; font-weight:bold; border-radius:16px;
@@ -302,6 +310,7 @@
   </div>
 </div>
 <button id="walkerExitBtn" title="Выйти из режима Кладоискатель">🏃</button>
+<button id="sifaExitBtn" title="Выйти из игры Сифа">🐬</button>
 <button id="walkerGoBtn">🚶 Отправить</button>
 <div id="shipDuelModal" class="modal" style="display:none;"></div>
 <div id="shipWatchModal" class="modal" style="display:none;"></div>
@@ -646,6 +655,23 @@
   const battleMarkers = {};  // duel_id -> L.marker сражения
   let lastShips = [];      // последние корабли с сервера
   let shipNavMode = false; // режим выбора точки назначения галеона
+
+  // «тихий режим»: в игре (Кладоискатель / Сифа) с карты убираем всё, что к игре
+  // не относится — метки, письма, какашки, метеориты, острова, самолёты, вулкан,
+  // подарки, лодку, рынок, корабли и сражения. load() не перерисует их, пока режим активен.
+  let quietMode = null;   // null | 'walker' | 'sifa'
+  function clearNoiseLayers() {
+    [markers, letterMarkers, poopMarkers, giftMarkers, islandMarkers, planeMarkers,
+     shipMarkers, battleMarkers].forEach(g => {
+      Object.values(g).forEach(m => map.removeLayer(m));
+      Object.keys(g).forEach(k => delete g[k]);
+    });
+    meteorMarkers.forEach(m => map.removeLayer(m));
+    meteorMarkers.length = 0;
+    if (volcanoMarker) { map.removeLayer(volcanoMarker); volcanoMarker = null; }
+    if (submarineMarker) { map.removeLayer(submarineMarker); submarineMarker = null; }
+    if (marketMarker) { map.removeLayer(marketMarker); marketMarker = null; lastMarket = null; }
+  }
 
   // выбор животного для метки (🐼 и 🐉 — персональные, в общий список не входят)
   const ANIMALS = ['🦊', '🦁', '🐸', '🐙', '🦉', '🐢', '🦖', '🐧', '🦄', '🐝', '🦔',
@@ -2313,11 +2339,15 @@
       }).catch(() => status('⚠️ Границы не сохранились — нет связи'));
   }
   const sifaBtn = document.getElementById('sifaBtn');
+  const sifaExitBtn = document.getElementById('sifaExitBtn');
   const sifaPadEl = document.getElementById('sifaPad');
   const sifaCtrlEl = document.getElementById('sifaCtrl');
   sifaBtn.onclick = async () => {
     if (sifaPadOn) {   // выходим из режима: убираем джойстик и ВСЕХ касаток с карты
       sifaPadOn = false;
+      quietMode = null;
+      sifaExitBtn.style.display = 'none';
+      document.getElementById('toolsPanel').style.display = '';
       sifaPadEl.style.display = 'none';
       sifaCtrlEl.style.display = 'none';
       sifaAreaBtn.style.display = 'none';
@@ -2331,6 +2361,7 @@
       Object.keys(sifaShips).forEach(k => delete sifaShips[k]);
       Object.values(sifaLogMarks).forEach(m => map.removeLayer(m));
       Object.keys(sifaLogMarks).forEach(k => delete sifaLogMarks[k]);
+      load();   // вернуть на карту всё, что прятали в тихом режиме
       status('🐬 Ты вышел из игры — все касатки убраны с карты');
       return;
     }
@@ -2344,6 +2375,10 @@
       if (!r.ok || d.error) { status('⚠️ ' + (d.error || 'не вышло отправить касатку')); return; }
       sifaPos = {lat: d.lat, lon: d.lon};
       sifaPadOn = true;
+      quietMode = 'sifa';
+      clearNoiseLayers();                                   // в режиме видны только касатки и брёвна
+      sifaExitBtn.style.display = 'flex';                   // вместо всей панели — одна кнопка-рыбка
+      document.getElementById('toolsPanel').style.display = 'none';
       sifaRender(false);
       sifaDrawBounds(sifaAreaData);
       map.flyTo([d.lat, d.lon], Math.max(map.getZoom(), 4));
@@ -2357,6 +2392,7 @@
     } catch (err) { status('⚠️ Нет связи с касаткой'); }
   };
   document.getElementById('sifaHideBtn').onclick = () => { if (sifaPadOn) sifaBtn.onclick(); };
+  sifaExitBtn.onclick = () => { if (sifaPadOn) sifaBtn.onclick(); };
   document.getElementById('sifaInfoBtn').onclick = () => {
     document.getElementById('sifaInfoModal').style.display = 'flex';
   };
@@ -2565,6 +2601,7 @@
   const walkerExitModal = document.getElementById('walkerExitModal');
   function walkerExit() {   // выходим: панель инструментов возвращается, кнопка выхода прячется
     walkerOn = false;
+    quietMode = null;
     walkerExitBtn.style.display = 'none';
     document.getElementById('toolsPanel').style.display = '';
     walkerPlanClear();
@@ -2574,14 +2611,17 @@
     Object.values(walkerStMarks).forEach(m => map.removeLayer(m));
     Object.keys(walkerStMarks).forEach(k => delete walkerStMarks[k]);
     if (walkerMarker) { map.removeLayer(walkerMarker); walkerMarker = null; walkerMe = null; }
+    load();   // вернуть на карту всё, что прятали в тихом режиме
     status('🥾 Ты вышел из режима Кладоискателя');
   }
   walkerBtn.onclick = async () => {
     if (walkerOn) { walkerExitModal.style.display = 'flex'; return; }  // подтверждение — через 🚪
     status('🥾 Готовим человечка…');
     walkerOn = true;
+    quietMode = 'walker';
     const ok = await walkerPoll();
-    if (!ok || !walkerMe) { walkerOn = false; return; }  // ошибку уже показал walkerPoll — режим не застревает
+    if (!ok || !walkerMe) { walkerOn = false; quietMode = null; return; }  // ошибку уже показал walkerPoll — режим не застревает
+    clearNoiseLayers();                                     // в режиме видны только человечки и вокзалы
     walkerExitBtn.style.display = 'flex';               // вместо всей панели — одна кнопка выхода
     document.getElementById('toolsPanel').style.display = 'none';
     map.flyTo([walkerMe.lat, walkerMe.lon], 6, {duration: 1.2});  // фокус на своём человечке — не ищем его по карте
@@ -2928,22 +2968,24 @@
     if (shipBtnEl) shipBtnEl.style.display = lastShips.some(s => s.mine && !s.sunk) ? '' : 'none';
     meteorMarkers.forEach(m => map.removeLayer(m));
     meteorMarkers.length = 0;
-    (data.markers || []).forEach(renderMarker);
-    (data.letters || []).forEach(renderLetter);
-    (data.poops || []).forEach(renderPoop);
-    (data.meteors || []).forEach(renderMeteor);
-    (data.islands || []).forEach(renderIsland);
-    (data.planes || []).forEach(renderPlane);
-    if (data.volcano) renderVolcano(data.volcano);
-    else if (volcanoMarker) { map.removeLayer(volcanoMarker); volcanoMarker = null; }
-    (data.gifts || []).forEach(renderGift);
-    if (data.submarine) renderSubmarine(data.submarine);
-    else if (submarineMarker) { map.removeLayer(submarineMarker); submarineMarker = null; }
-    if (data.market) renderMarket(data.market);
-    else if (marketMarker) { map.removeLayer(marketMarker); marketMarker = null; lastMarket = null; }
-    (data.ships || []).forEach(renderShip);
-    (data.ship_battles || []).forEach(renderBattle);
-    if (data.ship_duel) handleShipDuel(data.ship_duel);
+    if (!quietMode) {   // в игровых режимах (Кладоискатель/Сифа) шум не рисуем
+      (data.markers || []).forEach(renderMarker);
+      (data.letters || []).forEach(renderLetter);
+      (data.poops || []).forEach(renderPoop);
+      (data.meteors || []).forEach(renderMeteor);
+      (data.islands || []).forEach(renderIsland);
+      (data.planes || []).forEach(renderPlane);
+      if (data.volcano) renderVolcano(data.volcano);
+      else if (volcanoMarker) { map.removeLayer(volcanoMarker); volcanoMarker = null; }
+      (data.gifts || []).forEach(renderGift);
+      if (data.submarine) renderSubmarine(data.submarine);
+      else if (submarineMarker) { map.removeLayer(submarineMarker); submarineMarker = null; }
+      if (data.market) renderMarket(data.market);
+      else if (marketMarker) { map.removeLayer(marketMarker); marketMarker = null; lastMarket = null; }
+      (data.ships || []).forEach(renderShip);
+      (data.ship_battles || []).forEach(renderBattle);
+      if (data.ship_duel) handleShipDuel(data.ship_duel);
+    }
     if (data.viewer_admin === false && !document.getElementById('adminOv')) {
       const ov = document.createElement('div');
       ov.id = 'adminOv';
@@ -2953,9 +2995,12 @@
       ov.innerHTML = '<div>🧱<br>В этом режиме игра не доступна.<br>Обратитесь к Администратору Игры.</div>';
       document.body.appendChild(ov);
     }
-    renderMailbox(data.markers);
-    updateMineUI();
+    if (!quietMode) {
+      renderMailbox(data.markers);
+      updateMineUI();
+    }
     // прибывших писем на карте нет (их показывает ящик на метке) — считаем только в пути
+    if (quietMode) return;   // в игровом режиме сводку по карте не показываем — не дёргаем статус
     const flyingLetters = (data.letters || []).filter(l => !l.arrived).length;
     status('🌍 Меток: ' + (data.markers || []).length + ' • ✉️ Писем в пути: '
       + flyingLetters
