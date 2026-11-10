@@ -2053,6 +2053,37 @@ def apply_pm_food3_murmansk_2026_11_10() -> None:
     meteor_save_to_github()
 
 
+def apply_sumai_pm_to_klad_2026_11_10() -> None:
+    """Разовый (2026-11-10): человечки Sumai и ПМ перенесены к текущему кладу (тест ⛏️ Копать)."""
+    tag = "sumai_pm_to_klad_2026-11-10"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    chat = -1002304715333  # «Другое измерение»
+    entry = klad_state.get(chat)
+    if not entry:
+        logline("sumai+pm -> kлад: клада нет, перенос отменён")
+        meteor_save_to_github()
+        return
+    pt = _walker_land_point(entry["lat"], entry["lon"]) or (entry["lat"], entry["lon"])
+    moved = []
+    with walker_lock:
+        walkers = walker_state.get(chat, {})
+        for k in ("Sumai", "ПМ"):
+            w = walkers.get(k)
+            if w is not None:
+                w["lat"], w["lon"] = round(pt[0], 6), round(pt[1], 6)
+                w["route"] = None
+                w["nav_from_lat"] = w["nav_from_lon"] = None
+                w["nav_ts"] = 0.0
+                w["ts"] = time.time()
+                moved.append(k)
+    if moved:
+        walker_save_to_github(force=True)
+    logline(f"sumai+pm -> клад {pt[0]:.3f},{pt[1]:.3f}: перенесены {moved}")
+    meteor_save_to_github()
+
+
 def sifa_save_to_github(force: bool = False) -> None:
     global _sifa_last_save
     if not geo_token():
@@ -3163,7 +3194,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-10-1550"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-10-1600"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -8329,6 +8360,7 @@ def main() -> None:
     apply_regen_klad_2026_11_10()
     apply_klad_rebury_walkers_2026_11_10()
     apply_pm_food3_murmansk_2026_11_10()
+    apply_sumai_pm_to_klad_2026_11_10()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
