@@ -1311,11 +1311,18 @@ def klad_on_arrival(chat_id: int, mkey: str, w: dict) -> bool:
                     mk["food"] = 3
                     fed += 1
             geo_save_to_github()
-        # находка бодрит всех: энергия каждого кладоискателя чата — до максимума.
+        # находка бодрит всех: энергия каждого кладоискателя чата — до максимума,
+        # и всех возвращает к вокзалу Новосибирска (~10 км) — новый клад, новый старт.
         # ВНЕ klad_lock: порядок локов walker → klad, наоборот — самодедлок.
         with walker_lock:
             for ww in walker_state.get(chat_id, {}).values():
                 ww["energy"] = WALKER_ENERGY_MAX
+            nsk_pt = _walker_nsk_point()
+            for ww in walker_state.get(chat_id, {}).values():
+                ww["lat"], ww["lon"] = round(nsk_pt[0], 6), round(nsk_pt[1], 6)
+                ww["route"] = None
+                ww["nav_from_lat"] = ww["nav_from_lon"] = None
+                ww["nav_ts"] = 0.0
             walker_save_to_github(force=True)
         founds = dict(entry.get("founds") or {})
         founds[mkey] = founds.get(mkey, 0) + 1
@@ -1333,8 +1340,9 @@ def klad_on_arrival(chat_id: int, mkey: str, w: dict) -> bool:
             f"🏴‍☠️ <b>{who}</b> нашёл КЛАД! В сумке: +10 💎 измиров. "
             "Старый клад выкопан — на карте зарыт НОВЫЙ, поиск начался заново!"
             + (f" Находка отмечена пиром: у всех кладоискателей с едой меньше 3 — снова по 3 🍖 ({fed})! "
-               f"Все человечки полны сил ⚡"
-               if fed else " Все человечки полны сил ⚡"),
+               f"Все человечки полны сил ⚡ и всех доставили к вокзалу Новосибирска 🚉 — новый клад, новый старт!"
+               if fed else " Все человечки полны сил ⚡ и всех доставили к вокзалу Новосибирска 🚉 — "
+                           "новый клад, новый старт!"),
             html_mode=True)
         if new_entry:
             tg_send_message_id(chat_id, new_entry["hints"][0][1])
@@ -1901,6 +1909,13 @@ def _walker_spawn_point():
     return _walker_land_point(blat + WALKER_SPAWN_KM / 111.32, blon) or (blat, blon)
 
 
+def _walker_nsk_point():
+    """Точка сброса после находки клада: ~10 км от вокзала Новосибирск (к северу)."""
+    nsk = next(s for s in WALKER_STATIONS if s["key"] == "nsk")
+    blat, blon = _walker_station_point(nsk)
+    return _walker_land_point(blat + 10.0 / 111.32, blon) or (blat, blon)
+
+
 def _walker_spawn(name: str, tid: str) -> dict:
     """Новый кладоискатель: старт в 100 км от вокзала Новосибирск, энергия полная."""
     lat, lon = _walker_spawn_point()
@@ -2081,6 +2096,29 @@ def apply_sumai_pm_to_klad_2026_11_10() -> None:
     if moved:
         walker_save_to_github(force=True)
     logline(f"sumai+pm -> клад {pt[0]:.3f},{pt[1]:.3f}: перенесены {moved}")
+    meteor_save_to_github()
+
+
+def apply_all_walkers_nsk_2026_11_10() -> None:
+    """Разовый (2026-11-10): все человечки всех чатов — в ~10 км от вокзала Новосибирска."""
+    tag = "all_walkers_nsk_2026-11-10"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    nsk_pt = _walker_nsk_point()
+    moved = 0
+    with walker_lock:
+        for walkers in walker_state.values():
+            for w in walkers.values():
+                w["lat"], w["lon"] = round(nsk_pt[0], 6), round(nsk_pt[1], 6)
+                w["route"] = None
+                w["nav_from_lat"] = w["nav_from_lon"] = None
+                w["nav_ts"] = 0.0
+                w["ts"] = time.time()
+                moved += 1
+    if moved:
+        walker_save_to_github(force=True)
+    logline(f"all walkers -> Новосибирск+10км: перенесено {moved}")
     meteor_save_to_github()
 
 
@@ -3194,7 +3232,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-10-1600"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-10-1610"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -8361,6 +8399,7 @@ def main() -> None:
     apply_klad_rebury_walkers_2026_11_10()
     apply_pm_food3_murmansk_2026_11_10()
     apply_sumai_pm_to_klad_2026_11_10()
+    apply_all_walkers_nsk_2026_11_10()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
