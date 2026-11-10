@@ -1310,6 +1310,12 @@ def klad_on_arrival(chat_id: int, mkey: str, w: dict) -> bool:
                     mk["food"] = 3
                     fed += 1
             geo_save_to_github()
+        # находка бодрит всех: энергия каждого кладоискателя чата — до максимума.
+        # ВНЕ klad_lock: порядок локов walker → klad, наоборот — самодедлок.
+        with walker_lock:
+            for ww in walker_state.get(chat_id, {}).values():
+                ww["energy"] = WALKER_ENERGY_MAX
+            walker_save_to_github(force=True)
         founds = dict(entry.get("founds") or {})
         founds[mkey] = founds.get(mkey, 0) + 1
         new_entry = klad_new(chat_id, save=False)
@@ -1325,8 +1331,9 @@ def klad_on_arrival(chat_id: int, mkey: str, w: dict) -> bool:
         tg_send_message_id(chat_id,
             f"🏴‍☠️ <b>{who}</b> нашёл КЛАД! В сумке: +10 💎 измиров. "
             "Старый клад выкопан — на карте зарыт НОВЫЙ, поиск начался заново!"
-            + (f" Находка отмечена пиром: у всех кладоискателей с едой меньше 3 — снова по 3 🍖 ({fed})!"
-               if fed else ""),
+            + (f" Находка отмечена пиром: у всех кладоискателей с едой меньше 3 — снова по 3 🍖 ({fed})! "
+               f"Все человечки полны сил ⚡"
+               if fed else " Все человечки полны сил ⚡"),
             html_mode=True)
         if new_entry:
             tg_send_message_id(chat_id, new_entry["hints"][0][1])
@@ -3155,7 +3162,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-10-1520"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-10-1530"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
