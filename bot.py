@@ -2007,6 +2007,36 @@ def apply_klad_rebury_walkers_2026_11_10() -> None:
     meteor_save_to_github()
 
 
+def apply_pm_food3_murmansk_2026_11_10() -> None:
+    """Разовый (2026-11-10): ПМ — еда 3/10, человечек перенесён в район Мурманска."""
+    tag = "pm_food3_murmansk_2026-11-10"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    chat = -1002304715333  # «Другое измерение»
+    pt = _walker_land_point(68.9707, 33.0749)  # Мурманск — при необходимости прилипнет к суше
+    with geo_lock:
+        marker = geo_state.get(chat, {}).get("ПМ")
+        if marker is not None:
+            marker["food"] = 3
+            geo_save_to_github()
+    moved = False
+    if pt:
+        with walker_lock:
+            w = walker_state.get(chat, {}).get("ПМ")
+            if w is not None:
+                w["lat"], w["lon"] = pt
+                w["route"] = None
+                w["nav_from_lat"] = w["nav_from_lon"] = None
+                w["nav_ts"] = 0.0
+                w["ts"] = time.time()
+                moved = True
+        if moved:
+            walker_save_to_github(force=True)
+    logline(f"pm food3+murmansk: еда выставлена, перс {'перенесён' if moved else 'не найден'} -> {pt}")
+    meteor_save_to_github()
+
+
 def sifa_save_to_github(force: bool = False) -> None:
     global _sifa_last_save
     if not geo_token():
@@ -3117,7 +3147,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-10-1450"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-10-1500"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -8263,6 +8293,7 @@ def main() -> None:
     apply_sumai_walker_bryansk_2026_11_10()
     apply_regen_klad_2026_11_10()
     apply_klad_rebury_walkers_2026_11_10()
+    apply_pm_food3_murmansk_2026_11_10()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
