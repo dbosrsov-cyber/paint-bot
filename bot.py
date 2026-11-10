@@ -1303,6 +1303,12 @@ def klad_on_arrival(chat_id: int, mkey: str, w: dict) -> bool:
             marker["diamonds"] = marker.get("diamonds", 0) + 10  # награда за клад — только измиры
             name = marker.get("name") or mkey
             tid = marker.get("tid")
+            # находка кормит всех: у кого еды меньше 3 — снова по 3 единицам
+            fed = 0
+            for mk in geo_state.get(chat_id, {}).values():
+                if mk.get("food", 0) < 3:
+                    mk["food"] = 3
+                    fed += 1
             geo_save_to_github()
         founds = dict(entry.get("founds") or {})
         founds[mkey] = founds.get(mkey, 0) + 1
@@ -1318,7 +1324,9 @@ def klad_on_arrival(chat_id: int, mkey: str, w: dict) -> bool:
         who = tg_mention(int(tid), name) if tid else name
         tg_send_message_id(chat_id,
             f"🏴‍☠️ <b>{who}</b> нашёл КЛАД! В сумке: +10 💎 измиров. "
-            "Старый клад выкопан — на карте зарыт НОВЫЙ, поиск начался заново!",
+            "Старый клад выкопан — на карте зарыт НОВЫЙ, поиск начался заново!"
+            + (f" Находка отмечена пиром: у всех кладоискателей с едой меньше 3 — снова по 3 🍖 ({fed})!"
+               if fed else ""),
             html_mode=True)
         if new_entry:
             tg_send_message_id(chat_id, new_entry["hints"][0][1])
@@ -3147,7 +3155,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-10-1500"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-10-1510"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
