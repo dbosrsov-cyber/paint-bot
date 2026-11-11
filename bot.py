@@ -1204,6 +1204,7 @@ def walker_progress(w: dict) -> bool:
     w["energy"] = max(0.0, w.get("energy", 0.0) - total_km)
     w["route"] = None
     w["nav_from_lat"] = w["nav_from_lon"] = None
+    w.pop("sniff_arrow", None)
     w["ts"] = now
     return True
 
@@ -1224,6 +1225,18 @@ def walker_sniff_text(km: float) -> str:
         if km < top:
             return f"{status} — примерно {band}"
     return WALKER_SNIFF_BANDS[-1][2]
+
+
+WALKER_SNIFF_ARROW_SEC = 1200   # стрелка направления живёт 20 минут (или до следующего 👃)
+
+
+def walker_bearing_deg(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Исходный азимут от точки 1 к точке 2, градусы: 0 — север, 90 — восток."""
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dl = math.radians(lon2 - lon1)
+    y = math.sin(dl) * math.cos(p2)
+    x = math.cos(p1) * math.sin(p2) - math.sin(p1) * math.cos(p2) * math.cos(dl)
+    return (math.degrees(math.atan2(y, x)) + 360.0) % 360.0
 
 
 # ---------- Поиск клада: клад на суше России, подсказки каждые 12 ч, жизнь 7 дней ----------
@@ -3322,7 +3335,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-11-1730"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-11-1740"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -4798,7 +4811,9 @@ class AppHandler(BaseHTTPRequestHandler):
                           "cook_in": max(0, int(marker.get("food_ready_ts", 0.0) - now)),
                           "cooked_left": FOOD_DAILY_MAX - marker.get("food_cooked", 0),
                           "sniff_wait": max(0, int(w.get("sniff_ts", 0.0)
-                                                   + WALKER_SNIFF_CD_SEC - now))}
+                                                   + WALKER_SNIFF_CD_SEC - now)),
+                          "sniff_arrow": (w.get("sniff_arrow") if now - (w.get("sniff_arrow") or {})
+                                          .get("ts", 0.0) < WALKER_SNIFF_ARROW_SEC else None)}
                     for u, o in walkers.items():
                         if u == mkey:
                             continue
@@ -6070,6 +6085,11 @@ class AppHandler(BaseHTTPRequestHandler):
                     self._json_response(200, {"ok": False, "error": "клада сейчас нет — не пахнет"})
                     return
                 km = haversine_km(w["lat"], w["lon"], entry["lat"], entry["lon"])
+                if 30.0 <= km <= 80.0:
+                    w["sniff_arrow"] = {"deg": round(walker_bearing_deg(
+                        w["lat"], w["lon"], entry["lat"], entry["lon"]), 1), "ts": now}
+                else:
+                    w.pop("sniff_arrow", None)
             w["sniff_ts"] = now
             w["ts"] = now
             walker_save_to_github()
