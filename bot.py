@@ -3295,7 +3295,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-10-1700"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-11-1710"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -4353,6 +4353,149 @@ def logline(msg: str) -> None:
     print(f"[paint_bot] {msg}", flush=True)
 
 
+# ---------- /callsum: вызов участников чата (страница с галочками и текстом) ----------
+CALLSUM_CHAT = -1002304715333          # «Другое измерение»
+CALLSUM_ADMINS = ("8668538137",)       # Sumai — единственный, кому бот отдаёт ссылку
+CALLSUM_TEXT_MAX = 4000
+_callsum_avatar_cache = {}             # uid -> (bytes, ctype, ts); пустые — негативный кэш на час
+
+
+def _callsum_members(chat_id: int) -> list:
+    """Участники чата для страницы /callsum: tgids + игроки GEO2, слияние по tid."""
+    members = {}
+    for tid, info in (tgids_state.get(str(chat_id)) or {}).items():
+        members[str(tid)] = {"tid": str(tid),
+                             "name": (info.get("name") or info.get("uname") or str(tid))[:64],
+                             "uname": (info.get("uname") or "")[:64]}
+    try:
+        with geo_lock:
+            markers = dict(geo_state.get(chat_id) or {})
+        for mk, m in markers.items():
+            tid = str(m.get("tid") or "")
+            if tid and tid not in members:
+                members[tid] = {"tid": tid,
+                                "name": (m.get("name") or mk)[:64],
+                                "uname": ""}
+    except Exception:
+        pass
+    return sorted(members.values(), key=lambda x: x["name"].lower())
+
+
+def _callsum_avatar(uid: str):
+    """Аватар участника через Bot API (кэш в памяти; негатив — на час)."""
+    now = time.time()
+    hit = _callsum_avatar_cache.get(uid)
+    if hit and (hit[0] or now - hit[2] < 3600):
+        return hit[0], hit[1]
+    raw, ctype = b"", ""
+    try:
+        def _api(method, payload):
+            req = urllib.request.Request(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/{method}",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"}, method="POST")
+            return json.loads(urllib.request.urlopen(req, timeout=15).read())
+        photos = (_api("getUserProfilePhotos", {"user_id": int(uid), "limit": 1})
+                  .get("result", {}).get("photos") or [])
+        if photos:
+            fid = photos[0][-1]["file_id"]
+            fp = (_api("getFile", {"file_id": fid}).get("result", {}).get("file_path"))
+            if fp:
+                raw = urllib.request.urlopen(
+                    f"https://api.telegram.org/file/bot{BOT_TOKEN}/{fp}", timeout=20).read()
+                ctype = "image/jpeg"
+    except Exception as e:
+        logline(f"callsum avatar uid={uid}: {e!r}")
+    _callsum_avatar_cache[uid] = (raw, ctype, now)
+    return raw, ctype
+
+
+CALLSUM_HTML_PAGE = """<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>📢 Вызов участников</title>
+<style>
+body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#0e1522;color:#e8eef7;min-height:100vh}
+.wrap{max-width:560px;margin:0 auto;padding:18px 14px 40px}
+h1{font-size:20px;margin:4px 0 2px}
+.sub{color:#8fa3bd;font-size:13px;margin-bottom:14px}
+.top{display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:14px;color:#9db2cd}
+.row{display:flex;align-items:center;gap:12px;padding:7px 8px;border-radius:10px;background:#16203399;margin-bottom:6px;cursor:pointer}
+.ini{position:relative;width:42px;height:42px;border-radius:50%;background:#2a3a55;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:18px;overflow:hidden;flex:none}
+.ini img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.un{color:#7d90ac;font-size:12px}
+input[type=checkbox]{width:20px;height:20px;accent-color:#3b82f6;flex:none}
+textarea{width:100%;box-sizing:border-box;background:#0b1220;border:1px solid #2a3a55;border-radius:10px;color:#e8eef7;padding:10px;font-size:15px;resize:vertical;min-height:110px;margin-top:14px;font-family:inherit}
+button.send{width:100%;margin-top:12px;background:#2563eb;color:#fff;border:none;border-radius:12px;padding:13px;font-size:16px;cursor:pointer}
+button.send:disabled{opacity:.5}
+#status{margin-top:12px;font-size:14px;min-height:20px}
+.ok{color:#4ade80}.err{color:#f87171}
+.ch{text-align:right;color:#7d90ac;font-size:12px}
+</style></head><body><div class="wrap">
+<h1>📢 Вызов участников</h1>
+<div class="sub">«Другое измерение» — отметь галочками, напиши текст. Бот отправит
+<b>одно сообщение</b> в чат, где выбранные участники отмечены упоминаниями.</div>
+<div class="top"><label style="cursor:pointer"><input type="checkbox" id="all"> выбрать всех</label></div>
+<div id="list">загружаю…</div>
+<textarea id="text" maxlength="4000" placeholder="Текст сообщения…"></textarea>
+<div class="ch"><span id="chars">0</span>/4000</div>
+<button class="send" id="btn">Отправить в чат</button>
+<div id="status"></div>
+</div>
+<script>
+const KEY = new URLSearchParams(location.search).get('key') || '';
+const listEl = document.getElementById('list'), textEl = document.getElementById('text'),
+      btn = document.getElementById('btn'), st = document.getElementById('status'),
+      chars = document.getElementById('chars'), all = document.getElementById('all');
+let members = [];
+function esc(s){const d=document.createElement('div');d.textContent=String(s==null?'':s);return d.innerHTML;}
+function status(msg, ok){st.textContent=msg;st.className=ok?'ok':'err';}
+async function loadMembers(){
+  try{
+    const r = await fetch('/callsumlist?key=' + encodeURIComponent(KEY));
+    const d = await r.json();
+    if(!r.ok || d.error){listEl.textContent='Ошибка: ' + (d.error || r.status);return;}
+    members = d.members || [];
+    if(!members.length){listEl.textContent='участников не нашлось';return;}
+    render();
+  }catch(e){listEl.textContent='не загрузилось: ' + e;}
+}
+function render(){
+  listEl.innerHTML='';
+  members.forEach(m=>{
+    const row=document.createElement('label');row.className='row';
+    const ini=esc((m.name || '?').trim().charAt(0).toUpperCase() || '?');
+    row.innerHTML='<span class="ini">' + ini
+      + '<img src="/callsumavatar?key=' + encodeURIComponent(KEY) + '&uid='
+      + encodeURIComponent(m.tid) + '" alt="" onerror="this.remove()"></span>'
+      + '<span class="nm">' + esc(m.name)
+      + (m.uname ? ' <span class="un">@' + esc(m.uname) + '</span>' : '') + '</span>'
+      + '<input type="checkbox" data-tid="' + esc(m.tid) + '">';
+    listEl.appendChild(row);
+  });
+}
+all.onchange = () => {document.querySelectorAll('#list input[type=checkbox]').forEach(c=>{c.checked=all.checked;});};
+textEl.oninput = () => {chars.textContent = textEl.value.length;};
+btn.onclick = async () => {
+  const tids = Array.from(document.querySelectorAll('#list input:checked')).map(c => c.dataset.tid);
+  const text = textEl.value.trim();
+  if(!tids.length){status('никого не выбрано', false);return;}
+  if(!text){status('напиши текст сообщения', false);return;}
+  btn.disabled = true; status('отправляю…', true);
+  try{
+    const r = await fetch('/callsumsend', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({key: KEY, tids: tids, text: text})});
+    const d = await r.json().catch(() => ({}));
+    if(r.ok && d.ok){status('✅ Отправлено в «Другое измерение» — упомянуто: ' + tids.length, true); textEl.value=''; chars.textContent='0';}
+    else status('⚠️ ' + (d.error || 'не отправилось'), false);
+  }catch(e){status('⚠️ ' + e, false);}
+  btn.disabled = false;
+};
+loadMembers();
+</script></body></html>"""
+
+
 class AppHandler(BaseHTTPRequestHandler):
     """HTTP-часть сервиса: / — проверка живости, /app — холст, /canvas — PNG, /save — приём рисунка."""
 
@@ -4417,6 +4560,33 @@ class AppHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 out["error"] = repr(e)
             self._json_response(200, out)
+        elif url.path == "/callsum":
+            # служебный (ключ): страница вызова участников — галочки + текст в чат
+            if params.get("key", [""])[0] != TGINFO_KEY:
+                self._respond(403, b"forbidden")
+                return
+            self._respond(200, CALLSUM_HTML_PAGE.encode("utf-8"),
+                          "text/html; charset=utf-8", nocache=True)
+        elif url.path == "/callsumlist":
+            # служебный (ключ): участники чата для страницы /callsum
+            if params.get("key", [""])[0] != TGINFO_KEY:
+                self._json_response(403, {"error": "forbidden"})
+                return
+            self._json_response(200, {"members": _callsum_members(CALLSUM_CHAT)})
+        elif url.path == "/callsumavatar":
+            # служебный (ключ): аватар участника (Bot API, кэш в памяти)
+            if params.get("key", [""])[0] != TGINFO_KEY:
+                self._respond(403, b"forbidden")
+                return
+            uid = params.get("uid", [""])[0]
+            if not (uid.isdigit() and len(uid) < 16):
+                self._respond(404, b"")
+                return
+            raw, ctype = _callsum_avatar(uid)
+            if raw:
+                self._respond(200, raw, ctype)
+            else:
+                self._respond(404, b"")
         elif url.path == "/sifaadmin":
             # служебный (ключ): сдвиг касатки пользователя на N км на восток —
             # починка «застрявших» касаток без перезапуска сервера
@@ -5157,6 +5327,10 @@ class AppHandler(BaseHTTPRequestHandler):
             self._respond(404, b"not found")
 
     def do_POST(self):
+        # рассылка /callsum — страница в браузере, initData нет: своя проверка ключа
+        if urlparse(self.path).path == "/callsumsend":
+            self._handle_callsum_send_post()
+            return
         init_data = self.headers.get("X-TG-Init-Data", "")
         # каждое действие — только из Telegram: проверяем подпись WebApp (initData)
         if not tg_init_data_valid(init_data):
@@ -5609,6 +5783,42 @@ class AppHandler(BaseHTTPRequestHandler):
         self._json_response(200, {"ok": True, "teleported": teleported,
                                   "lat": ship["lat"], "lon": ship["lon"],
                                   "wood_got": wood_picked, "wood": wood_total})
+
+    def _handle_callsum_send_post(self) -> None:
+        """/callsum: одно сообщение в чат — упоминания выбранных участников + текст."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        if not isinstance(payload, dict) or payload.get("key") != TGINFO_KEY:
+            self._json_response(403, {"error": "forbidden"})
+            return
+        tids = [str(t) for t in (payload.get("tids") or []) if str(t).isdigit()][:50]
+        text = str(payload.get("text", "")).strip()[:CALLSUM_TEXT_MAX]
+        if not tids:
+            self._json_response(400, {"error": "никого не выбрано"})
+            return
+        if not text:
+            self._json_response(400, {"error": "пустой текст"})
+            return
+        members = {m["tid"]: m for m in _callsum_members(CALLSUM_CHAT)}
+        chosen = []
+        for t in tids:
+            if t in members:
+                chosen.append(f'<a href="tg://user?id={t}">'
+                              f'{html.escape(members[t]["name"])}</a>')
+        if not chosen:
+            self._json_response(400, {"error": "выбранные участники не найдены"})
+            return
+        msg = "📢 " + " ".join(chosen) + "\n\n" + text
+        mid = tg_send_message_id(CALLSUM_CHAT, msg, html_mode=True)
+        logline(f"callsum send: упомянуто {len(chosen)}, mid={mid}")
+        if mid:
+            self._json_response(200, {"ok": True, "mid": mid})
+        else:
+            self._json_response(500, {"error": "Telegram не принял сообщение"})
 
     def _handle_sifa_area_post(self) -> None:
         """СИФА: Sumai задаёт границы области игры (4 угла по карте)."""
@@ -7668,6 +7878,17 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(f"📊 Твоя статистика:\nИгр: {st['games']}\nПобед: {st['wins']}\nЛучший результат: {best}")
 
 
+async def cmd_callsum(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/callsum — страница вызова участников: галочки + текст, одно сообщение с упоминаниями."""
+    if str(update.effective_user.id) not in CALLSUM_ADMINS:
+        return
+    await update.message.reply_text(
+        "📝 Страница вызова участников (ссылка с секретным ключом — только для тебя):\n"
+        f"{APP_URL}/callsum?key={TGINFO_KEY}\n\n"
+        "Отметь галочками участников «Другого измерения», напиши текст — бот отправит "
+        "одно сообщение в чат, где все отмеченные получат упоминание.")
+
+
 async def cmd_klad(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/klad — квест «Поиск клада»: загадка, доступные подсказки, тепло/холодно."""
     if not chat_allowed(update.effective_chat):
@@ -8488,6 +8709,7 @@ def main() -> None:
     app.add_handler(CommandHandler("stop", cmd_stop))
     app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CommandHandler("klad", cmd_klad))
+    app.add_handler(CommandHandler("callsum", cmd_callsum))
     app.add_handler(CommandHandler("helpsum", cmd_help))
     app.add_handler(CommandHandler("myid", cmd_myid))
     app.add_handler(CommandHandler("geo2", cmd_geo2))
