@@ -1177,6 +1177,23 @@ def walker_regen(w: dict, now: float) -> None:
     w["energy_ts"] = max(last, now)
 
 
+def _walker_pos_along_route(from_lat: float, from_lon: float, route: list, traveled_km: float):
+    """Позиция на маршруте после traveled_km от старта (дробление по сегментам)."""
+    alat, alon = from_lat, from_lon
+    left = traveled_km
+    for wp in route:
+        seg = haversine_km(alat, alon, wp[0], wp[1])
+        if seg <= 0:
+            alat, alon = wp[0], wp[1]
+            continue
+        if left < seg:
+            f = left / seg
+            return round(alat + (wp[0] - alat) * f, 6), round(alon + (wp[1] - alon) * f, 6)
+        left -= seg
+        alat, alon = wp[0], wp[1]
+    return round(alat, 6), round(alon, 6)
+
+
 def walker_progress(w: dict) -> bool:
     """Продвинуть кладоискателя по маршруту (лениво). True — прибыл (энергия списана).
     Попутно — пассивная регенерация энергии (вызывается на каждом чтении состояния)."""
@@ -1186,21 +1203,10 @@ def walker_progress(w: dict) -> bool:
         return False
     traveled_km = (now - w["nav_ts"]) / 60.0 * WALKER_SPEED_KM_PER_MIN
     total_km = _walker_route_km(w["nav_from_lat"], w["nav_from_lon"], w["route"])
-    alat, alon = w["nav_from_lat"], w["nav_from_lon"]
-    left = traveled_km
-    for wp in w["route"]:
-        seg = haversine_km(alat, alon, wp[0], wp[1])
-        if seg <= 0:
-            alat, alon = wp[0], wp[1]
-            continue
-        if left < seg:
-            f = left / seg
-            w["lat"] = round(alat + (wp[0] - alat) * f, 6)
-            w["lon"] = round(alon + (wp[1] - alon) * f, 6)
-            return False
-        left -= seg
-        alat, alon = wp[0], wp[1]
-    w["lat"], w["lon"] = round(alat, 6), round(alon, 6)
+    w["lat"], w["lon"] = _walker_pos_along_route(
+        w["nav_from_lat"], w["nav_from_lon"], w["route"], traveled_km)
+    if traveled_km < total_km:
+        return False
     w["energy"] = max(0.0, w.get("energy", 0.0) - total_km)
     w["route"] = None
     w["nav_from_lat"] = w["nav_from_lon"] = None
@@ -3335,7 +3341,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-11-1750"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-11-1800"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -5942,6 +5948,7 @@ class AppHandler(BaseHTTPRequestHandler):
             return
         name = str(payload.get("name", ""))[:64]
         now = time.time()
+        rerouted = False
         with walker_lock:
             with geo_lock:
                 mkey = resolve_marker_key(chat_id, user, name)
@@ -5955,8 +5962,18 @@ class AppHandler(BaseHTTPRequestHandler):
             if walker_progress(w):
                 walker_save_to_github()
             if w.get("route"):
-                self._json_response(409, {"error": "человечек уже идёт — дождись, куда шёл"})
-                return
+                # перенаправление по ходу: фиксируем текущую позицию и списываем пройденное,
+                # новый маршрут стартует отсюда — сменить цель можно в любой момент
+                old_total = _walker_route_km(w["nav_from_lat"], w["nav_from_lon"], w["route"])
+                walked = min((now - w["nav_ts"]) / 60.0 * WALKER_SPEED_KM_PER_MIN, old_total)
+                w["lat"], w["lon"] = _walker_pos_along_route(
+                    w["nav_from_lat"], w["nav_from_lon"], w["route"], walked)
+                w["energy"] = max(0.0, w.get("energy", 0.0) - walked)
+                w["route"] = None
+                w["nav_from_lat"] = w["nav_from_lon"] = None
+                w.pop("sniff_arrow", None)
+                rerouted = True
+                logline(f"walker reroute chat={chat_id} user={mkey!r} walked={int(walked)}")
             route = walker_land_route(w["lat"], w["lon"], lat, lon)
             if not route:
                 self._json_response(422, {"error": "по суше туда не добраться — вокзал или другая цель"})
@@ -5975,7 +5992,7 @@ class AppHandler(BaseHTTPRequestHandler):
             walker_save_to_github()
         logline(f"200 /walkermove chat={chat_id} user={mkey!r} km={int(km)}")
         self._json_response(200, {"eta_min": int(km / WALKER_SPEED_KM_PER_MIN) + 1,
-                                  "km": round(km, 1)})
+                                  "km": round(km, 1), "reroute": rerouted})
 
     def _handle_walker_food_post(self) -> None:
         """КЛАДОИСКАТЕЛЬ: Пища — готовка (1/час, макс 24/сутки) и приём пищи (+250 км энергии)."""
