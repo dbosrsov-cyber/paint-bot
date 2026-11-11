@@ -2671,6 +2671,14 @@
     walkerPlanTarget = null;
     document.getElementById('walkerGoBtn').style.display = 'none';
   }
+  function walkerFlagIcon(label, color) {
+    return L.divIcon({
+      html: '<div style="font-size:24px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))">🚩</div>'
+        + (label ? '<div style="margin-top:3px;font-size:12px;font-weight:600;color:' + (color || '#fff')
+          + ';background:rgba(0,0,0,.55);padding:2px 7px;border-radius:8px;white-space:nowrap;">'
+          + label + '</div>' : ''),
+      className: 'emoji-marker', iconSize: [26, 26], iconAnchor: [5, 24]});
+  }
   function walkerPlan(lat, lon) {
     if (!walkerMe) return;
     walkerPlanClear();
@@ -2678,10 +2686,21 @@
     walkerPlanLine = L.polyline(
       [[walkerMe.lat, walkerMe.lon], [lat, lon]],
       {dashArray: '8 8', opacity: 0.55, weight: 3}).addTo(map);
-    walkerPlanFlag = L.marker([lat, lon], {icon: L.divIcon({
-      html: '<div style="font-size:24px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))">🚩</div>',
-      className: 'emoji-marker', iconSize: [26, 26], iconAnchor: [5, 24]})}).addTo(map);
+    walkerPlanFlag = L.marker([lat, lon], {icon: walkerFlagIcon('…')}).addTo(map);
     document.getElementById('walkerGoBtn').style.display = 'block';
+    // превью: реальная длина пути по суше с сервера — до нажатия «Отправить»
+    fetch('/walkerplan', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName(), lat: lat, lon: lon})
+    }).then(r => r.json().catch(() => ({})))
+      .then(d => {
+        if (!walkerPlanTarget || walkerPlanTarget[0] !== lat || walkerPlanTarget[1] !== lon) return;
+        if (!walkerPlanFlag) return;
+        if (d.error) { walkerPlanFlag.setIcon(walkerFlagIcon('⛔ не пройти', '#ef4444')); return; }
+        if (!d.ok) return;
+        const label = Math.round(d.km) + ' км • ~' + d.eta_min + ' мин' + (d.enough ? '' : ' • ⚡ мало');
+        walkerPlanFlag.setIcon(walkerFlagIcon(label, d.enough ? '#ffffff' : '#f59e0b'));
+      }).catch(() => {});
   }
   async function walkerSend(lat, lon) {
     const r = await fetch('/walkermove', {
