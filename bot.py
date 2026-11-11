@@ -3341,7 +3341,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-11-1800"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-11-1810"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -5425,6 +5425,9 @@ class AppHandler(BaseHTTPRequestHandler):
         if url.path == "/walkermove":
             self._handle_walker_move_post()
             return
+        if url.path == "/walkerplan":
+            self._handle_walker_plan_post()
+            return
         if url.path == "/walkerfood":
             self._handle_walker_food_post()
             return
@@ -5993,6 +5996,59 @@ class AppHandler(BaseHTTPRequestHandler):
         logline(f"200 /walkermove chat={chat_id} user={mkey!r} km={int(km)}")
         self._json_response(200, {"eta_min": int(km / WALKER_SPEED_KM_PER_MIN) + 1,
                                   "km": round(km, 1), "reroute": rerouted})
+
+    def _handle_walker_plan_post(self) -> None:
+        """КЛАДОИСКАТЕЛЬ: превью маршрута — та же логика, что у /walkermove, но без движения
+        и списаний: возвращает длину пути по суше, время и хватит ли энергии."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+            lat = float(payload["lat"])
+            lon = float(payload["lon"])
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        if not walker_area_ok(lat, lon):
+            self._json_response(422, {"error": "это за границами территории Кладоискательа (Россия)"})
+            return
+        if not sifa_is_land(lat, lon):
+            self._json_response(422, {"error": "человечек по воде не ходит — выбери точку на суше"})
+            return
+        name = str(payload.get("name", ""))[:64]
+        now = time.time()
+        with walker_lock:
+            with geo_lock:
+                mkey = resolve_marker_key(chat_id, user, name)
+            if mkey is None:
+                self._json_response(403, {"error": "сначала поставь метку на карте"})
+                return
+            w = walker_state.get(chat_id, {}).get(mkey)
+            if w is None:
+                self._json_response(404, {"error": "кладоискателя ещё нет — нажми 🚶 в панели режимов"})
+                return
+            walker_progress(w)   # лениво двигаем по текущему маршруту — позиция актуальна
+            plat, plon = w["lat"], w["lon"]
+            if w.get("route"):
+                # идём — превью от точки, где человечек окажется при сворачивании
+                old_total = _walker_route_km(w["nav_from_lat"], w["nav_from_lon"], w["route"])
+                walked = min((now - w["nav_ts"]) / 60.0 * WALKER_SPEED_KM_PER_MIN, old_total)
+                plat, plon = _walker_pos_along_route(w["nav_from_lat"], w["nav_from_lon"], w["route"], walked)
+            route = walker_land_route(plat, plon, lat, lon)
+            if not route:
+                self._json_response(200, {"ok": False, "error": "по суше туда не добраться — вокзал или другая цель"})
+                return
+            km = _walker_route_km(plat, plon, route)
+            energy = w.get("energy", 0.0)
+            # при сворачивании спишется уже пройденное — учитываем остаток энергии
+            if w.get("route"):
+                old_total = _walker_route_km(w["nav_from_lat"], w["nav_from_lon"], w["route"])
+                walked = min((now - w["nav_ts"]) / 60.0 * WALKER_SPEED_KM_PER_MIN, old_total)
+                energy = max(0.0, energy - walked)
+        self._json_response(200, {"ok": True, "km": round(km, 1),
+                                  "eta_min": int(km / WALKER_SPEED_KM_PER_MIN) + 1,
+                                  "enough": km <= energy + 0.5})
 
     def _handle_walker_food_post(self) -> None:
         """КЛАДОИСКАТЕЛЬ: Пища — готовка (1/час, макс 24/сутки) и приём пищи (+250 км энергии)."""
