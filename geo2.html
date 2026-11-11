@@ -234,6 +234,8 @@
 
   /* тёмная карта: инверсия тайлов (маркеры и попапы не тронуты) */
   .dark-map .leaflet-tile-pane { filter: invert(0.94) hue-rotate(180deg) saturate(0.22) brightness(0.88) contrast(1.08); }
+  /* спутник в тёмной теме не инвертируем — фото должно быть натуральным */
+  .dark-map.sat-on .leaflet-tile-pane { filter: none; }
   /* ==== FR24-стилистика тёмной темы: стекло, бирюза, тонкие кнопки ==== */
   .dark-ui .bar { background: rgba(11,18,26,.9); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); border-top:1px solid rgba(125,211,252,.12); }
   .dark-ui .bar button { background: rgba(30,45,60,.92); color:#bfe3f7; border:1px solid rgba(125,211,252,.25); border-radius:999px; }
@@ -384,6 +386,7 @@
       <li>🐳 Похотливый Кит: отправь участнику подарок — он откроет сюрприз 🔞</li>
       <li>🌩 Шторм выбрасывает на остров дерево (+2 🪵, 15 минут на сбор) — собрать можно лишь раз за шторм, даже если трясёт несколько островов</li>
       <li>🏆 Каждую пятницу в 16:00 по Москве в чате публикуются «Итоги недели» — 11 номинаций, ссылки на героев внутри</li>
+      <li>🛰 Кнопка справа вверху переключает карту «схема 🗺 / спутник 🛰» — по спутнику удобнее искать клад в безлюдной тайге</li>
     </ul>
     <b>🏝️ Острова и Галеоны</b>
     <ul>
@@ -528,8 +531,36 @@
     const r = parseInt(c.substr(0, 2), 16), g = parseInt(c.substr(2, 2), 16), b = parseInt(c.substr(4, 2), 16);
     return (0.299 * r + 0.587 * g + 0.114 * b) < 128;
   }
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    {maxZoom: 18, attribution: '© OpenStreetMap'}).addTo(map);
+  const osmLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    {maxZoom: 18, attribution: '© OpenStreetMap'});
+  const satLayer = L.tileLayer(
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    {maxZoom: 18, attribution: 'Esri, Maxar, Earthstar Geographics'});
+  let satOn = false;
+  osmLayer.addTo(map);
+  const satToggle = L.control({position: 'topright'});
+  satToggle.onAdd = () => {
+    const b = L.DomUtil.create('button', 'sat-toggle');
+    b.textContent = '🛰';
+    b.title = 'Спутник 🛰 / Схема 🗺';
+    b.style.cssText = 'width:38px;height:38px;font-size:18px;border-radius:8px;cursor:pointer;'
+      + 'border:1px solid #999;background:rgba(255,255,255,.92);box-shadow:0 1px 4px rgba(0,0,0,.35);';
+    L.DomEvent.disableClickPropagation(b);
+    b.onclick = () => {
+      satOn = !satOn;
+      if (satOn) {
+        map.removeLayer(osmLayer); satLayer.addTo(map);
+        map.getContainer().classList.add('sat-on');
+        b.textContent = '🗺';
+      } else {
+        map.removeLayer(satLayer); osmLayer.addTo(map);
+        map.getContainer().classList.remove('sat-on');
+        b.textContent = '🛰';
+      }
+    };
+    return b;
+  };
+  satToggle.addTo(map);
   function applyMapTheme() {
     const dark = isDarkNow();
     map.getContainer().classList.toggle('dark-map', dark);
