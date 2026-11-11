@@ -411,7 +411,7 @@
       <li>🚉 Вокзалы Брянск / Новосибирск / Якутск — подойди к вокзалу ближе 10 км и кликни по нему: переезд мгновенный и бесплатный</li>
       <li>🚶 В режиме видны все кладоискатели: свои и чужие — все 🚶; клик по чужому показывает ник</li>
       <li>🏴‍☠️ Квест «Клад»: где-то на суше России зарыт клад — команда /klad повторяет загадку и подсказки</li>
-      <li>👃 Кнопка 👃 «Понюхать» у своего перса (раз в 10 минут) говорит, горячо или холодно: размытое расстояние до клада</li>
+      <li>👃 Кнопка 👃 «Понюхать» у своего перса (раз в 10 минут) говорит, горячо или холодно: размытое расстояние до клада. В диапазоне 30–80 км человечек показывает стрелку — направление, куда идти</li>
       <li>⛏️ Окажешься в 30 км от клада — на его месте появится ⛏️ Копать: видно, только если приблизить карту до уровня улиц. Кто первый нажмёт, тот и выкопает!</li>
       <li>🎉 Находка кормит всех: у кого еды меньше 3 — снова по 3 🍖, а энергия у всех человечков — полная ⚡, и всех доставляют к вокзалу Новосибирска 🚉 (~10 км) — новый клад, новый старт</li>
       <li>⏳ Клад живёт 7 дней: не найдут — сгорит и зароют новый; находчику +10 💎 измиров</li>
@@ -2480,7 +2480,7 @@
   setInterval(sifaUpdateCtrl, 1000);
   // ---------- Кладоискатель: человечек по суше России (Пища, вокзалы) ----------
   let walkerOn = false, walkerPollTimer = null;
-  let walkerMe = null, walkerMarker = null;
+  let walkerMe = null, walkerMarker = null, walkerArrow = null, walkerArrowDeg = null;
   const walkerOthers = {}, walkerStMarks = {};
   let walkerStationsData = [];  // список вокзалов из /walkerstate — для кнопок переезда
   let walkerKladHints = [];     // подсказки клада, уже анонсированные ботом
@@ -2560,6 +2560,20 @@
       walkerMarker.bindPopup('');   // содержимое строит walkerUpdateCtrl
     }
     walkerMarker.setLatLng(walkerDispLatLng(d.me.lat, d.me.lon));
+    // стрелка направления на клад: сервер присылает sniff_arrow только в диапазоне 30–80 км
+    if (d.me.sniff_arrow && d.me.sniff_arrow.deg != null) {
+      if (!walkerArrow || walkerArrowDeg !== d.me.sniff_arrow.deg) {
+        if (walkerArrow) map.removeLayer(walkerArrow);
+        walkerArrow = L.marker(walkerDispLatLng(d.me.lat, d.me.lon), {
+          interactive: false,
+          icon: L.divIcon({className: '', iconSize: [26, 26], iconAnchor: [13, 13],
+            html: '<div style="transform:translateY(-26px) rotate(' + (d.me.sniff_arrow.deg - 90)
+              + 'deg);font-size:26px;line-height:26px;color:#f59e0b;'
+              + 'text-shadow:0 0 5px #000,0 0 2px #000;">➤</div>'})
+        }).addTo(map);
+        walkerArrowDeg = d.me.sniff_arrow.deg;
+      } else walkerArrow.setLatLng(walkerDispLatLng(d.me.lat, d.me.lon));
+    } else if (walkerArrow) { map.removeLayer(walkerArrow); walkerArrow = null; walkerArrowDeg = null; }
     // следим за человечком мягко: подъезжаем, только если он ушёл за край экрана
     if (walkerOn && !map.getBounds().contains([d.me.lat, d.me.lon]))
       map.panTo([d.me.lat, d.me.lon], {animate: true});
@@ -2683,6 +2697,7 @@
     Object.values(walkerStMarks).forEach(m => map.removeLayer(m));
     Object.keys(walkerStMarks).forEach(k => delete walkerStMarks[k]);
     if (walkerMarker) { map.removeLayer(walkerMarker); walkerMarker = null; walkerMe = null; }
+    if (walkerArrow) { map.removeLayer(walkerArrow); walkerArrow = null; walkerArrowDeg = null; }
     walkerSniffText = ''; walkerSniffUntil = 0;
     if (walkerDigMark) { map.removeLayer(walkerDigMark); walkerDigMark = null; }
     walkerDigSite = null;
