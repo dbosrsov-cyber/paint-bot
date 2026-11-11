@@ -3174,12 +3174,12 @@
 
   map.on('click', e => {
     if (sifaAreaMode) { sifaPickArea(e.latlng); return; }
-    if (walkerOn) { walkerPlan(e.latlng.lat, e.latlng.lng); return; }
-    if (shipNavMode) { shipNavMode = false; shipNavPick(e.latlng.lat, e.latlng.lng); return; }
-    if (distMode) {
+    if (distMode) {   // линейка важнее планировщика: в тихих режимах панель свёрнута до 📏
       pickPoint({lat: e.latlng.lat, lon: e.latlng.lng, name: 'точка на карте'});
       return;
     }
+    if (walkerOn) { walkerPlan(e.latlng.lat, e.latlng.lng); return; }
+    if (shipNavMode) { shipNavMode = false; shipNavPick(e.latlng.lat, e.latlng.lng); return; }
     if (letterMode) { status('✉️ Кликни по МЕТКЕ участника (животное на карте), а не просто по карте'); return; }
     if (volcanoMode) { status('🌋 Кликни по МЕТКЕ участника (животное на карте), а не просто по карте'); return; }
     if (subMode) { status('🐳 Кликни по МЕТКЕ участника (животное на карте), а не просто по карте'); return; }
