@@ -2152,6 +2152,33 @@ def apply_all_walkers_nsk_2026_11_10() -> None:
     meteor_save_to_github()
 
 
+def apply_marker_owner_8426_7595_2026_11_11() -> None:
+    """Разовый (2026-11-11): метка «Другого измерения» с tid 8426689700 переходит
+    к владельцу 7595084617 (Apollo). Ключ/имя/эмодзи метки прежние — меняется только tid:
+    права на редактирование и все привязки (человечек, касатка) идут через tid."""
+    tag = "marker_owner_8426_7595_2026-11-11"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    chat = -1002304715333
+    with geo_lock:
+        markers = geo_state.get(chat) or {}
+        target = None
+        for mk, m in markers.items():
+            if str(m.get("tid") or "") == "8426689700":
+                target = mk
+                break
+        if target is None and "8426689700" in markers:
+            target = "8426689700"
+        if target is not None:
+            markers[target]["tid"] = "7595084617"
+            geo_save_to_github()
+            logline(f"marker owner: {target!r} tid 8426689700 -> 7595084617")
+        else:
+            logline("marker owner: метка с tid 8426689700 не найдена")
+    meteor_save_to_github()
+
+
 def apply_klad_land8h_nsk_2026_11_10() -> None:
     """Разовый (2026-11-10, вечер): перезарыть клад «Другого измерения» со строгой
     проверкой суши (3×3 клетки — точно не в проливе), подсказки переведены на шаг 8ч,
@@ -3295,7 +3322,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-11-1710"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-11-1720"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -8699,6 +8726,7 @@ def main() -> None:
     apply_all_walkers_nsk_2026_11_10()
     apply_sumai_pm_to_klad_2026_11_10()
     apply_klad_land8h_nsk_2026_11_10()
+    apply_marker_owner_8426_7595_2026_11_11()
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
