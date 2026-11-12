@@ -413,6 +413,7 @@
       <li>🚶 В режиме видны все кладоискатели: свои и чужие — все 🚶; клик по чужому показывает ник</li>
       <li>🏴‍☠️ Квест «Клад»: где-то на суше России зарыт клад — команда /klad повторяет загадку и подсказки</li>
       <li>👃 Кнопка 👃 «Понюхать» у своего перса (раз в 10 минут) говорит, горячо или холодно: размытое расстояние до клада. В диапазоне 30–80 км человечек показывает стрелку — направление, куда идти</li>
+      <li>🎁 Находки на тропе: в радиусе 1200 км от клада каждые пройденные 500 км дают 15% шанс наткнуться на ✨ ЗП или 💩 (пополам). Кнопка «Подобрать» под пищевыми кнопками загорается на 5 минут — не зевай! Переезды вокзалов не считаются. Не более 3 какашек и 3 пыли в сутки</li>
       <li>⛏️ Окажешься в 30 км от клада — на его месте появится ⛏️ Копать: видно, только если приблизить карту до уровня кварталов. Кто первый нажмёт, тот и выкопает!</li>
       <li>🎉 Находка кормит всех: у кого еды меньше 3 — снова по 3 🍖, а энергия у всех человечков — полная ⚡, и всех доставляют к вокзалу Новосибирска 🚉 (~10 км) — новый клад, новый старт</li>
       <li>⏳ Клад живёт 7 дней: не найдут — сгорит и зароют новый; находчику +10 💎 измиров</li>
@@ -2532,6 +2533,8 @@
   const walkerOthers = {}, walkerStMarks = {};
   let walkerStationsData = [];  // список вокзалов из /walkerstate — для кнопок переезда
   let walkerKladHints = [];     // подсказки клада, уже анонсированные ботом
+  let walkerLoot = null;        // {dist_km, pending, poops_today, zp_today} — находки на тропе
+  let walkerLootPendingSec = 0; // локальный обратный отсчёт кнопки «Подобрать»
   let walkerSniffText = '';     // последний результат «Понюхать» — показываем в попапе Перса
   let walkerSniffUntil = 0;     // локальный счётчик кулдауна «Понюхать» (unix-секунды)
   // ⛏️ Копать: точка клада приходит с сервера, только когда перс в радиусе 30 км;
@@ -2602,6 +2605,8 @@
     walkerKladHints = d.klad_hints || [];
     walkerStationsData = d.stations || [];
     walkerDigSite = d.klad_dig || null;   // сервер шлёт точку, только когда мы в 30 км
+    walkerLoot = d.loot || null;          // состояние «находки на тропе» (кнопка 🎁 Подобрать)
+    if (walkerLoot && walkerLoot.pending) walkerLootPendingSec = walkerLoot.pending;
     walkerDigUpdate();
     zoomBadgeUpdate();
     if (!walkerMarker) {
@@ -2696,8 +2701,37 @@
       + (sniffWait > 0 ? ' disabled' : '')
       + ' onclick="window.walkerDoSniff()" title="Понюхать воздух — раз в 10 минут">👃 '
       + (sniffWait > 0 ? walkerFmtLeft(Math.ceil(sniffWait)) : 'Понюхать') + '</button>'
-      + '</div>');
+      + '</div>'
+      + walkerLootBtnHtml());
   }
+  // 🎁 Подобрать: ниже пищевых кнопок, по центру. Дальше 1200 км от клада кнопки нет совсем;
+  // в радиусе, но бросок не сработал — серая; сработал — горит с обратным отсчётом 5 минут
+  function walkerLootBtnHtml() {
+    if (!walkerOn || !walkerLoot || walkerLoot.dist_km == null
+        || walkerLoot.dist_km > 1200) return '';
+    if (walkerLootPendingSec > 0) {
+      return '<div style="display:flex;justify-content:center;margin-top:7px;">'
+        + '<button onclick="window.walkerDoLoot()" title="Находка! Успей забрать за 5 минут"'
+        + ' style="padding:9px 22px;font-size:15px;font-weight:700;border-radius:12px;'
+        + 'background:rgba(120,90,20,.9);color:#ffe9a8;border:1px solid #f59e0b;cursor:pointer;">'
+        + '🎁 Подобрать <span id="walkerLootT">'
+        + walkerFmtLeft(walkerLootPendingSec) + '</span></button></div>';
+    }
+    return '<div style="display:flex;justify-content:center;margin-top:7px;">'
+      + '<button disabled'
+      + ' title="Каждые 500 км пути в радиусе 1200 км от клада — 15% шанс находки. Сегодня: '
+      + (walkerLoot.poops_today || 0) + '/3 💩, ' + (walkerLoot.zp_today || 0) + '/3 ✨"'
+      + ' style="padding:9px 22px;font-size:15px;border-radius:12px;opacity:.45;cursor:default;">'
+      + '🎁 Подобрать</button></div>';
+  }
+  // обратный отсчёт на кнопке «Подобрать» — раз в секунду, пока находка ждёт
+  setInterval(() => {
+    if (walkerLootPendingSec <= 0) return;
+    walkerLootPendingSec--;
+    const el = document.getElementById('walkerLootT');
+    if (el) el.textContent = walkerFmtLeft(Math.max(0, walkerLootPendingSec));
+    else if (walkerMarker && walkerMarker.isPopupOpen()) walkerUpdateCtrl();
+  }, 1000);
   // план маршрута: пунктир + флажок; движение начинается только по кнопке «Отправить»
   let walkerPlanLine = null, walkerPlanFlag = null, walkerPlanTarget = null;
   function walkerPlanClear() {
@@ -2882,6 +2916,23 @@
       if (walkerDigMark) walkerDigMark.closePopup();
     }
     walkerPoll();   // обновим состояние: новый клад, награды, счётчики
+  };
+  window.walkerDoLoot = async () => {
+    const r = await fetch('/walkerloot', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName()})
+    });
+    const d = await r.json().catch(() => ({}));
+    if (r.ok && d.ok) {
+      walkerLootPendingSec = 0;
+      status(d.type === 'zp'
+        ? '✨ В траве блеснуло: +1 ЗП! Баланс: ' + d.balance
+        : '💩 Под ногой — какашка! Всего: ' + d.poops);
+      if (walkerMarker) walkerMarker.closePopup();
+    } else {
+      status('🎁 ' + (d.error || 'не вышло подобрать'));
+    }
+    walkerPoll();
   };
   window.walkerDoStation = async (key) => {
     const r = await fetch('/walkerstation', {
