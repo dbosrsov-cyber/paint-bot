@@ -561,6 +561,26 @@
     return b;
   };
   satToggle.addTo(map);
+  // бейдж текущего зума — виден в тихих режимах (Кладоискатель/Сифа): помогает
+  // настраивать пороги (⛏️ Копать — зум 14) и понимать поведение авто-следования
+  const zoomBadge = L.control({position: 'bottomright'});
+  zoomBadge.onAdd = () => {
+    const d = L.DomUtil.create('div');
+    d.id = 'zoomBadge';
+    d.style.cssText = 'padding:4px 10px;border-radius:8px;font-size:13px;font-weight:600;'
+      + 'border:1px solid #999;background:rgba(255,255,255,.92);'
+      + 'box-shadow:0 1px 4px rgba(0,0,0,.35);display:none;';
+    return d;
+  };
+  zoomBadge.addTo(map);
+  function zoomBadgeUpdate() {
+    const el = document.getElementById('zoomBadge');
+    if (!el) return;
+    const quiet = walkerOn || sifaPadOn;
+    el.style.display = quiet ? 'block' : 'none';
+    if (quiet) el.textContent = '🔍 зум ' + map.getZoom();
+  }
+  map.on('zoomend', zoomBadgeUpdate);
   function applyMapTheme() {
     const dark = isDarkNow();
     map.getContainer().classList.toggle('dark-map', dark);
@@ -2399,6 +2419,7 @@
       quietMode = null;
       sifaExitBtn.style.display = 'none';
       panelQuiet(false);
+      zoomBadgeUpdate();
       sifaPadEl.style.display = 'none';
       sifaCtrlEl.style.display = 'none';
       sifaAreaBtn.style.display = 'none';
@@ -2570,6 +2591,7 @@
     walkerStationsData = d.stations || [];
     walkerDigSite = d.klad_dig || null;   // сервер шлёт точку, только когда мы в 30 км
     walkerDigUpdate();
+    zoomBadgeUpdate();
     if (!walkerMarker) {
       walkerMarker = L.marker(walkerDispLatLng(d.me.lat, d.me.lon), {icon: walkerIcon('🚶')}).addTo(map);
       walkerMarker.bindPopup('');   // содержимое строит walkerUpdateCtrl
@@ -2736,6 +2758,7 @@
     walkerSniffText = ''; walkerSniffUntil = 0;
     if (walkerDigMark) { map.removeLayer(walkerDigMark); walkerDigMark = null; }
     walkerDigSite = null;
+    zoomBadgeUpdate();
     load();   // вернуть на карту всё, что прятали в тихом режиме
     status('🥾 Ты вышел из режима Кладоискателя');
   }
