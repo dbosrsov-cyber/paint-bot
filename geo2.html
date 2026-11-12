@@ -265,6 +265,7 @@
   <button id="distBtn" title="Измерить расстояние">📏</button>
   <button id="sifaBtn" title="Сифа — догонялки на касатках">🐬</button>
   <button id="walkerBtn" title="Кладоискатель — человечек по суше России">🚶</button>
+  <button id="quietExitBtn" title="Выйти из режима" style="display:none; color:#9ca3af; font-weight:700; font-size:18px;">✕</button>
   <button id="shipBtn" title="Мой Галеон — найти на карте" style="display:none;">⛵</button>
   <button id="sifaAreaBtn" title="Задать границы игры «Сифа» (кликни 4 угла)" style="display:none;">🚧</button>
   <button id="islandBuyBtn" title="Купить остров (10 ЗП)">🏝️</button>
@@ -2403,43 +2404,50 @@
   const sifaExitBtn = document.getElementById('sifaExitBtn');
   const sifaPadEl = document.getElementById('sifaPad');
   const sifaCtrlEl = document.getElementById('sifaCtrl');
-  // тихий режим (Сифа/Кладоискатель): вместо всей панели оставляем только линейку 📏
-  function panelQuiet(on) {
+  // тихий режим (Сифа/Кладоискатель): вместо всей панели оставляем 📏,
+  // игровую кнопку (🚶/🐬) и серую кнопку выхода ✕ — все в одном стеке, без перекрытий
+  function panelQuiet(on, keepId) {
     const panel = document.getElementById('toolsPanel');
+    const exitBtn = document.getElementById('quietExitBtn');
     if (on) {
       panel.style.display = '';
       Array.from(panel.children).forEach(b => {
-        if (b.id === 'distBtn') { b.style.display = ''; return; }
+        if (b.id === 'distBtn' || b.id === keepId) { b.style.display = ''; return; }
         if (b.style.display !== 'none') { b.dataset.wasDisp = b.style.display; b.style.display = 'none'; }
       });
+      exitBtn.style.display = '';
     } else {
       Array.from(panel.children).forEach(b => {
         if (b.dataset.wasDisp !== undefined) { b.style.display = b.dataset.wasDisp; delete b.dataset.wasDisp; }
       });
+      exitBtn.style.display = 'none';
     }
   }
+  function sifaExit() {   // выходим из Сифы: убираем джойстик и ВСЕХ касаток с карты
+    sifaPadOn = false;
+    quietMode = null;
+    panelQuiet(false);
+    zoomBadgeUpdate();
+    sifaPadEl.style.display = 'none';
+    sifaCtrlEl.style.display = 'none';
+    sifaAreaBtn.style.display = 'none';
+    sifaAreaMode = false;
+    document.getElementById('sifaAreaBar').style.display = 'none';
+    sifaDrawBounds(null);
+    clearInterval(sifaPollTimer); sifaPollTimer = null;
+    if (sifaSailTimer) { clearInterval(sifaSailTimer); sifaSailTimer = null; }
+    if (sifaMarker) { map.removeLayer(sifaMarker); sifaMarker = null; }
+    Object.values(sifaShips).forEach(m => map.removeLayer(m));
+    Object.keys(sifaShips).forEach(k => delete sifaShips[k]);
+    Object.values(sifaLogMarks).forEach(m => map.removeLayer(m));
+    Object.keys(sifaLogMarks).forEach(k => delete sifaLogMarks[k]);
+    load();   // вернуть на карту всё, что прятали в тихом режиме
+    status('🐬 Ты вышел из игры — все касатки убраны с карты');
+  }
   sifaBtn.onclick = async () => {
-    if (sifaPadOn) {   // выходим из режима: убираем джойстик и ВСЕХ касаток с карты
-      sifaPadOn = false;
-      quietMode = null;
-      sifaExitBtn.style.display = 'none';
-      panelQuiet(false);
-      zoomBadgeUpdate();
-      sifaPadEl.style.display = 'none';
-      sifaCtrlEl.style.display = 'none';
-      sifaAreaBtn.style.display = 'none';
-      sifaAreaMode = false;
-      document.getElementById('sifaAreaBar').style.display = 'none';
-      sifaDrawBounds(null);
-      clearInterval(sifaPollTimer); sifaPollTimer = null;
-      if (sifaSailTimer) { clearInterval(sifaSailTimer); sifaSailTimer = null; }
-      if (sifaMarker) { map.removeLayer(sifaMarker); sifaMarker = null; }
-      Object.values(sifaShips).forEach(m => map.removeLayer(m));
-      Object.keys(sifaShips).forEach(k => delete sifaShips[k]);
-      Object.values(sifaLogMarks).forEach(m => map.removeLayer(m));
-      Object.keys(sifaLogMarks).forEach(k => delete sifaLogMarks[k]);
-      load();   // вернуть на карту всё, что прятали в тихом режиме
-      status('🐬 Ты вышел из игры — все касатки убраны с карты');
+    if (sifaPadOn) {   // повторный клик 🐬 — вернуть касатку в центр (фокус)
+      if (sifaPos) map.flyTo([sifaPos.lat, sifaPos.lon], Math.max(map.getZoom(), 5), {duration: 0.8});
+      status('🐬 Касатка в центре экрана');
       return;
     }
     status('🐬 Готовим касатку…');
@@ -2454,8 +2462,7 @@
       sifaPadOn = true;
       quietMode = 'sifa';
       clearNoiseLayers();                                   // в режиме видны только касатки и брёвна
-      sifaExitBtn.style.display = 'flex';                   // вместо всей панели — кнопка-рыбка + линейка
-      panelQuiet(true);
+      panelQuiet(true, 'sifaBtn');                          // 📏 + 🐬 + ✕ в одном стеке
       sifaRender(false);
       sifaDrawBounds(sifaAreaData);
       map.flyTo([d.lat, d.lon], Math.max(map.getZoom(), 4));
@@ -2468,8 +2475,7 @@
       sifaPollTimer = setInterval(sifaPoll, 2500);
     } catch (err) { status('⚠️ Нет связи с касаткой'); }
   };
-  document.getElementById('sifaHideBtn').onclick = () => { if (sifaPadOn) sifaBtn.onclick(); };
-  sifaExitBtn.onclick = () => { if (sifaPadOn) sifaBtn.onclick(); };
+  document.getElementById('sifaHideBtn').onclick = () => { if (sifaPadOn) sifaExit(); };
   document.getElementById('sifaInfoBtn').onclick = () => {
     document.getElementById('sifaInfoModal').style.display = 'flex';
   };
@@ -2521,6 +2527,7 @@
   setInterval(sifaUpdateCtrl, 1000);
   // ---------- Кладоискатель: человечек по суше России (Пища, вокзалы) ----------
   let walkerOn = false, walkerPollTimer = null;
+  let walkerFollow = true;   // авто-следование за человечком: отключается ручным перетаскиванием карты, включается кликом 🚶
   let walkerMe = null, walkerMarker = null, walkerArrow = null, walkerArrowDeg = null;
   const walkerOthers = {}, walkerStMarks = {};
   let walkerStationsData = [];  // список вокзалов из /walkerstate — для кнопок переезда
@@ -2617,7 +2624,8 @@
       } else walkerArrow.setLatLng(walkerDispLatLng(d.me.lat, d.me.lon));
     } else if (walkerArrow) { map.removeLayer(walkerArrow); walkerArrow = null; walkerArrowDeg = null; }
     // следим за человечком мягко: подъезжаем, только если он ушёл за край экрана
-    if (walkerOn && !map.getBounds().contains([d.me.lat, d.me.lon]))
+    // (следование включается кликом 🚶 и отключается ручным перетаскиванием карты)
+    if (walkerOn && walkerFollow && !map.getBounds().contains([d.me.lat, d.me.lon]))
       map.panTo([d.me.lat, d.me.lon], {animate: true});
     const seen = {};
     (d.others || []).forEach(o => {
@@ -2747,10 +2755,10 @@
   const walkerBtn = document.getElementById('walkerBtn');
   const walkerExitBtn = document.getElementById('walkerExitBtn');
   const walkerExitModal = document.getElementById('walkerExitModal');
-  function walkerExit() {   // выходим: панель инструментов возвращается, кнопка выхода прячется
+  function walkerExit() {   // выходим: панель инструментов возвращается, кнопка ✕ прячется вместе с режимом
     walkerOn = false;
+    walkerFollow = true;
     quietMode = null;
-    walkerExitBtn.style.display = 'none';
     panelQuiet(false);
     walkerPlanClear();
     clearInterval(walkerPollTimer); walkerPollTimer = null;
@@ -2768,21 +2776,33 @@
     status('🥾 Ты вышел из режима Кладоискателя');
   }
   walkerBtn.onclick = async () => {
-    if (walkerOn) { walkerExitModal.style.display = 'flex'; return; }  // подтверждение — через 🚪
+    if (walkerOn) {   // повторный клик 🚶 — вернуть следование и фокус на своём человечке
+      walkerFollow = true;
+      if (walkerMe) map.flyTo(walkerDispLatLng(walkerMe.lat, walkerMe.lon),
+        Math.max(map.getZoom(), 6), {duration: 0.8});
+      status('🎯 Следование за человечком включено');
+      return;
+    }
     status('🥾 Готовим человечка…');
     walkerOn = true;
+    walkerFollow = true;
     quietMode = 'walker';
     const ok = await walkerPoll();
     if (!ok || !walkerMe) { walkerOn = false; quietMode = null; return; }  // ошибку уже показал walkerPoll — режим не застревает
     clearNoiseLayers();                                     // в режиме видны только человечки и вокзалы
-    walkerExitBtn.style.display = 'flex';               // вместо всей панели — кнопка выхода + линейка
-    panelQuiet(true);
+    panelQuiet(true, 'walkerBtn');                          // 📏 + 🚶 + ✕ в одном стеке
     map.flyTo([walkerMe.lat, walkerMe.lon], 6, {duration: 1.2});  // фокус на своём человечке — не ищем его по карте
     status('🥾 Человечек на суше России! Кликни по суше — пунктир с флажком, «Отправить» — в путь • по своему персу — пища и статус • к вокзалу подойди в 10 км');
     clearInterval(walkerPollTimer);
     walkerPollTimer = setInterval(walkerPoll, 3000);
   };
-  walkerExitBtn.onclick = () => { if (walkerOn) walkerExitModal.style.display = 'flex'; };
+  // ручное перетаскивание карты отключает следование — зум не отключает
+  map.on('dragstart', () => { if (walkerOn) walkerFollow = false; });
+  // серый крестик ✕ в панели: выход из активного тихого режима (у Кладоискателя — с подтверждением)
+  document.getElementById('quietExitBtn').onclick = () => {
+    if (walkerOn) walkerExitModal.style.display = 'flex';
+    else if (sifaPadOn) sifaExit();
+  };
   document.getElementById('walkerExitYes').onclick = () => {
     walkerExitModal.style.display = 'none';
     if (walkerOn) walkerExit();
