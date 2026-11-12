@@ -1637,6 +1637,48 @@ def wrecks_load_from_github() -> None:
         print(f"[paint_bot] wrecks: загружено {len(loaded)} рифов", flush=True)
 
 
+# Ежедневная уборка затонувших галеонов: каждый день в 00:01 МСК карта освобождается
+# от «мемориальных рифов» — и живых записей sunk, и исторических рифов из перестроек.
+WRECK_CLEANUP_FILE = "wreck_cleanup.json"
+wreck_cleanup_lock = threading.Lock()
+
+
+def wreck_cleanup_perform() -> int:
+    """Убрать потопленные галеоны и мемориальные рифы. Возвращает число убранных."""
+    with geo_lock:
+        sunk_keys = [k for k, s in ships_state.items() if s.get("sunk")]
+        for k in sunk_keys:
+            ships_state.pop(k, None)
+        removed = len(sunk_keys) + len(wrecks_state)
+        if removed:
+            wrecks_state.clear()
+            ships_save_to_github()
+            wrecks_save_to_github()
+    return removed
+
+
+def wreck_cleanup_last_day() -> str:
+    loaded = _load_json_from_github(WRECK_CLEANUP_FILE, "wreck_cleanup")
+    if isinstance(loaded, dict):
+        return str(loaded.get("last", ""))
+    return ""
+
+
+def wreck_cleanup_mark_today() -> None:
+    today = datetime.datetime.now(MSK_TZ).strftime("%Y-%m-%d")
+    _save_json_to_github(WRECK_CLEANUP_FILE, {"last": today}, wreck_cleanup_lock,
+                         "wreck_cleanup")
+
+
+def wreck_cleanup_job(context) -> None:   # PTB Job — ежедневно в 00:01 МСК
+    today = datetime.datetime.now(MSK_TZ).strftime("%Y-%m-%d")
+    if wreck_cleanup_last_day() == today:
+        return   # уже убирались сегодня (в т.ч. при старте)
+    removed = wreck_cleanup_perform()
+    wreck_cleanup_mark_today()
+    logline(f"wreck cleanup: убрано {removed} затонувших кораблей")
+
+
 def ship_in_duel(chat_id: int, user: str):
     """Активная дуэль (ready/pick/roundend). Завершённые сюда не входят —
     корабль свободен сразу после боя, даже пока финальный экран ещё показывается."""
@@ -3341,7 +3383,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-11-1820"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-12-1245"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -8820,6 +8862,12 @@ def main() -> None:
     apply_sumai_pm_to_klad_2026_11_10()
     apply_klad_land8h_nsk_2026_11_10()
     apply_marker_owner_8426_7595_2026_11_11()
+    # разовая уборка затонувших при старте, если сегодня ещё не убирались —
+    # сразу выполняет «очисти все затонувшие корабли», дальше работает расписание 00:01
+    if wreck_cleanup_last_day() != datetime.datetime.now(MSK_TZ).strftime("%Y-%m-%d"):
+        removed = wreck_cleanup_perform()
+        wreck_cleanup_mark_today()
+        print(f"[paint_bot] wreck cleanup при старте: убрано {removed}", flush=True)
     # Запускаем HTTP-сервер (проверка живости + холст рисовалки) в отдельном потоке
     threading.Thread(target=run_http_server, daemon=True).start()
 
@@ -8853,6 +8901,8 @@ def main() -> None:
     app.job_queue.run_repeating(paint_periodic_sweep, interval=15.0)
     # автобэкап меток и писем: каждый день в 01:00 по Москве
     app.job_queue.run_daily(backup_job, time=datetime.time(1, 0, tzinfo=MSK_TZ))
+    # уборка затонувших галеонов: каждый день в 00:01 по Москве
+    app.job_queue.run_daily(wreck_cleanup_job, time=datetime.time(0, 1, tzinfo=MSK_TZ))
     # разовый анонс релиза «Кладоискателя»: 10.11.2026 в 08:00 по Москве (сообщение не удаляется)
     app.job_queue.run_once(
         walker_release_announce_job,
