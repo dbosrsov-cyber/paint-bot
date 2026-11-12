@@ -1016,6 +1016,13 @@ WALKER_ENERGY_REGEN_PER_HOUR = 100.0  # пассивное восполнени�
 WALKER_FOOD_ENERGY = 250.0       # 1 единица Пищи -> +250 км энергии
 WALKER_START_FOOD = 5            # стартовый запас Пищи у нового кладоискателя
 WALKER_SNIFF_CD_SEC = 600.0      # «Понюхать» — раз в 10 минут
+# ---------- Находки на тропе: пыль/какашки за ходьбу рядом с кладом ----------
+WALKER_LOOT_KM_STEP = 500.0      # каждые полные 500 км пути — один бросок на находку
+WALKER_LOOT_CHANCE = 0.15        # 15% на бросок
+WALKER_LOOT_MAX_BANK_KM = 1000.0 # банк километров не растёт бесконечно (макс 2 броска)
+WALKER_LOOT_RADIUS_KM = 1200.0   # броски только в радиусе 1200 км от клада (дальше — км не копятся)
+WALKER_LOOT_CLAIM_SEC = 300      # 5 минут на «Подобрать» с момента успешного броска
+WALKER_LOOT_DAILY_MAX = 3        # не более 3 какашек и 3 пыли в сутки на игрока
 FOOD_COOK_SEC = 3600             # готовка: 1 единица раз в час (плавающий кулдаун)
 FOOD_DAILY_MAX = 24              # не больше 24 единиц в сутки (сброс в 00:00 МСК)
 FOOD_MAX_STOCK = 10              # вместимость «сумки» с едой
@@ -1205,13 +1212,57 @@ def walker_progress(w: dict) -> bool:
     total_km = _walker_route_km(w["nav_from_lat"], w["nav_from_lon"], w["route"])
     w["lat"], w["lon"] = _walker_pos_along_route(
         w["nav_from_lat"], w["nav_from_lon"], w["route"], traveled_km)
+    # километры пути копятся к «находкам на тропе» (телепорты вокзалов сюда не попадают —
+    # прогресс считается только по маршруту); обнуление вне радиуса клада — в /walkerstate.
+    # важно: traveled_km — ВСЕГО от старта маршрута, поэтому копим только дельту между вызовами
+    walked_now = min(traveled_km, total_km)
+    w["loot_km"] = min(w.get("loot_km", 0.0)
+                       + max(0.0, walked_now - w.get("loot_last_km", 0.0)),
+                       WALKER_LOOT_MAX_BANK_KM)
+    w["loot_last_km"] = walked_now
     if traveled_km < total_km:
         return False
     w["energy"] = max(0.0, w.get("energy", 0.0) - total_km)
     w["route"] = None
     w["nav_from_lat"] = w["nav_from_lon"] = None
+    w["loot_last_km"] = 0.0   # новый маршрут начнёт дельту с нуля
     w.pop("sniff_arrow", None)
     w["ts"] = now
+    return True
+
+
+def walker_loot_roll(w: dict, now: float) -> bool:
+    """Бросок «находки на тропе»: каждые полные 500 км в радиусе 1200 км от клада —
+    15% шанс, что в траве что-то блеснёт (✨ ЗП или 💩, 50/50). Потолки: 3+3 в сутки.
+    Находку нужно подобрать за 5 минут, пока ждёт — новые броски не крутятся.
+    Вызывается под walker_lock + klad_lock, когда перс уже в радиусе. True — состояние менялось."""
+    pend = w.get("loot_pending")
+    if pend and now >= pend["until"]:
+        w.pop("loot_pending", None)
+        pend = None
+    if pend:   # находка ждёт кнопку «Подобрать» — новые броски заморожены
+        return False
+    day = datetime.datetime.now(MSK_TZ).strftime("%Y-%m-%d")
+    if w.get("loot_day") != day:
+        w["loot_day"] = day
+        w["loot_poops"] = 0
+        w["loot_zp"] = 0
+    if (w.get("loot_poops", 0) >= WALKER_LOOT_DAILY_MAX
+            and w.get("loot_zp", 0) >= WALKER_LOOT_DAILY_MAX):
+        return False   # оба суточных потолка — бросков сегодня больше нет
+    if w.get("loot_km", 0.0) < WALKER_LOOT_KM_STEP:
+        return False
+    w["loot_km"] = w.get("loot_km", 0.0) - WALKER_LOOT_KM_STEP   # бросок — км списаны в любом случае
+    if random.random() >= WALKER_LOOT_CHANCE:
+        return True
+    typ = "poop" if random.random() < 0.5 else "zp"
+    cnt = "loot_poops" if typ == "poop" else "loot_zp"
+    if w.get(cnt, 0) >= WALKER_LOOT_DAILY_MAX:   # этот тип на потолке — пробуем другой
+        typ = "zp" if typ == "poop" else "poop"
+        cnt = "loot_poops" if typ == "poop" else "loot_zp"
+    if w.get(cnt, 0) >= WALKER_LOOT_DAILY_MAX:
+        return True   # страховка: второй тип тоже на потолке (не бывает — проверка выше)
+    w["loot_pending"] = {"type": typ, "until": now + WALKER_LOOT_CLAIM_SEC}
     return True
 
 
@@ -3384,7 +3435,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-12-1435"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-12-1645"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -4877,12 +4928,27 @@ class AppHandler(BaseHTTPRequestHandler):
                     spawn_klad = klad_ensure(chat_id)
                 # авто-находки по прибытии нет: в радиусе 30 км на месте клада появляется
                 # кнопка ⛏️ Копать — клад выкапывает первый нажавший (/walkerdig)
+                loot_info = None   # состояние «находки на тропе» для кнопки 🎁 Подобрать
                 with klad_lock:
                     entry = klad_state.get(chat_id)
-                    if (entry and now < entry["expires_ts"] and w is not None
-                            and haversine_km(w["lat"], w["lon"], entry["lat"], entry["lon"])
-                                <= KLAD_FIND_KM):
-                        klad_dig = {"lat": entry["lat"], "lon": entry["lon"]}
+                    if entry and now < entry["expires_ts"] and w is not None:
+                        me_klad_km = haversine_km(
+                            w["lat"], w["lon"], entry["lat"], entry["lon"])
+                        if me_klad_km <= KLAD_FIND_KM:
+                            klad_dig = {"lat": entry["lat"], "lon": entry["lon"]}
+                        pend = w.get("loot_pending")
+                        if pend and now >= pend["until"]:   # не забрали за 5 минут — пропала
+                            w.pop("loot_pending", None)
+                            pend = None
+                            need_wsave = True
+                        if me_klad_km > WALKER_LOOT_RADIUS_KM:
+                            w["loot_km"] = 0.0   # вне радиуса 1200 км км к находкам не копятся
+                        elif walker_loot_roll(w, now):
+                            need_wsave = True
+                        loot_info = {"dist_km": round(me_klad_km, 1),
+                                     "pending": (max(0, int(pend["until"] - now)) if pend else 0),
+                                     "poops_today": w.get("loot_poops", 0),
+                                     "zp_today": w.get("loot_zp", 0)}
             if need_wsave:
                 walker_save_to_github()
             if need_gsave:
@@ -4906,7 +4972,8 @@ class AppHandler(BaseHTTPRequestHandler):
                     klad_hints = [{"off": int(o), "text": t}
                                   for o, t in entry["hints"] if o <= elapsed]
             self._json_response(200, {"me": me, "others": others, "stations": stations,
-                                      "klad_hints": klad_hints, "klad_dig": klad_dig})
+                                      "klad_hints": klad_hints, "klad_dig": klad_dig,
+                                      "loot": loot_info})
         elif url.path == "/geodata":
             chat_id = int(params.get("chat", ["0"])[0])
             viewer = params.get("user", [""])[0]
@@ -5476,6 +5543,9 @@ class AppHandler(BaseHTTPRequestHandler):
             return
         if url.path == "/walkersniff":
             self._handle_walker_sniff_post()
+            return
+        if url.path == "/walkerloot":
+            self._handle_walker_loot_post()
             return
         if url.path == "/walkerdig":
             self._handle_walker_dig_post()
@@ -6213,6 +6283,56 @@ class AppHandler(BaseHTTPRequestHandler):
         self._json_response(200, {"ok": True, "km": round(km, 1),
                                   "text": walker_sniff_text(km),
                                   "wait": int(WALKER_SNIFF_CD_SEC)})
+
+    def _handle_walker_loot_post(self) -> None:
+        """КЛАДОИСКАТЕЛЬ: 🎁 Подобрать — забирает ждущую находку (✨ ЗП или 💩, сюрприз)."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        name = str(payload.get("name", ""))[:64]
+        now = time.time()
+        with walker_lock:
+            with geo_lock:
+                mkey = resolve_marker_key(chat_id, user, name)
+            if mkey is None:
+                self._json_response(403, {"error": "сначала поставь метку на карте"})
+                return
+            w = walker_state.get(chat_id, {}).get(mkey)
+            if w is None:
+                self._json_response(404, {"error": "кладоискателя ещё нет — нажми 🚶 в панели режимов"})
+                return
+            pend = w.get("loot_pending")
+            if pend is None or now >= pend["until"]:
+                w.pop("loot_pending", None)
+                walker_save_to_github()
+                left = max(0, int((pend or {}).get("until", 0) - now))
+                self._json_response(409, {"error": ("сейчас нечего подбирать — гуляй дальше"
+                                                    + (f" (осталось {left} сек, торопись!)" if left else ""))})
+                return
+            typ = pend["type"]
+            cnt = "loot_poops" if typ == "poop" else "loot_zp"
+            w[cnt] = w.get(cnt, 0) + 1
+            w.pop("loot_pending", None)
+            w["ts"] = now
+            with geo_lock:
+                if typ == "zp":
+                    result = stardust_earn(chat_id, user, 1, name)
+                else:
+                    marker = geo_state.get(chat_id, {}).get(mkey) or {}
+                    marker["poops"] = marker.get("poops", 0) + 1
+                    result = marker["poops"]
+            walker_save_to_github()
+        geo_save_to_github()   # ЗП и какашки живут в geo-данных
+        logline(f"200 /walkerloot chat={chat_id} user={mkey!r} type={typ}")
+        if typ == "zp":
+            self._json_response(200, {"ok": True, "type": "zp", "balance": result})
+        else:
+            self._json_response(200, {"ok": True, "type": "poop", "poops": result})
 
     def _handle_walker_dig_post(self) -> None:
         """КЛАДОИСКАТЕЛЬ: ⛏️ Копать — кнопка на месте клада (видна в радиусе 30 км).
