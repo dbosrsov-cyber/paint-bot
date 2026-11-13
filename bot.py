@@ -414,8 +414,13 @@ SAGA_END_RE = re.compile(r"(конец|the end)[\.!\s…]*$", re.IGNORECASE)
 meteor_state = {}
 stardust_state = {}
 meteor_credits = {}   # {tag: true} — выполненные разовые начисления (защита от повторов)
+# отложенные автоудаления уведомлений: "chat|msg_id" -> unix ts, когда удалить.
+# Хранятся в meteor.json — удаление переживает рестарты (таймеры в памяти умирали).
+pending_deletes_state = {}
 METEOR_FILE = "meteor.json"
 METEOR_LIFETIME_SEC = 300     # 5 минут на сбор пыли из свежей воронки
+METEOR_NOTIFY_TTL_SEC = 1800  # уведомление о падении живёт в чате 30 минут
+ISLAND_STORM_NOTIFY_TTL_SEC = 1800  # уведомление о шторме живёт в чате 30 минут
 METEOR_PERIOD_SEC = 3600      # перерыв между падениями — час (+ случайные 0–50 мин)
 LETTER_BOOST_KM = 1000        # ускорение: мгновенное продвижение письма на 1000 км, стакается
 
@@ -631,7 +636,8 @@ def meteor_save_to_github() -> None:
     payload = {"meteors": {str(k): v for k, v in meteor_state.items()},
                "stardust": stardust_state,
                "credits": meteor_credits,
-               "sponsors": sponsors_state}
+               "sponsors": sponsors_state,
+               "pending_deletes": pending_deletes_state}
     _save_json_to_github(METEOR_FILE, payload, geo_lock, "meteor")
 
 
@@ -640,6 +646,9 @@ def meteor_load_from_github() -> None:
     if not loaded:
         return
     meteor_state.update({int(cid): m for cid, m in loaded.get("meteors", {}).items()})
+    # отложенные удаления — ДО промежуточного save ниже, чтобы не затереть их пустыми
+    pending_deletes_state.update(
+        {str(k): float(v) for k, v in (loaded.get("pending_deletes") or {}).items()})
     # воронки больше не храним: чистим сохранённые при загрузке и перезаписываем файл
     for _m in meteor_state.values():
         if _m.get("craters"):
@@ -2547,7 +2556,7 @@ async def meteor_fall_job(context) -> None:
             continue
         try:
             msg = await context.bot.send_message(chat_id, METEOR_NOTIFY_TEXT)
-            schedule_event_cleanup(context, chat_id, msg.message_id, METEOR_LIFETIME_SEC)
+            schedule_event_cleanup(context, chat_id, msg.message_id, METEOR_NOTIFY_TTL_SEC)
             logline(f"meteor fell chat={chat_id} lat={cur['lat']:.2f} lon={cur['lon']:.2f} +notify")
         except Exception as e:
             logline(f"meteor fell chat={chat_id}, но уведомление не ушло: {e!r}")
@@ -2876,8 +2885,27 @@ async def delete_event_message(context) -> None:
 
 
 def schedule_event_cleanup(context, chat_id: int, msg_id: int, lifetime_sec: int) -> None:
-    """Через lifetime_sec уведомление о событии уже неактуально — удаляем его из чата."""
-    context.job_queue.run_once(delete_event_message, when=lifetime_sec, data=(chat_id, msg_id))
+    """Через lifetime_sec уведомление о событии уже неактуально — удаляем его из чата.
+    Персистентно: пишем в pending_deletes_state, вычистит pending_deletes_job."""
+    pending_deletes_state[f"{chat_id}|{msg_id}"] = time.time() + lifetime_sec
+    meteor_save_to_github()
+
+
+async def pending_deletes_job(context) -> None:
+    """Раз в минуту: удаляем уведомления, чей TTL вышел. Список живёт в meteor.json,
+    поэтому удаление переживает рестарты сервера (раньше таймеры были в памяти)."""
+    now = time.time()
+    due = [k for k, ts in pending_deletes_state.items() if now >= float(ts)]
+    if not due:
+        return
+    for k in due:
+        try:
+            cid, mid = k.split("|")
+            tg_delete_message(int(cid), int(mid))
+        except Exception as e:
+            print(f"[paint_bot] автоудаление {k} не вышло: {e!r}", flush=True)
+        pending_deletes_state.pop(k, None)
+    meteor_save_to_github()
 
 
 BC_CLEANUP_DELAY_SEC = 300  # ответы бота в «Быках и коровах» удаляются через 5 минут после конца игры
@@ -3295,11 +3323,14 @@ def tg_delete_message(chat_id: int, msg_id: int) -> None:
 
 def tg_send_with_cleanup(chat_id: int, text: str, ttl_sec: int,
                          html_mode: bool = False) -> None:
-    """Отправить уведомление и автоудалить его через ttl_sec (из HTTP-потока).
+    """Отправить уведомление и автоудалить его через ttl_sec.
+    Удаление переживает рестарты: пишем в pending_deletes_state (meteor.json),
+    просроченное вычищает фоновая pending_deletes_job раз в минуту.
     html_mode=True — для текстов с tg_mention (тег-упоминание)."""
     msg_id = tg_send_message_id(chat_id, text, html_mode=html_mode)
     if msg_id is not None:
-        threading.Timer(ttl_sec, tg_delete_message, args=(chat_id, msg_id)).start()
+        pending_deletes_state[f"{chat_id}|{msg_id}"] = time.time() + ttl_sec
+        meteor_save_to_github()
 
 
 def white_png() -> bytes:
@@ -3466,7 +3497,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-13-1507"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-13-1623"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -5422,7 +5453,7 @@ class AppHandler(BaseHTTPRequestHandler):
                                 f"🌩 Шторм пронёсся над «{isl['name']}»! На берег выбросило "
                                 f"брёвна — у тебя 15 минут. Жми «Собрать дерево» "
                                 f"в Действиях острова 🌲",
-                                ARRIVAL_NOTIFY_TTL_SEC,
+                                ISLAND_STORM_NOTIFY_TTL_SEC,
                             )
                         except Exception as e:
                             print(f"[paint_bot] уведомление о шторме не ушло: {e!r}", flush=True)
@@ -6651,7 +6682,7 @@ class AppHandler(BaseHTTPRequestHandler):
                 meteor_state[chat_id] = m
                 meteor_save_to_github()
             try:
-                tg_send_with_cleanup(chat_id, METEOR_NOTIFY_TEXT, METEOR_LIFETIME_SEC)
+                tg_send_with_cleanup(chat_id, METEOR_NOTIFY_TEXT, METEOR_NOTIFY_TTL_SEC)
             except Exception as e:
                 print(f"[paint_bot] спавн метеорита: уведомление не ушло: {e!r}", flush=True)
             logline(f"200 /spawnevent meteor chat={chat_id} user={user!r} ({lat:.2f},{lon:.2f})")
@@ -9140,6 +9171,8 @@ def main() -> None:
     app.job_queue.run_repeating(saga_nag_job, interval=1800.0, first=120.0)
     # клад: сгорел (3 дня) — новый; появилась подсказка (каждые 12 ч) — анонс в чат
     app.job_queue.run_repeating(klad_sweep_job, interval=3600.0, first=300.0)
+    # автоудаление уведомлений (шторм/метеорит/письма) — список в meteor.json, переживает рестарты
+    app.job_queue.run_repeating(pending_deletes_job, interval=60.0, first=30.0)
     # «Быки и коровы»: таймеры истечения вызовов, переживших рестарт (Job не сериализуется)
     for cid in bc_restore_timers:
         if cid not in pending_challenges:
