@@ -630,7 +630,8 @@ def resolve_ship_key(ships: dict, user: str, name: str) -> str | None:
 def meteor_save_to_github() -> None:
     payload = {"meteors": {str(k): v for k, v in meteor_state.items()},
                "stardust": stardust_state,
-               "credits": meteor_credits}
+               "credits": meteor_credits,
+               "sponsors": sponsors_state}
     _save_json_to_github(METEOR_FILE, payload, geo_lock, "meteor")
 
 
@@ -646,6 +647,7 @@ def meteor_load_from_github() -> None:
     meteor_save_to_github()
     stardust_state.update(loaded.get("stardust", {}))
     meteor_credits.update(loaded.get("credits", {}))
+    sponsors_state.update(loaded.get("sponsors", {}))
     apply_startup_credits()
     meteor_cleanup_craters()
     print(f"[paint_bot] meteor: чатов {len(meteor_state)}, балансов пыли {len(stardust_state)}", flush=True)
@@ -1605,6 +1607,22 @@ def ship_water_route(lat1, lon1, lat2, lon2):
 MARKET_LAT, MARKET_LON = 79.0, 70.0   # позиция одинакова для всех чатов, владелец — свой на чат
 MARKET_GIFT_COST = 5                  # обмен: 5 открытых подарков -> +1 ЗП, +1 дерева, +1 какашка, +1 измир
 MARKET_FILE = "market.json"
+# ---------- Спонсорство измерения: 3 💎 за 3 дня подсветки метки, острова и корабля ----------
+# Привязка к tid (переживает удаление/пересоздание метки). Бонусы только визуальные.
+SPONSOR_COST_DIAMONDS = 3
+SPONSOR_DAYS = 3
+sponsors_state = {}   # f"{chat}|{tid}" -> {"until": unix_ts}; хранится в meteor.json
+
+
+def sponsor_until(chat_id, tid) -> float:
+    if not tid:
+        return 0.0
+    ent = sponsors_state.get(f"{chat_id}|{tid}") or {}
+    return float(ent.get("until", 0.0))
+
+
+def sponsor_active(chat_id, tid, now=None) -> bool:
+    return sponsor_until(chat_id, tid) > (time.time() if now is None else now)
 # потопленные корабли с карты не исчезают: висят «мемориальными рифами»,
 # пока капитан не спустит на воду новый Галеон (запись перезаписывается)
 
@@ -3448,7 +3466,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-13-1200"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-13-1300"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -5074,6 +5092,10 @@ class AppHandler(BaseHTTPRequestHandler):
                         unread_by_to[letter["to"]] = unread_by_to.get(letter["to"], 0) + 1
                 for m in markers:
                     m["unread"] = unread_by_to.get(m["user"], 0)
+                    if sponsor_active(chat_id, m.get("tid")):
+                        m["sponsor"] = 1
+                        if viewer_matches(m["user"], viewer, viewer_name, chat_id):
+                            m["sponsor_until"] = int(sponsor_until(chat_id, m.get("tid")))
                 # ---------- Ванильный Вулкан ----------
                 # ---------- Корабли (Галеоны) ----------
                 ships_out = []
@@ -5108,6 +5130,8 @@ class AppHandler(BaseHTTPRequestHandler):
                         "sunk": bool(sh.get("sunk")), "moving": sh.get("to_lat") is not None,
                         "mine": mine, "boarding": boarding, "in_duel": d is not None,
                         "wins": sh.get("wins", 0),
+                        "sponsor": 1 if sponsor_active(
+                            chat_id, (geo_state.get(chat_id, {}).get(sh["user"]) or {}).get("tid")) else 0,
                         "built": (geo_state.get(chat_id, {}).get(sh["user"]) or {}).get("ships_built", 0),
                         "lost": (geo_state.get(chat_id, {}).get(sh["user"]) or {}).get("ships_lost", 0),
                         # параметры маршрута для плавной клиентской интерполяции
@@ -5151,6 +5175,8 @@ class AppHandler(BaseHTTPRequestHandler):
                         "sunk": True, "moving": False,
                         "mine": viewer_matches(wr.get("user", ""), viewer, viewer_name, chat_id),
                         "boarding": False, "in_duel": False, "wins": wr.get("wins", 0),
+                        "sponsor": 1 if sponsor_active(
+                            chat_id, (geo_state.get(chat_id, {}).get(wr.get("user", "")) or {}).get("tid")) else 0,
                         "built": (geo_state.get(chat_id, {}).get(wr.get("user", "")) or {}).get("ships_built", 0),
                         "lost": (geo_state.get(chat_id, {}).get(wr.get("user", "")) or {}).get("ships_lost", 0),
                     })
@@ -5430,6 +5456,9 @@ class AppHandler(BaseHTTPRequestHandler):
                         "storm_collected": _storm_collected,
                         "mine": any(viewer_matches(o, viewer, viewer_name, chat_id)
                                     for o in owners),
+                        "sponsor": 1 if any(sponsor_active(
+                            chat_id, (geo_state.get(chat_id, {}).get(o) or {}).get("tid"))
+                            for o in owners) else 0,
                     })
                 # сувениры гостей — в карточки их меток (видят все) + баланс ЗП каждой метки
                 for m in markers:
@@ -5565,6 +5594,9 @@ class AppHandler(BaseHTTPRequestHandler):
             return
         if url.path == "/walkerstation":
             self._handle_walker_station_post()
+            return
+        if url.path == "/sponsor":
+            self._handle_sponsor_post()
             return
         if url.path == "/volcano":
             self._handle_volcano_post(url)
@@ -6346,6 +6378,53 @@ class AppHandler(BaseHTTPRequestHandler):
             self._json_response(200, {"ok": True, "type": "zp", "balance": result})
         else:
             self._json_response(200, {"ok": True, "type": "poop", "poops": result})
+
+    def _handle_sponsor_post(self) -> None:
+        """СПОНСОРСТВО ИЗМЕРЕНИЯ: 3 💎 -> 3 дня подсветки метки, острова и корабля игрока.
+        Привязка к tid — переживает удаление/пересоздание метки. Анонс в чат."""
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+            chat_id = int(payload["chat"])
+            user = str(payload["user"])[:64]
+        except Exception:
+            self._json_response(400, {"error": "bad request"})
+            return
+        name = str(payload.get("name", ""))[:64]
+        now = time.time()
+        with geo_lock:
+            mkey = resolve_marker_key(chat_id, user, name)
+            if mkey is None:
+                self._json_response(403, {"error": "сначала поставь метку на карте"})
+                return
+            marker = geo_state.get(chat_id, {}).get(mkey) or {}
+            tid = marker.get("tid")
+            if not tid:
+                self._json_response(403, {"error": "нужна метка, привязанная к аккаунту Telegram"})
+                return
+            if marker.get("diamonds", 0) < SPONSOR_COST_DIAMONDS:
+                self._json_response(403, {"error":
+                    f"нужно {SPONSOR_COST_DIAMONDS} 💎 измир(а), а у тебя {marker.get('diamonds', 0)}"})
+                return
+            marker["diamonds"] = marker.get("diamonds", 0) - SPONSOR_COST_DIAMONDS
+            diamonds_left = marker["diamonds"]
+            until = max(now, sponsor_until(chat_id, tid)) + SPONSOR_DAYS * 86400
+            sponsors_state[f"{chat_id}|{tid}"] = {"until": until}
+        geo_save_to_github()       # вне geo_lock: сохранение само берёт блокировку
+        meteor_save_to_github()    # спонсоры живут в meteor.json
+        until_txt = datetime.datetime.fromtimestamp(until, MSK_TZ).strftime("%d.%m")
+        who = geo_mention(chat_id, mkey, name or "игрок")
+        try:
+            tg_send_message_id(
+                chat_id,
+                f"💎 {who} — спонсор измерения до {until_txt}! "
+                f"Метка, остров и корабль сияют на карте ✨",
+                html_mode=True,
+            )
+        except Exception as e:
+            print(f"[paint_bot] анонс спонсора не ушёл: {e!r}", flush=True)
+        logline(f"200 /sponsor chat={chat_id} user={mkey!r} until={until_txt}")
+        self._json_response(200, {"ok": True, "until": int(until), "diamonds": diamonds_left})
 
     def _handle_walker_dig_post(self) -> None:
         """КЛАДОИСКАТЕЛЬ: ⛏️ Копать — кнопка на месте клада (видна в радиусе 30 км).
