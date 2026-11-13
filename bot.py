@@ -1312,9 +1312,9 @@ def walker_bearing_deg(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     return (math.degrees(math.atan2(y, x)) + 360.0) % 360.0
 
 
-# ---------- Поиск клада: клад на суше России, подсказки каждые 12 ч, жизнь 7 дней ----------
+# ---------- Поиск клада: клад на суше России, подсказки каждые 12 ч, жизнь 3 дня ----------
 KLAD_FILE = "klad.json"
-KLAD_LIFE_SEC = 7 * 86400          # неделя — потом сгорает и зарывается новый
+KLAD_LIFE_SEC = 3 * 86400          # 3 дня — потом сгорает и зарывается новый
 KLAD_HINT_STEP_SEC = 8 * 3600      # свежая подсказка каждые 8 часов (чат + кнопка 🧩)
 KLAD_FIND_KM = 30.0                # радиус находки от зарытой точки
 klad_state = {}
@@ -1468,7 +1468,7 @@ def klad_on_arrival(chat_id: int, mkey: str, w: dict) -> bool:
 
 
 async def klad_sweep_job(context) -> None:
-    """Клад: сгорел (7 дней) — новый; появилась свежая подсказка — анонс в чат."""
+    """Клад: сгорел (3 дня) — новый; появилась свежая подсказка — анонс в чат."""
     now = time.time()
     with klad_lock:
         items = [(c, e) for c, e in klad_state.items() if e]
@@ -3466,7 +3466,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-13-1459"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-13-1507"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -9138,7 +9138,7 @@ def main() -> None:
     app.job_queue.run_repeating(geo_sweep_job, interval=60.0, first=45.0)
     # сага: слезливое напоминание, если 8ч никто не пишет главу (сага не начата — молчим)
     app.job_queue.run_repeating(saga_nag_job, interval=1800.0, first=120.0)
-    # клад: сгорел (7 дней) — новый; появилась подсказка (каждые 12 ч) — анонс в чат
+    # клад: сгорел (3 дня) — новый; появилась подсказка (каждые 12 ч) — анонс в чат
     app.job_queue.run_repeating(klad_sweep_job, interval=3600.0, first=300.0)
     # «Быки и коровы»: таймеры истечения вызовов, переживших рестарт (Job не сериализуется)
     for cid in bc_restore_timers:
