@@ -1430,7 +1430,7 @@ def klad_on_arrival(chat_id: int, mkey: str, w: dict) -> bool:
             return False
         with geo_lock:
             marker = geo_state.get(chat_id, {}).get(mkey) or {}
-            marker["diamonds"] = marker.get("diamonds", 0) + 10  # награда за клад — только измиры
+            marker["diamonds"] = marker.get("diamonds", 0) + 5  # награда за клад — только измиры
             name = marker.get("name") or mkey
             tid = marker.get("tid")
             # находка кормит всех: у кого еды меньше 3 — снова по 3 единицам
@@ -1466,7 +1466,7 @@ def klad_on_arrival(chat_id: int, mkey: str, w: dict) -> bool:
     try:
         who = tg_mention(int(tid), name) if tid else name
         tg_send_message_id(chat_id,
-            f"🏴‍☠️ <b>{who}</b> нашёл КЛАД! В сумке: +10 💎 измиров. "
+            f"🏴‍☠️ <b>{who}</b> нашёл КЛАД! В сумке: +5 💎 измиров. "
             "Старый клад выкопан — на карте зарыт НОВЫЙ, поиск начался заново!"
             + (f" Находка отмечена пиром: у всех кладоискателей с едой меньше 3 — снова по 3 🍖 ({fed})! "
                f"Все человечки полны сил ⚡ и всех доставили к вокзалу Новосибирска 🚉 — новый клад, новый старт!"
@@ -3535,7 +3535,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-13-2148"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-13-2157"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
