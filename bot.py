@@ -136,6 +136,10 @@ poops_state = {}
 #          "start_ts","arrived","arrived_ts","opened","picture"}} — подарки летят со скоростью какашек.
 submarine_state = {}
 gifts_state = {}
+# Доставленный, но неоткрытый подарок открывается сам через сутки —
+# чтобы иконка подарка не висела на метке адресата неделями (2026-11-13).
+# Отсчёт — с момента доставки (arrived_ts; для старых записей без него — с start_ts).
+GIFT_AUTOOPEN_SEC = 24 * 3600
 
 # Репозиторий для данных (не трогать main — иначе каждая запись будет триггерить автодеплой Render)
 GEO_REPO = "dbosrsov-cyber/paint-bot-data"
@@ -2332,6 +2336,40 @@ def apply_marker_owner_8426_7595_2026_11_11() -> None:
     meteor_save_to_github()
 
 
+def apply_apollo_letters_deliver_2026_11_13() -> None:
+    """Разовый (2026-11-13): доставить адресатам все письма Аполло (tid 7595084617,
+    прежний ключ 8426689700), застрявшие в пути. Без уведомлений в чат — письма
+    просто падают в ящики адресатов (got+1), уведомления при доставке не требуются."""
+    tag = "apollo_letters_deliver_2026-11-13"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    chat = -1002304715333
+    now = time.time()
+    with geo_lock:
+        markers = geo_state.get(chat) or {}
+        mkey = next((k for k, m in markers.items()
+                     if str(m.get("tid") or "") == "7595084617"), None)
+        if mkey is None and "8426689700" in markers:
+            mkey = "8426689700"
+        delivered = 0
+        if mkey is not None:
+            for letter in letters_state.values():
+                if (letter.get("chat") == chat and letter.get("from") == mkey
+                        and not letter.get("arrived")):
+                    letter["arrived"] = True
+                    letter["arrived_ts"] = now
+                    dest = markers.get(letter["to"])
+                    if dest is not None:
+                        dest["got"] = dest.get("got", 0) + 1
+                    delivered += 1
+        if delivered:
+            letters_save_to_github()
+            geo_save_to_github()
+        logline(f"apollo letters: доставлено {delivered}")
+    meteor_save_to_github()
+
+
 def apply_klad_land8h_nsk_2026_11_10() -> None:
     """Разовый (2026-11-10, вечер): перезарыть клад «Другого измерения» со строгой
     проверкой суши (3×3 клетки — точно не в проливе), подсказки переведены на шаг 8ч,
@@ -3497,7 +3535,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-13-1656"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-13-2148"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -5375,6 +5413,15 @@ class AppHandler(BaseHTTPRequestHandler):
                             )
                         except Exception as e:
                             print(f"[paint_bot] уведомление о подарке не ушло: {e!r}", flush=True)
+                    # автооткрытие: доставленный подарок старше суток открывается сам
+                    # (без уведомления — уведомление было при доставке); маркер снимается
+                    if gift["arrived"] and not gift.get("opened"):
+                        anchor = gift.get("arrived_ts") or gift.get("start_ts") or now
+                        if now - anchor >= GIFT_AUTOOPEN_SEC:
+                            gift["opened"] = True
+                            gift["picture"] = random.choice(GIFT_PICS)
+                            changed = True
+                            submarine_save_to_github()
                     if gift["arrived"] and gift.get("opened"):
                         continue  # открытый подарок живёт в инфо адресата, маркер снят
                     gifts_out.append({
@@ -9170,6 +9217,7 @@ def main() -> None:
     apply_sumai_pm_to_klad_2026_11_10()
     apply_klad_land8h_nsk_2026_11_10()
     apply_marker_owner_8426_7595_2026_11_11()
+    apply_apollo_letters_deliver_2026_11_13()
     # разовая уборка затонувших при старте, если сегодня ещё не убирались —
     # сразу выполняет «очисти все затонувшие корабли», дальше работает расписание 00:01
     if wreck_cleanup_last_day() != datetime.datetime.now(MSK_TZ).strftime("%Y-%m-%d"):
