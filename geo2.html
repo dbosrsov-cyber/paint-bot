@@ -72,6 +72,15 @@
   .modal-card .btn-cancel { background:var(--hint); color:#fff; }
   .dark-ui .modal-card { background: rgba(15,23,32,.93); backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px); border-color: rgba(125,211,252,.18); color:#e8f1f8; }
+  /* спонсорство измерения: пульсирующее свечение вокруг метки/острова/корабля */
+  .sponsor-halo { display:inline-block; border-radius:50%; padding:7px;
+    animation: spGlow 2.2s ease-in-out infinite; }
+  @keyframes spGlow {
+    0%, 100% { box-shadow: 0 0 6px 2px rgba(45,212,191,.35), 0 0 18px 6px rgba(45,212,191,.18); }
+    50%      { box-shadow: 0 0 12px 5px rgba(45,212,191,.65), 0 0 30px 12px rgba(45,212,191,.35); }
+  }
+  .mini-btn { margin-top:6px; padding:7px 10px; border-radius:12px; border:none; cursor:pointer;
+    background:var(--hint); color:#fff; font-size:13px; font-family:inherit; }
   /* тонкая строка ника под картой */
   .namebar { padding:2px 10px; }
   /* джойстик и пульт Сифы */
@@ -300,6 +309,16 @@
     <div style="display:flex;gap:10px;">
       <button id="walkerExitYes" style="flex:1;padding:10px;border-radius:12px;font-size:15px;cursor:pointer;">Да</button>
       <button id="walkerExitNo" class="btn-cancel" style="flex:1;padding:10px;border-radius:12px;font-size:15px;cursor:pointer;border:none;">Нет</button>
+    </div>
+  </div>
+</div>
+<div id="sponsorModal" class="modal" style="display:none;">
+  <div class="modal-card" style="text-align:center;">
+    <div style="font-size:16px;margin-bottom:6px;">💎 Спонсорство измерения</div>
+    <div style="font-size:13px;color:#888;margin-bottom:14px;">3 измира — 3 дня подсветки твоей метки, острова и корабля на карте ✨</div>
+    <div style="display:flex;gap:10px;">
+      <button id="sponsorYes" style="flex:1;padding:10px;border-radius:12px;font-size:15px;cursor:pointer;">Да, списать 💎</button>
+      <button id="sponsorNo" class="btn-cancel" style="flex:1;padding:10px;border-radius:12px;font-size:15px;cursor:pointer;border:none;">Нет</button>
     </div>
   </div>
 </div>
@@ -765,9 +784,10 @@
     animalsBar.appendChild(b);
   });
 
-  function animalIcon(emoji) {
+  function animalIcon(emoji, sp) {
+    const inner = '<div class="mk" style="font-size:28px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))">' + emoji + '</div>';
     return L.divIcon({
-      html: '<div class="mk" style="font-size:28px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))">' + emoji + '</div>',
+      html: sp ? '<div class="sponsor-halo">' + inner + '</div>' : inner,
       className: 'emoji-marker',
       iconSize: [36, 36], iconAnchor: [18, 18], popupAnchor: [0, -14],
     });
@@ -775,7 +795,7 @@
 
   function renderMarker(m) {
     const emoji = m.icon || '📍';
-    const mk = L.marker([m.lat, m.lon], {icon: animalIcon(emoji)}).addTo(map);
+    const mk = L.marker([m.lat, m.lon], {icon: animalIcon(emoji, m.sponsor)}).addTo(map);
     let html = '<span style="font-size:22px">' + emoji + '</span> <b>' + escapeHtml(m.name) + '</b><br>'
       + m.lat.toFixed(3) + ', ' + m.lon.toFixed(3);
     // локальное время: по долготе от Москвы; у некоторых меток — своя «родная» зона
@@ -804,6 +824,14 @@
         + '<br><br>💎 мои Измиры: <b>' + (m.diamonds || 0) + '</b>'
         + '<br>☄️ моя ЗвезднаяПыль: <b>' + (m.zp || 0) + '</b>'
         + '<br>💩 мои Какашки: <b>' + (m.poops || 0) + '</b>';
+      if (m.sponsor_until) {
+        mySponsorUntil = m.sponsor_until;
+        html += '<br>💎 Спонсор измерения до <b>'
+          + new Date(m.sponsor_until * 1000).toLocaleDateString('ru-RU') + '</b> ✨';
+      } else {
+        html += '<br><button class="mini-btn" onclick="window.sponsorAsk()">'
+          + '💎 Спонсор измерения — 3 измира / 3 дня</button>';
+      }
       const myIsl = (lastIslands || []).find(i => (i.owners || [i.owner]).indexOf(myKey()) >= 0);
       if (myIsl) {
         html += '<br>🏝️ мой остров: <b>' + escapeHtml(myIsl.name) + '</b> (уровень '
@@ -1379,10 +1407,11 @@
     shipyard: ['⚓', 'Верфь', 3, 0, 0, 30],
   };
 
-  function islandIcon() {
+  function islandIcon(sp) {
     // размер — как у вулкана: остров должен быть заметен на карте
+    const inner = '<div class="mk" style="font-size:56px;line-height:1;filter:drop-shadow(0 2px 3px rgba(0,0,0,.5))">🏝️</div>';
     return L.divIcon({
-      html: '<div class="mk" style="font-size:56px;line-height:1;filter:drop-shadow(0 2px 3px rgba(0,0,0,.5))">🏝️</div>',
+      html: sp ? '<div class="sponsor-halo">' + inner + '</div>' : inner,
       className: 'emoji-marker',
       iconSize: [72, 72], iconAnchor: [36, 36], popupAnchor: [0, -40],
     });
@@ -1400,7 +1429,7 @@
     });
   }
   function renderIsland(isl) {
-    const mk = L.marker([isl.lat, isl.lon], {icon: islandIcon()}).addTo(map);
+    const mk = L.marker([isl.lat, isl.lon], {icon: islandIcon(isl.sponsor)}).addTo(map);
     const built = isl.buildings || [];
     let html = (isl.mine
         ? '<button onclick="delIsland()" title="Удалить остров" style="background:#c0392b;padding:0 7px;font-size:14px;">🗑</button> '
@@ -1510,14 +1539,15 @@
   window.openIslandCard = openIslandCard;
 
   // ---------- Корабли (Галеоны): маркеры, постройка, плавание, абордаж ----------
-  function shipIcon(sunk) {
+  function shipIcon(sunk, sp) {
     return L.icon({iconUrl: '/shipimg' + (sunk ? '?sunk=1' : ''),
       iconSize: sunk ? [28, 28] : [56, 56],
       iconAnchor: sunk ? [14, 14] : [28, 28],
-      popupAnchor: [0, -26]});
+      popupAnchor: [0, -26],
+      className: sp ? 'sponsor-halo' : ''});
   }
   function renderShip(s) {
-    const mk = L.marker([s.lat, s.lon], {icon: shipIcon(s.sunk)}).addTo(map);
+    const mk = L.marker([s.lat, s.lon], {icon: shipIcon(s.sunk, s.sponsor)}).addTo(map);
     let html = s.sunk
       ? '<span style="font-size:22px">🪦</span> <b>Галеон капитана ' + escapeHtml(s.name) + '</b>'
         + '<br>потоплен… кораллы уже обживают палубу'
@@ -2842,6 +2872,28 @@
     if (walkerOn) walkerExit();
   };
   document.getElementById('walkerExitNo').onclick = () => { walkerExitModal.style.display = 'none'; };
+
+  // ---------- Спонсорство измерения: 3 💎 -> 3 дня подсветки ----------
+  let mySponsorUntil = 0;
+  const sponsorModal = document.getElementById('sponsorModal');
+  window.sponsorAsk = () => { sponsorModal.style.display = 'flex'; };
+  document.getElementById('sponsorNo').onclick = () => { sponsorModal.style.display = 'none'; };
+  document.getElementById('sponsorYes').onclick = () => {
+    sponsorModal.style.display = 'none';
+    fetch('/sponsor', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chat: chat, user: myKey(), name: userName()})
+    }).then(r => r.json().catch(() => ({})).then(d => {
+      if (r.ok && d.ok) {
+        mySponsorUntil = d.until;
+        status('💎 Ты — спонсор измерения до '
+          + new Date(d.until * 1000).toLocaleDateString('ru-RU') + '! ✨');
+        load();
+      } else {
+        status('⚠️ ' + (d.error || 'не вышло оформить спонсорство'));
+      }
+    })).catch(() => status('⚠️ сеть недоступна'));
+  };
   // подсказки по кладу: объекты {off, text} — off = через сколько секунд от закладки
   window.walkerDoHints = () => {
     if (!walkerKladHints.length) return;
@@ -3080,7 +3132,12 @@
       + '<br>🎁 Подарки: ' + ((me.gift_pics && me.gift_pics.length)
         ? me.gift_pics.join(' ') + ' • <b>' + (me.gift_pics.length * 2) + '</b> эмодзи'
         : '<i>пока нет</i>')
-      + '<br>🏝️ Сувениры: ' + ((me.souvenirs && me.souvenirs.length) ? me.souvenirs.join(' ') : '<i>пока нет</i>');
+      + '<br>🏝️ Сувениры: ' + ((me.souvenirs && me.souvenirs.length) ? me.souvenirs.join(' ') : '<i>пока нет</i>')
+      + (me.sponsor_until
+          ? '<br><br>💎 Спонсор измерения до <b>'
+            + new Date(me.sponsor_until * 1000).toLocaleDateString('ru-RU') + '</b> ✨'
+          : '<br><br><button class="mini-btn" onclick="window.sponsorAsk()">'
+            + '💎 Спонсор измерения — 3 измира / 3 дня</button>');
     chestModal.style.display = 'flex';
   };
   document.getElementById('chestCloseBtn').onclick = () => { chestModal.style.display = 'none'; };
