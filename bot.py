@@ -3466,7 +3466,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-13-1415"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-13-1459"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -6316,7 +6316,7 @@ class AppHandler(BaseHTTPRequestHandler):
                     self._json_response(200, {"ok": False, "error": "клада сейчас нет — не пахнет"})
                     return
                 km = haversine_km(w["lat"], w["lon"], entry["lat"], entry["lon"])
-                if 30.0 <= km <= 80.0:
+                if 10.0 <= km <= 30.0:
                     w["sniff_arrow"] = {"deg": round(walker_bearing_deg(
                         w["lat"], w["lon"], entry["lat"], entry["lon"]), 1), "ts": now}
                 else:
