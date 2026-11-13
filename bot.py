@@ -714,6 +714,19 @@ def apply_sumai_wreck_east6000() -> None:
         logline(f"wreck Sumai east 6000 km -> lon {wr['lon']}")
     meteor_save_to_github()
 
+def apply_apollo_marker_saratov() -> None:
+    """Разовый перенос (2026-11-13): метка владельца 7595084617 (Аполло) — в Саратов."""
+    tag = "apollo_marker_saratov_2026-11-13"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    marker = geo_state.get(-1002304715333, {}).get("8426689700")
+    if marker is not None and str(marker.get("tid")) == "7595084617":
+        marker["lat"], marker["lon"] = 51.533562, 46.034266
+        logline("apollo marker -> Saratov (51.533562, 46.034266)")
+    geo_save_to_github()
+    meteor_save_to_github()
+
 def apply_ship_teleport_sumai() -> None:
     """Разовая телепортация: потопленный Галеон Sumai ровно на 10000 км западнее
     точки боя (убрать наложение на корабль ПМ). Координаты абсолютные."""
@@ -3435,7 +3448,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-12-1645"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-13-1200"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -8976,6 +8989,7 @@ def main() -> None:
     apply_andrey_island_rename()
     apply_walker_reloc_2026_11_09()
     apply_sumai_walker_bryansk_2026_11_10()
+    apply_apollo_marker_saratov()
     apply_regen_klad_2026_11_10()
     apply_klad_rebury_walkers_2026_11_10()
     apply_pm_food3_murmansk_2026_11_10()
