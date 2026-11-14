@@ -2370,6 +2370,28 @@ def apply_apollo_letters_deliver_2026_11_13() -> None:
     meteor_save_to_github()
 
 
+def apply_sifa_pm_open_water_2026_11_14() -> None:
+    """Разовый (2026-11-14): касатка ПМ застряла на суше (~55.1/-110.0, Канада) —
+    телепорт в случайную точку открытой воды внутри области игры (та же функция,
+    что расставляет касаток при спавне)."""
+    tag = "sifa_pm_open_water_2026-11-14"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    with sifa_lock:
+        entry = sifa_state.get(-1002304715333) or {}
+        pm = (entry.get("ships") or {}).get("ПМ")
+        if pm is not None:
+            lat, lon = sifa_random_water(entry.get("area"))
+            pm["lat"], pm["lon"] = round(lat, 6), round(lon, 6)
+            pm["ts"] = time.time()
+            sifa_save_to_github(force=True)
+            logline(f"sifa: касатка ПМ -> открытая вода {lat:.2f}/{lon:.2f}")
+        else:
+            logline("sifa: касатка ПМ не найдена")
+    meteor_save_to_github()
+
+
 def apply_klad_land8h_nsk_2026_11_10() -> None:
     """Разовый (2026-11-10, вечер): перезарыть клад «Другого измерения» со строгой
     проверкой суши (3×3 клетки — точно не в проливе), подсказки переведены на шаг 8ч,
@@ -3535,7 +3557,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-13-2157"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-14-1555"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -9218,6 +9240,7 @@ def main() -> None:
     apply_klad_land8h_nsk_2026_11_10()
     apply_marker_owner_8426_7595_2026_11_11()
     apply_apollo_letters_deliver_2026_11_13()
+    apply_sifa_pm_open_water_2026_11_14()
     # разовая уборка затонувших при старте, если сегодня ещё не убирались —
     # сразу выполняет «очисти все затонувшие корабли», дальше работает расписание 00:01
     if wreck_cleanup_last_day() != datetime.datetime.now(MSK_TZ).strftime("%Y-%m-%d"):
