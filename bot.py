@@ -3557,7 +3557,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-14-1555"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-14-2057"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -9075,11 +9075,24 @@ async def cmd_anon_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def on_anon_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """ЛС с ботом: релей анонимных сообщений в «Другое измерение» (block=False — не мешает другим играм)."""
+    """ЛС с ботом: релей анонимных сообщений в «Другое измерение».
+
+    ВАЖНО: в PTB обрабатывается не более ОДНОГО хендлера на группу (break в
+    process_update) — block=False лишь не ждёт завершения. Этот хендлер стоит
+    раньше on_text, поэтому в ЛС он перехватывает ВСЕ тексты: активные игровые
+    ходы (ch1234, «saga …») явно отдаём в on_text, остальное едет в релей."""
     msg = update.effective_message
     user = update.effective_user
     if user is None or msg is None:
         return
+    if msg.text:
+        t = msg.text.strip().lower()
+        game_move = (parse_ch(msg.text) is not None
+                     and ((msg.chat_id, user.id) in solo_games or msg.chat_id in duels))
+        saga_ch = t.startswith(SAGA_PREFIX + " ") and msg.chat_id in saga_state
+        if game_move or saga_ch:
+            await on_text(update, context)
+            return
     if user.id not in anon_mode:
         return
     if anon_blocked:
@@ -9275,7 +9288,9 @@ def main() -> None:
     app.add_handler(CommandHandler(["anonOFF", "anonoff"], cmd_anon_off))
     app.add_handler(CommandHandler(["anonstop", "anonStop"], cmd_anon_stop))
     app.add_handler(CommandHandler(["anonstart", "anonStart"], cmd_anon_start))
-    # анонимный режим: ЛС с ботом -> «Другое измерение» (block=False — не перебивает другие игры)
+    # анонимный режим: ЛС с ботом -> «Другое измерение». В ЛС перехватывает все
+    # тексты раньше on_text (1 хендлер на группу!) — игровые ходы внутри него
+    # делегируются в on_text, см. докстринг on_anon_dm
     app.add_handler(MessageHandler(filters.ChatType.PRIVATE & ~filters.COMMAND, on_anon_dm, block=False))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.job_queue.run_repeating(process_paint_updates, interval=1.0)
