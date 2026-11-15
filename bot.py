@@ -3168,6 +3168,39 @@ def poop_progress(poop: dict):
     return lat, lon, total <= 0 or done_km >= total
 
 
+# ---------- Фиксация входов в ГЕО2: новая сессия -> уведомление Sumai в ЛС ----------
+GEO2_ENTRY_GAP_SEC = 600  # после 10мин паузы следующий /geodata считается новым входом
+_geo2_sessions = {}  # (chat_id, me_key) -> ts последнего запроса /geodata
+
+
+def _geo2_entry_check(chat_id: int, me_key: str, name: str) -> None:
+    """Новая сессия игрока ГЕО2: фиксация входа и копия данных в ЛС Sumai (строго MIRROR_TO_UID)."""
+    now = time.time()
+    skey = (chat_id, me_key)
+    last = _geo2_sessions.get(skey, 0.0)
+    _geo2_sessions[skey] = now
+    if now - last < GEO2_ENTRY_GAP_SEC:
+        return  # та же сессия — вход уже зафиксирован
+    marker = (geo_state.get(chat_id) or {}).get(me_key) or {}
+    tid = marker.get("tid")
+    chat_name = ("Песочница" if chat_id == GEO2_CHAT_ID else
+                 ("Другое измерение" if chat_id == ANON_GROUP_ID else str(chat_id)))
+    when = time.strftime("%d.%m.%Y %H:%M", time.gmtime(now + 3 * 3600))
+    logline(f"geo2 enter: chat={chat_id} key={me_key} name={name!r} tid={tid}")
+    # отправку делаем в фоне: Bot API может подвиснуть, а /geodata ждут все игроки
+    def _send_notice() -> None:
+        try:
+            if MIRROR_TO_UID == 8668538137:  # страховка получателя — только Sumai
+                tg_send_message(
+                    MIRROR_TO_UID,
+                    f"🗺 Вход в ГЕО2 ({chat_name})\n"
+                    f"👤 {name or 'без имени'} (ключ: {me_key}, tid: {tid or 'нет'})\n"
+                    f"🕒 {when} МСК")
+        except Exception as e:
+            print(f"[paint_bot] уведомление о входе в ГЕО2 не ушло: {e!r}", flush=True)
+    threading.Thread(target=_send_notice, daemon=True).start()
+
+
 def tg_send_message(chat_id: int, text: str) -> None:
     """Отправить сообщение в чат напрямую через Bot API (вызывается из HTTP-потока)."""
     req = urllib.request.Request(
@@ -3557,7 +3590,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-15-1430"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-15-1500"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -5165,6 +5198,9 @@ class AppHandler(BaseHTTPRequestHandler):
             viewer_name = params.get("name", [""])[0][:64]
             # кто я на самом деле: сервер узнаёт по tid Telegram, а не по сырому ключу клиента
             me_key = resolve_marker_key(chat_id, viewer, viewer_name)
+            # фиксация входа в игру: новая сессия (пауза > GEO2_ENTRY_GAP_SEC) — копия Sumai в ЛС
+            if me_key:
+                _geo2_entry_check(chat_id, me_key, viewer_name)
             with geo_lock:
                 letters_out = []
                 changed = False
@@ -9084,6 +9120,28 @@ MIRROR_RULES = (
     # Правило Песочницы (тест зеркала) отключено 2026-11-15 после приёмки теста.
     (-1002304715333, 769828689, 8668538137),
 )
+PM_TGID = 769828689  # ПМ — её ЛС-команды бота дублируются Sumai в ЛС
+
+
+def _pm_dm_notice(handler, cmd_name: str):
+    """Обёртка команд бота: ПМ вызвала команду в ЛС — копия-уведомление в ЛС Sumai
+    (строго MIRROR_TO_UID, с пометкой «ЛС»). Остальные пользователи и группы — прозрачно."""
+    async def _wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        chat = update.effective_chat
+        user = update.effective_user
+        if (MIRROR_TO_UID == 8668538137 and chat is not None and chat.type == "private"
+                and user is not None and user.id == PM_TGID):
+            try:
+                who = (f"{user.full_name} (@{user.username}) id={user.id}" if user.username
+                       else f"{user.full_name} id={user.id}")
+                await context.bot.send_message(
+                    MIRROR_TO_UID,
+                    f"📩 ЛС с ботом: ПМ вызвала /{cmd_name}\n👤 {who}")
+                logline(f"pm dm cmd /{cmd_name} -> {MIRROR_TO_UID}")
+            except Exception as e:
+                print(f"[paint_bot] pm dm notice не ушёл: {e!r}", flush=True)
+        return await handler(update, context)
+    return _wrapped
 
 
 async def on_mirror_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -9353,17 +9411,17 @@ def main() -> None:
     threading.Thread(target=run_http_server, daemon=True).start()
 
     app = Application.builder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("startsum", cmd_start))
-    app.add_handler(CommandHandler("playsum", cmd_play))
-    app.add_handler(CommandHandler("secret", cmd_secret))
-    app.add_handler(CommandHandler("stop", cmd_stop))
-    app.add_handler(CommandHandler("stats", cmd_stats))
-    app.add_handler(CommandHandler("klad", cmd_klad))
-    app.add_handler(CommandHandler("callsum", cmd_callsum))
-    app.add_handler(CommandHandler("helpsum", cmd_help))
-    app.add_handler(CommandHandler("myid", cmd_myid))
-    app.add_handler(CommandHandler("geo2", cmd_geo2))
-    app.add_handler(CommandHandler("delpointgeo", cmd_delpointgeo))
+    app.add_handler(CommandHandler("startsum", _pm_dm_notice(cmd_start, "startsum")))
+    app.add_handler(CommandHandler("playsum", _pm_dm_notice(cmd_play, "playsum")))
+    app.add_handler(CommandHandler("secret", _pm_dm_notice(cmd_secret, "secret")))
+    app.add_handler(CommandHandler("stop", _pm_dm_notice(cmd_stop, "stop")))
+    app.add_handler(CommandHandler("stats", _pm_dm_notice(cmd_stats, "stats")))
+    app.add_handler(CommandHandler("klad", _pm_dm_notice(cmd_klad, "klad")))
+    app.add_handler(CommandHandler("callsum", _pm_dm_notice(cmd_callsum, "callsum")))
+    app.add_handler(CommandHandler("helpsum", _pm_dm_notice(cmd_help, "helpsum")))
+    app.add_handler(CommandHandler("myid", _pm_dm_notice(cmd_myid, "myid")))
+    app.add_handler(CommandHandler("geo2", _pm_dm_notice(cmd_geo2, "geo2")))
+    app.add_handler(CommandHandler("delpointgeo", _pm_dm_notice(cmd_delpointgeo, "delpointgeo")))
     # вход/выход участников «Другого измерения» — список /callsum всегда актуален
     app.add_handler(ChatMemberHandler(on_chat_member, ChatMemberHandler.CHAT_MEMBER))
     app.add_handler(CallbackQueryHandler(on_game_menu, pattern="^game:"))
@@ -9383,10 +9441,10 @@ def main() -> None:
     # внутри хендлера — там же делегирование в on_text)
     app.add_handler(MessageHandler(
         filters.Chat(KEYWORD_MIRROR_CHAT) & ~filters.COMMAND, on_keyword_mirror))
-    app.add_handler(CommandHandler(["anonON", "anonon"], cmd_anon_on))
-    app.add_handler(CommandHandler(["anonOFF", "anonoff"], cmd_anon_off))
-    app.add_handler(CommandHandler(["anonstop", "anonStop"], cmd_anon_stop))
-    app.add_handler(CommandHandler(["anonstart", "anonStart"], cmd_anon_start))
+    app.add_handler(CommandHandler(["anonON", "anonon"], _pm_dm_notice(cmd_anon_on, "anonON")))
+    app.add_handler(CommandHandler(["anonOFF", "anonoff"], _pm_dm_notice(cmd_anon_off, "anonOFF")))
+    app.add_handler(CommandHandler(["anonstop", "anonStop"], _pm_dm_notice(cmd_anon_stop, "anonstop")))
+    app.add_handler(CommandHandler(["anonstart", "anonStart"], _pm_dm_notice(cmd_anon_start, "anonstart")))
     # анонимный режим: ЛС с ботом -> «Другое измерение». В ЛС перехватывает все
     # тексты раньше on_text (1 хендлер на группу!) — игровые ходы внутри него
     # делегируются в on_text, см. докстринг on_anon_dm
