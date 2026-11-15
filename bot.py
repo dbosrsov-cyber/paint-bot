@@ -3557,7 +3557,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-14-2057"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-15-1352"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -9074,6 +9074,46 @@ async def cmd_anon_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await update.message.reply_text("\U0001F576️ Анонимный режим разблокирован.")
 
 
+# ---------- Зеркало сообщений: копии выбранных сообщений в ЛС Sumai ----------
+# Правила (chat_id, from_uid, to_uid): каждое новое сообщение от from_uid в чате
+# chat_id копируется в ЛС to_uid. Копии уходят СТРОГО только MIRROR_TO_UID —
+# это жёстко проверяется в обработчике, другие получатели невозможны.
+MIRROR_TO_UID = 8668538137  # Sumai — единственный разрешённый получатель копий
+MIRROR_RULES = (
+    # ТЕСТ: Песочница GEO2 — сообщения Sumai копируются в ЛС Sumai.
+    # После приёмки теста сюда добавляется правило «Другое измерение»: от ПМ (769828689).
+    (-1004400745434, 8668538137, 8668538137),
+)
+
+
+async def on_mirror_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Зеркало: тихая копия сообщения из чата в ЛС Sumai (без реакции в чате)."""
+    msg = update.effective_message
+    user = update.effective_user
+    if msg is None or user is None:
+        return
+    for chat_id, from_uid, to_uid in MIRROR_RULES:
+        if update.effective_chat.id != chat_id or user.id != from_uid:
+            continue
+        if to_uid != MIRROR_TO_UID:  # страховка: никому, кроме Sumai, копии не уходят
+            continue
+        try:
+            await context.bot.copy_message(chat_id=to_uid, from_chat_id=msg.chat_id,
+                                           message_id=msg.message_id)
+            logline(f"mirror: chat={chat_id} from={from_uid} -> {to_uid} mid={msg.message_id}")
+        except Exception as e:
+            print(f"[paint_bot] mirror не смог скопировать mid={msg.message_id}: {e!r}", flush=True)
+        # игровые ходы не глотаем: отдаём в on_text (как в анон-релее)
+        if msg.text:
+            t = msg.text.strip().lower()
+            game_move = (parse_ch(msg.text) is not None
+                         and ((msg.chat_id, user.id) in solo_games or msg.chat_id in duels))
+            saga_ch = t.startswith(SAGA_PREFIX + " ") and msg.chat_id in saga_state
+            if game_move or saga_ch:
+                await on_text(update, context)
+        break
+
+
 async def on_anon_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """ЛС с ботом: релей анонимных сообщений в «Другое измерение».
 
@@ -9284,6 +9324,12 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(on_stop_choice, pattern="^stop:"))
     app.add_handler(CallbackQueryHandler(on_bc_history, pattern="^bc_hist:"))
     app.add_handler(ChatMemberHandler(on_my_chat_member, chat_member_types=ChatMemberHandler.MY_CHAT_MEMBER))
+    # зеркало сообщений в ЛС Sumai: узкий фильтр (чат + отправитель), строго до
+    # on_anon_dm/on_text — в PTB первый подошедший хендлер группы забирает апдейт
+    for m_chat, m_from, m_to in MIRROR_RULES:
+        app.add_handler(MessageHandler(
+            filters.Chat(m_chat) & filters.User(m_from) & ~filters.COMMAND,
+            on_mirror_message))
     app.add_handler(CommandHandler(["anonON", "anonon"], cmd_anon_on))
     app.add_handler(CommandHandler(["anonOFF", "anonoff"], cmd_anon_off))
     app.add_handler(CommandHandler(["anonstop", "anonStop"], cmd_anon_stop))
