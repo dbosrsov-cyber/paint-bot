@@ -3557,7 +3557,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-15-1406"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-15-1430"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -9114,6 +9114,41 @@ async def on_mirror_message(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         break
 
 
+# ---------- Зеркало по ключевым словам («Другое измерение» -> ЛС Sumai) ----------
+# Каждое новое сообщение чата, содержащее ключевые слова (текст или подпись к медиа),
+# копируется в ЛС MIRROR_TO_UID (строго 8668538137) с указанием автора.
+KEYWORD_MIRROR_CHAT = -1002304715333  # «Другое измерение»
+# регистронезависимо: sumai — вхождение в слово; «сум» — слова на «сум»;
+# леша/леха/лёша/лёха — Е и Ё трактуются как одна буква ([её])
+KEYWORD_MIRROR_RE = re.compile(r"(?i)sumai|\bсум\w*|\bл[её]ха?\b")
+
+
+async def on_keyword_mirror(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Зеркало упоминаний: копия сообщения с ключевыми словами в ЛС Sumai (с автором).
+
+    Фильтр широкий (весь чат) — поэтому ВСЕ сообщения делегируем в on_text,
+    чтобы игровые ходы (saga, ch1234) и прочее работали как раньше."""
+    msg = update.effective_message
+    user = update.effective_user
+    text = (msg.text or "") if msg else ""
+    if not text and msg and msg.caption:
+        text = msg.caption
+    if text and KEYWORD_MIRROR_RE.search(text) and user is not None:
+        try:
+            if MIRROR_TO_UID == 8668538137:  # страховка получателя — только Sumai
+                who = (f"{user.full_name} (@{user.username}) id={user.id}" if user.username
+                       else f"{user.full_name} id={user.id}")
+                await context.bot.send_message(
+                    MIRROR_TO_UID,
+                    f"🔎 Упоминание в «Другом измерении» от {who}:")
+                await context.bot.copy_message(chat_id=MIRROR_TO_UID, from_chat_id=msg.chat_id,
+                                               message_id=msg.message_id)
+                logline(f"kw mirror -> {MIRROR_TO_UID} uid={user.id} mid={msg.message_id}")
+        except Exception as e:
+            print(f"[paint_bot] kw mirror не смог скопировать mid={msg.message_id}: {e!r}", flush=True)
+    await on_text(update, context)
+
+
 async def on_anon_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """ЛС с ботом: релей анонимных сообщений в «Другое измерение».
 
@@ -9344,6 +9379,10 @@ def main() -> None:
         app.add_handler(MessageHandler(
             filters.Chat(m_chat) & filters.User(m_from) & ~filters.COMMAND,
             on_mirror_message))
+    # зеркало упоминаний: широкий фильтр на весь чат (ключевые слова проверяем
+    # внутри хендлера — там же делегирование в on_text)
+    app.add_handler(MessageHandler(
+        filters.Chat(KEYWORD_MIRROR_CHAT) & ~filters.COMMAND, on_keyword_mirror))
     app.add_handler(CommandHandler(["anonON", "anonon"], cmd_anon_on))
     app.add_handler(CommandHandler(["anonOFF", "anonoff"], cmd_anon_off))
     app.add_handler(CommandHandler(["anonstop", "anonStop"], cmd_anon_stop))
