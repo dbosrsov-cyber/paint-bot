@@ -1417,6 +1417,30 @@ def klad_ensure(chat_id: int):
     return klad_new(chat_id)
 
 
+def _klad_fresh_start(chat_id: int) -> int:
+    """Новый клад — новый старт: у кого еды меньше 3 — снова по 3 🍖 (возвращает fed),
+    энергия каждого кладоискателя — до максимума ⚡, всех доставляют к вокзалу
+    Новосибирска (~10 км). Общий код находки и сгорания клада."""
+    with geo_lock:
+        fed = 0
+        for mk in geo_state.get(chat_id, {}).values():
+            if mk.get("food", 0) < 3:
+                mk["food"] = 3
+                fed += 1
+        geo_save_to_github()
+    with walker_lock:
+        for ww in walker_state.get(chat_id, {}).values():
+            ww["energy"] = WALKER_ENERGY_MAX
+        nsk_pt = _walker_nsk_point()
+        for ww in walker_state.get(chat_id, {}).values():
+            ww["lat"], ww["lon"] = round(nsk_pt[0], 6), round(nsk_pt[1], 6)
+            ww["route"] = None
+            ww["nav_from_lat"] = ww["nav_from_lon"] = None
+            ww["nav_ts"] = 0.0
+        walker_save_to_github(force=True)
+    return fed
+
+
 def klad_on_arrival(chat_id: int, mkey: str, w: dict) -> bool:
     """Копать (⛏️): человечек в 30 км от клада — выкапывает. Награда, пир и новый клад.
     Первый нажавший выигрывает: второй уже меряет расстояние до НОВОГО клада."""
@@ -1433,26 +1457,8 @@ def klad_on_arrival(chat_id: int, mkey: str, w: dict) -> bool:
             marker["diamonds"] = marker.get("diamonds", 0) + 5  # награда за клад — только измиры
             name = marker.get("name") or mkey
             tid = marker.get("tid")
-            # находка кормит всех: у кого еды меньше 3 — снова по 3 единицам
-            fed = 0
-            for mk in geo_state.get(chat_id, {}).values():
-                if mk.get("food", 0) < 3:
-                    mk["food"] = 3
-                    fed += 1
-            geo_save_to_github()
-        # находка бодрит всех: энергия каждого кладоискателя чата — до максимума,
-        # и всех возвращает к вокзалу Новосибирска (~10 км) — новый клад, новый старт.
-        # ВНЕ klad_lock: порядок локов walker → klad, наоборот — самодедлок.
-        with walker_lock:
-            for ww in walker_state.get(chat_id, {}).values():
-                ww["energy"] = WALKER_ENERGY_MAX
-            nsk_pt = _walker_nsk_point()
-            for ww in walker_state.get(chat_id, {}).values():
-                ww["lat"], ww["lon"] = round(nsk_pt[0], 6), round(nsk_pt[1], 6)
-                ww["route"] = None
-                ww["nav_from_lat"] = ww["nav_from_lon"] = None
-                ww["nav_ts"] = 0.0
-            walker_save_to_github(force=True)
+        # пир и новый старт — общий код со сгоранием клада (еда/энергия/телепорт к НСК)
+        fed = _klad_fresh_start(chat_id)
         founds = dict(entry.get("founds") or {})
         founds[mkey] = founds.get(mkey, 0) + 1
         new_entry = klad_new(chat_id, save=False)
@@ -1490,10 +1496,16 @@ async def klad_sweep_job(context) -> None:
             with klad_lock:
                 new_entry = klad_new(chat_id, save=False)  # save под klad_lock = самодедлок
             if new_entry:
+                # как при находке: еда до 3 🍖, энергия до максимума ⚡, телепорт к вокзалу НСК
+                fed = _klad_fresh_start(chat_id)
                 klad_save_to_github(force=True)
                 tg_send_message_id(chat_id,
                     "⌛ Клад, который никто не нашёл, сгорел в земле… "
-                    "Но кладоискатели уже зарыли НОВЫЙ!\n" + new_entry["hints"][0][1])
+                    "Но кладоискатели уже зарыли НОВЫЙ! "
+                    "Все человечки полны сил ⚡ и всех доставили к вокзалу Новосибирска 🚉 — "
+                    "новый клад, новый старт!"
+                    + (f" У кого еды меньше 3 — снова по 3 🍖 ({fed})!" if fed else "")
+                    + "\n" + new_entry["hints"][0][1])
             continue
         idx = sum(1 for o, _ in entry["hints"] if entry["created_ts"] + o <= now)
         if idx > int(entry.get("announced", 0)):
@@ -3590,7 +3602,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-16-1445"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-16-1530"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
