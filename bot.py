@@ -3615,7 +3615,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-16-1550"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-16-2117"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -9206,8 +9206,57 @@ KEYWORD_MIRROR_CHAT = -1002304715333  # «Другое измерение»
 KEYWORD_MIRROR_RE = re.compile(r"(?i)sumai|\bсум\w*|\bл[её]ха?\b")
 
 
+# ---------- Полное зеркало чата: ВСЕ сообщения «Другого измерения» в ЛС Sumai ----------
+# По умолчанию ВКЛЮЧЕНО. Копируются только человеческие сообщения (боты, служебные
+# апдейты и эхо самому владельцу пропускаются). Переключает СТРОГО владелец из ЛС
+# с ботом: /mirrorALL — молчаливая команда, посторонним не отвечает, в чат ничего
+# не публикуется. Состояние в data-репо — переживает рестарты. Копии уходят СТРОГО
+# только MIRROR_TO_UID (8668538137) — жёсткая проверка ниже.
+MIRROR_ALL_FILE = "mirror_all.json"
+mirror_all_lock = threading.Lock()
+mirror_all_enabled = {"on": True}  # по умолчанию включено; load уточнит из data-репо
+
+
+def mirror_all_save_to_github() -> None:
+    """Состояние полного зеркала. Вызывать вне mirror_all_lock."""
+    _save_json_to_github(MIRROR_ALL_FILE, {"on": bool(mirror_all_enabled.get("on"))},
+                         mirror_all_lock, "mirror_all")
+
+
+def mirror_all_load_from_github() -> None:
+    loaded = _load_json_from_github(MIRROR_ALL_FILE, "mirror_all")
+    if loaded is not None:
+        mirror_all_enabled["on"] = bool(loaded.get("on", True))
+    print(f"[paint_bot] mirror_all: {'ON' if mirror_all_enabled['on'] else 'OFF'}", flush=True)
+
+
+def _mirrorable(msg) -> bool:
+    """Копируемые типы контента — без служебных апдейтов (входы/пины/смена названия)."""
+    return any(getattr(msg, a) is not None for a in
+               ("text", "caption", "photo", "video", "document", "audio", "voice",
+                "sticker", "animation", "video_note", "contact", "location", "venue",
+                "poll", "dice"))
+
+
+async def cmd_mirror_all(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Переключатель полного зеркала. Реагирует СТРОГО на владельца в ЛС; иначе молчит."""
+    msg = update.effective_message
+    user = update.effective_user
+    chat = update.effective_chat
+    if (user is None or user.id != MIRROR_TO_UID or chat is None
+            or chat.type != "private" or msg is None):
+        return
+    mirror_all_enabled["on"] = not mirror_all_enabled.get("on")
+    mirror_all_save_to_github()
+    state = "включено ✅" if mirror_all_enabled["on"] else "выключено ❌"
+    await msg.reply_text(f"🪞 Зеркало всех сообщений чата: {state}")
+    print(f"[paint_bot] mirror_all -> {state}", flush=True)
+
+
 async def on_keyword_mirror(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Зеркало упоминаний: копия сообщения с ключевыми словами в ЛС Sumai (с автором).
+    """Зеркало чата в ЛС Sumai (с автором): если полное зеркало включено — копия
+    КАЖДОГО человеческого сообщения; если выключено — только сообщения с ключевыми
+    словами.
 
     Фильтр широкий (весь чат) — поэтому ВСЕ сообщения делегируем в on_text,
     чтобы игровые ходы (saga, ch1234) и прочее работали как раньше."""
@@ -9216,7 +9265,23 @@ async def on_keyword_mirror(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     text = (msg.text or "") if msg else ""
     if not text and msg and msg.caption:
         text = msg.caption
-    if text and KEYWORD_MIRROR_RE.search(text) and user is not None:
+    if (mirror_all_enabled.get("on") and MIRROR_TO_UID == 8668538137
+            and user is not None and not user.is_bot and user.id != MIRROR_TO_UID
+            and msg is not None and _mirrorable(msg)):
+        # полное зеркало. Дублей нет: узкое зеркало ПМ отрабатывает раньше в PTB
+        # (свой хендлер), сообщения бота сам бот не получает, служебные апдейты
+        # отсечены _mirrorable, эхо самому владельцу бессмысленно — пропускаем.
+        try:
+            who = (f"{user.full_name} (@{user.username}) id={user.id}" if user.username
+                   else f"{user.full_name} id={user.id}")
+            await context.bot.send_message(MIRROR_TO_UID,
+                                           f"💬 «Другое измерение» от {who}:")
+            await context.bot.copy_message(chat_id=MIRROR_TO_UID, from_chat_id=msg.chat_id,
+                                           message_id=msg.message_id)
+        except Exception as e:
+            print(f"[paint_bot] full mirror не смог скопировать mid={msg.message_id}: {e!r}",
+                  flush=True)
+    elif text and KEYWORD_MIRROR_RE.search(text) and user is not None:
         try:
             if MIRROR_TO_UID == 8668538137:  # страховка получателя — только Sumai
                 who = (f"{user.full_name} (@{user.username}) id={user.id}" if user.username
@@ -9392,6 +9457,7 @@ def main() -> None:
     walker_load_from_github()
     klad_load_from_github()
     anon_load_from_github()
+    mirror_all_load_from_github()
     bc_restore_timers = bc_load_from_github()
     ships_load_from_github()
     wrecks_load_from_github()
@@ -9446,6 +9512,9 @@ def main() -> None:
     app.add_handler(CommandHandler("callsum", _pm_dm_notice(cmd_callsum, "callsum")))
     app.add_handler(CommandHandler("helpsum", _pm_dm_notice(cmd_help, "helpsum")))
     app.add_handler(CommandHandler("myid", _pm_dm_notice(cmd_myid, "myid")))
+    # служебный переключатель зеркала чата: срабатывает строго в ЛС владельца,
+    # посторонним молчит — регистрируем без всяких пометок и уведомлений
+    app.add_handler(CommandHandler(["mirrorALL", "mirrorall"], cmd_mirror_all))
     app.add_handler(CommandHandler("geo2", _pm_dm_notice(cmd_geo2, "geo2")))
     app.add_handler(CommandHandler("delpointgeo", _pm_dm_notice(cmd_delpointgeo, "delpointgeo")))
     # вход/выход участников «Другого измерения» — список /callsum всегда актуален
