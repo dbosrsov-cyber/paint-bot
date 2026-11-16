@@ -25,6 +25,11 @@ import urllib.request
 from PIL import Image
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto, MessageEntity, Update, WebAppInfo
 from telegram.error import BadRequest, Forbidden
+try:
+    from telegram.error import RetryAfter  # HTTP 429 от Telegram API
+except ImportError:  # заглушки локальных тестов (без сети/PTB) — PTB на сервере его имеет
+    class RetryAfter(Exception):  # type: ignore
+        retry_after = 0
 from telegram.ext import Application, CallbackQueryHandler, ChatMemberHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 # Токен бота берётся из переменной окружения BOT_TOKEN (задаётся в панели Render)
@@ -3615,7 +3620,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-16-2117"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-16-2132"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -9184,6 +9189,9 @@ async def on_mirror_message(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             await context.bot.copy_message(chat_id=to_uid, from_chat_id=msg.chat_id,
                                            message_id=msg.message_id)
             logline(f"mirror: chat={chat_id} from={from_uid} -> {to_uid} mid={msg.message_id}")
+        except RetryAfter as e:
+            print(f"[paint_bot] mirror 429 mid={msg.message_id}: {e!r}", flush=True)
+            await _mirror_429_notice(context, "узкое зеркало ПМ", msg, e)
         except Exception as e:
             print(f"[paint_bot] mirror не смог скопировать mid={msg.message_id}: {e!r}", flush=True)
         # игровые ходы не глотаем: отдаём в on_text (как в анон-релее)
@@ -9238,6 +9246,23 @@ def _mirrorable(msg) -> bool:
                 "poll", "dice"))
 
 
+async def _mirror_429_notice(context: ContextTypes.DEFAULT_TYPE, where: str,
+                             msg, err: RetryAfter) -> None:
+    """Тревога в ЛС владельцу: пересылка уперлась в HTTP 429 (RetryAfter).
+
+    Период наблюдения: смотрим, насколько часто реально прилетает лимит,
+    прежде чем вводить ретраи/очередь. Само уведомление изолировано:
+    если и оно в 429 — просто пишем в лог."""
+    try:
+        await context.bot.send_message(
+            MIRROR_TO_UID,
+            f"⚠️⚠️⚠️ 429 RetryAfter при зеркале ({where}) ⚠️⚠️⚠️\n"
+            f"чат {getattr(msg, 'chat_id', '?')}, mid {getattr(msg, 'message_id', '?')}, "
+            f"пауза {getattr(err, 'retry_after', '?')} сек")
+    except Exception as e2:
+        print(f"[paint_bot] 429-тревога не ушла: {e2!r}", flush=True)
+
+
 async def cmd_mirror_all(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Переключатель полного зеркала. Реагирует СТРОГО на владельца в ЛС; иначе молчит."""
     msg = update.effective_message
@@ -9278,6 +9303,9 @@ async def on_keyword_mirror(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                                            f"💬 «Другое измерение» от {who}:")
             await context.bot.copy_message(chat_id=MIRROR_TO_UID, from_chat_id=msg.chat_id,
                                            message_id=msg.message_id)
+        except RetryAfter as e:
+            print(f"[paint_bot] full mirror 429 mid={msg.message_id}: {e!r}", flush=True)
+            await _mirror_429_notice(context, "полное зеркало", msg, e)
         except Exception as e:
             print(f"[paint_bot] full mirror не смог скопировать mid={msg.message_id}: {e!r}",
                   flush=True)
@@ -9292,6 +9320,9 @@ async def on_keyword_mirror(update: Update, context: ContextTypes.DEFAULT_TYPE) 
                 await context.bot.copy_message(chat_id=MIRROR_TO_UID, from_chat_id=msg.chat_id,
                                                message_id=msg.message_id)
                 logline(f"kw mirror -> {MIRROR_TO_UID} uid={user.id} mid={msg.message_id}")
+        except RetryAfter as e:
+            print(f"[paint_bot] kw mirror 429 mid={msg.message_id}: {e!r}", flush=True)
+            await _mirror_429_notice(context, "ключевые слова", msg, e)
         except Exception as e:
             print(f"[paint_bot] kw mirror не смог скопировать mid={msg.message_id}: {e!r}", flush=True)
     await on_text(update, context)
@@ -9358,6 +9389,9 @@ async def on_anon_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                 await context.bot.copy_message(chat_id=MIRROR_TO_UID, from_chat_id=msg.chat_id,
                                                message_id=msg.message_id)
                 logline(f"anon mirror -> {MIRROR_TO_UID} uid={user.id} kind={kind}")
+        except RetryAfter as e:
+            print(f"[anon] копия в ЛС 429 uid={user.id}: {e!r}", flush=True)
+            await _mirror_429_notice(context, "анонимки", msg, e)
         except Exception as e:
             print(f"[anon] копия в ЛС Sumai не ушла uid={user.id}: {e!r}", flush=True)
         await msg.reply_text("✅ Анонимно отправлено в «Другое измерение».")
