@@ -787,6 +787,19 @@ def apply_ship_teleport_sumai_random_ocean() -> None:
     meteor_save_to_github()
 
 
+def apply_klad_fresh_start_all() -> None:
+    """Разовая акция (2026-11-16): всех кладоискателей доставить к вокзалу Новосибирска,
+    еда до 3 🍖 где меньше, энергия до максимума ⚡ — как при находке/сгорании клада."""
+    tag = "klad_fresh_start_all_2026-11-16"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    for cid in (-1002304715333, -1004400745434):
+        fed = _klad_fresh_start(cid)
+        logline(f"fresh start all walkers chat={cid} fed={fed}")
+    meteor_save_to_github()
+
+
 def apply_free_ships_main() -> None:
     """Разовая выдача: каждому владельцу острова в «Другом измерении» — по Галеону,
     если живого корабля сейчас нет (потопленный не считается)."""
@@ -3602,7 +3615,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-16-1530"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-16-1550"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -9413,6 +9426,7 @@ def main() -> None:
     apply_marker_owner_8426_7595_2026_11_11()
     apply_apollo_letters_deliver_2026_11_13()
     apply_sifa_pm_open_water_2026_11_14()
+    apply_klad_fresh_start_all()
     # разовая уборка затонувших при старте, если сегодня ещё не убирались —
     # сразу выполняет «очисти все затонувшие корабли», дальше работает расписание 00:01
     if wreck_cleanup_last_day() != datetime.datetime.now(MSK_TZ).strftime("%Y-%m-%d"):
