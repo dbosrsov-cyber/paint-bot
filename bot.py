@@ -3620,7 +3620,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-16-2132"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-16-2147"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -9186,6 +9186,9 @@ async def on_mirror_message(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         if to_uid != MIRROR_TO_UID:  # страховка: никому, кроме Sumai, копии не уходят
             continue
         try:
+            who = (f"{user.full_name} (@{user.username}) id={user.id}" if user.username
+                   else f"{user.full_name} id={user.id}")
+            await context.bot.send_message(to_uid, f"💬 «Другое измерение» от {who}:")
             await context.bot.copy_message(chat_id=to_uid, from_chat_id=msg.chat_id,
                                            message_id=msg.message_id)
             logline(f"mirror: chat={chat_id} from={from_uid} -> {to_uid} mid={msg.message_id}")
