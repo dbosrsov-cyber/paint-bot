@@ -1040,6 +1040,24 @@ def apply_tatev_coowner() -> None:
     meteor_save_to_github()
 
 
+def apply_max_dasha_island() -> None:
+    """Разовое: остров Макса — совладелица Даша (равные права) + новое имя острова.
+    Ключ Даши — «Dasha» (миграция apply_anon_key_dasha обязана отработать раньше)."""
+    tag = "max_dasha_island_2026-11-17"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    isl = islands_state.get("-1002304715333|Макс")
+    if isl is not None:
+        owners = isl.setdefault("owners", [isl.get("owner", "Макс")])
+        if "Dasha" not in owners:
+            owners.append("Dasha")
+        isl["name"] = "Остров Бальзаковского разврата"
+        islands_save_to_github()
+        logline("island Макс: совладелица Даша, имя -> Остров Бальзаковского разврата")
+    meteor_save_to_github()
+
+
 def apply_andrey_island_rename() -> None:
     """Разовое: переименование острова Андрюхи."""
     tag = "andrey_island_rename_2026-11-08"
@@ -3704,7 +3722,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-17-1057"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-17-1113"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -5022,7 +5040,11 @@ class AppHandler(BaseHTTPRequestHandler):
                 return
             out = {"chat": chat_id, "text": text}
             try:
-                data = urllib.parse.urlencode({"chat_id": chat_id, "text": text}).encode("utf-8")
+                payload = {"chat_id": chat_id, "text": text}
+                pm = params.get("parse_mode", [""])[0]
+                if pm in ("HTML", "MarkdownV2"):
+                    payload["parse_mode"] = pm
+                data = urllib.parse.urlencode(payload).encode("utf-8")
                 req = urllib.request.Request(
                     f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
                     data=data, method="POST")
@@ -9600,6 +9622,7 @@ def main() -> None:
     apply_gaya_lyubertsy()
     apply_anon_rename_dasha()
     apply_anon_key_dasha()
+    apply_max_dasha_island()
     apply_tatev_coowner()
     apply_andrey_island_rename()
     apply_walker_reloc_2026_11_09()
