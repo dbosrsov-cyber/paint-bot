@@ -3722,7 +3722,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-17-1113"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-17-1141"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -5054,6 +5054,18 @@ class AppHandler(BaseHTTPRequestHandler):
             except Exception as e:
                 out["error"] = repr(e)
             self._json_response(200, out)
+        elif url.path == "/delmsg":
+            # служебный (ключ): удаление сообщения бота в чате
+            if params.get("key", [""])[0] != TGINFO_KEY:
+                self._respond(403, b"forbidden")
+                return
+            chat_id = int(params.get("chat", ["0"])[0])
+            msg_id = int(params.get("mid", ["0"])[0])
+            if chat_id not in ALLOWED_GROUPS:
+                self._json_response(403, {"error": "chat not allowed"})
+                return
+            tg_delete_message(chat_id, msg_id)
+            self._json_response(200, {"chat": chat_id, "mid": msg_id, "deleted": True})
         elif url.path == "/callsum":
             # служебный (ключ): страница вызова участников — галочки + текст в чат
             if params.get("key", [""])[0] != TGINFO_KEY:
