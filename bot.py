@@ -457,7 +457,7 @@ TID_BINDINGS = [
     (-1002304715333, "Leon", "7889362443"),
     (-1002304715333, "Sofifa", "179490526"),
     (-1002304715333, "Sumai", "8668538137"),
-    (-1002304715333, "anon", "1872544611"),
+    (-1002304715333, "Dasha", "1872544611"),
     (-1002304715333, "Андрюха", "8584582199"),
     (-1002304715333, "Мари", "8922818457"),
     (-1002304715333, "ПМ", "769828689"),
@@ -937,6 +937,90 @@ def apply_anon_rename_dasha() -> None:
         anon["name"] = "Даша"
         geo_save_to_github()
         logline("anon renamed -> Даша")
+    meteor_save_to_github()
+
+
+def apply_anon_key_dasha() -> None:
+    """Полный перенос профиля Даши с ключа «anon» на ключ «Dasha».
+
+    Ключ anon — наследие общего запасного профиля: в письмах, подарках и логах
+    Даша светилась как anon. Идентификация игроков идёт по tid (1872544611) и
+    имени метки, фронтенд ключ получает от сервера (serverMe), поэтому смена
+    ключа безопасна. Переносим вместе со ВСЕМИ ссылками: иначе пропадут письма
+    и подарки, а в Кладоискателе resolve вернёт уже «Dasha» и для ключа «anon»
+    заспавнился бы новый перс с потерей прогресса."""
+    tag = "anon_key_dasha_2026-11-17"
+    if meteor_credits.get(tag):
+        return
+    CHAT, OLD, NEW, TID = -1002304715333, "anon", "Dasha", "1872544611"
+    markers = geo_state.get(CHAT, {})
+    if NEW in markers:
+        print("[paint_bot] anon->Dasha: КОНФЛИКТ — ключ Dasha уже занят, перенос ОТМЕНЁН", flush=True)
+        meteor_credits[tag] = True
+        meteor_save_to_github()
+        return
+    if OLD not in markers:
+        print("[paint_bot] anon->Dasha: метки anon нет — нечего переносить", flush=True)
+        meteor_credits[tag] = True
+        meteor_save_to_github()
+        return
+    with geo_lock:
+        markers[NEW] = markers.pop(OLD)
+        markers[NEW]["user"] = NEW
+        markers[NEW]["tid"] = TID
+    for letter in letters_state.values():
+        if letter.get("chat") != CHAT:
+            continue
+        if letter.get("from") == OLD:
+            letter["from"] = NEW
+        if letter.get("to") == OLD:
+            letter["to"] = NEW
+        if letter.get("from_name") == OLD:
+            letter["from_name"] = "Даша"
+        if letter.get("to_name") == OLD:
+            letter["to_name"] = "Даша"
+    for gift in gifts_state.values():
+        if gift.get("chat") != CHAT:
+            continue
+        if gift.get("from") == OLD:
+            gift["from"] = NEW
+        if gift.get("to") == OLD:
+            gift["to"] = NEW
+        if gift.get("from_name") == OLD:
+            gift["from_name"] = "Даша"
+        if gift.get("to_name") == OLD:
+            gift["to_name"] = "Даша"
+    for poop in poops_state.values():
+        if poop.get("chat") == CHAT and poop.get("to") == OLD:
+            poop["to"] = NEW
+    for isl in islands_state.values():
+        if isl.get("chat") != CHAT:
+            continue
+        if isl.get("owner") == OLD:
+            isl["owner"] = NEW
+        owners = isl.get("owners")
+        if owners and OLD in owners:
+            isl["owners"] = [NEW if o == OLD else o for o in owners]
+        guest = isl.get("guest")
+        if guest and guest.get("user") == OLD:
+            guest["user"] = NEW
+    skey_old = f"{CHAT}|{OLD}"
+    if skey_old in stardust_state:
+        skey_new = f"{CHAT}|{NEW}"
+        stardust_state[skey_new] = stardust_state.pop(skey_old) + stardust_state.get(skey_new, 0)
+    with walker_lock:
+        walkers = walker_state.get(CHAT, {})
+        if OLD in walkers and NEW not in walkers:
+            walkers[NEW] = walkers.pop(OLD)
+    geo_save_to_github()
+    letters_save_to_github()
+    volcano_save_to_github()
+    meteor_save_to_github()
+    submarine_save_to_github()
+    islands_save_to_github()
+    walker_save_to_github(force=True)
+    logline("anon -> Dasha: ключ перенесён (geo/letters/gifts/poops/islands/stardust/walker)")
+    meteor_credits[tag] = True
     meteor_save_to_github()
 
 
@@ -3620,7 +3704,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-16-2147"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-17-1057"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -9515,6 +9599,7 @@ def main() -> None:
     apply_pm_ship_wins()
     apply_gaya_lyubertsy()
     apply_anon_rename_dasha()
+    apply_anon_key_dasha()
     apply_tatev_coowner()
     apply_andrey_island_rename()
     apply_walker_reloc_2026_11_09()
