@@ -1072,6 +1072,26 @@ def apply_andrey_island_rename() -> None:
     meteor_save_to_github()
 
 
+def apply_remove_ice_marker() -> None:
+    """Разовое: удаление метки Ice с карты «Другого измерения» (по просьбе владельца чата).
+    Подарки Ice в submarine.json — доставленные и открытые (история), не трогаем."""
+    tag = "remove_ice_marker_2026-11-18"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    CHAT = -1002304715333
+    markers = geo_state.get(CHAT, {})
+    removed = markers.pop("Ice", None) is not None
+    skey = f"{CHAT}|Ice"
+    if skey in stardust_state:
+        stardust_state.pop(skey)
+        removed = True
+    if removed:
+        geo_save_to_github()
+        logline("метка Ice удалена с карты (geo + stardust)")
+    meteor_save_to_github()
+
+
 def apply_startup_credits() -> None:
     for chat_id, user, amount, tag in STARTUP_CREDITS:
         if meteor_credits.get(tag):
@@ -3722,7 +3742,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-17-1141"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-18-1039"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -9635,6 +9655,7 @@ def main() -> None:
     apply_anon_rename_dasha()
     apply_anon_key_dasha()
     apply_max_dasha_island()
+    apply_remove_ice_marker()
     apply_tatev_coowner()
     apply_andrey_island_rename()
     apply_walker_reloc_2026_11_09()
