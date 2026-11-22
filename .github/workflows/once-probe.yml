@@ -1,0 +1,14 @@
+name: once-probe
+on:
+  push:
+    paths:
+      - .github/workflows/once-probe.yml
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: fetch geo2map and check marker
+        run: |
+          curl -sS --max-time 40 "https://paint-bot.onrender.com/geo2map?v=$(date +%s)" -o /tmp/g2.html
+          wc -c /tmp/g2.html
+          grep -c "Игра доступна только участникам" /tmp/g2.html || echo "MARKER NOT FOUND"
