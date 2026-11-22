@@ -1072,6 +1072,20 @@ def apply_remove_ice_marker() -> None:
     meteor_save_to_github()
 
 
+def apply_vita_island_rename() -> None:
+    """Разовое: переименование острова Виты (@vidgi059, tid 58334278)."""
+    tag = "vita_island_rename_2026-11-23"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    isl = islands_state.get("-1002304715333|58334278")
+    if isl is not None and isl.get("name") != "Остров лудоманов":
+        isl["name"] = "Остров лудоманов"
+        islands_save_to_github()
+        logline("island Вита renamed -> Остров лудоманов")
+    meteor_save_to_github()
+
+
 def apply_startup_credits() -> None:
     for chat_id, user, amount, tag in STARTUP_CREDITS:
         if meteor_credits.get(tag):
@@ -3722,7 +3736,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-23-0030"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-23-0130"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -9636,6 +9650,7 @@ def main() -> None:
     apply_anon_key_dasha()
     apply_max_dasha_island()
     apply_remove_ice_marker()
+    apply_vita_island_rename()
     apply_tatev_coowner()
     apply_andrey_island_rename()
     apply_walker_reloc_2026_11_09()
