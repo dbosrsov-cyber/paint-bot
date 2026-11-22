@@ -63,36 +63,16 @@ def tg_user_id_from_init_data(init_data: str):
         return None
 
 
-_tg_admins_cache = {}    # chat_id -> (ts, {uid,...})
-TG_ADMINS_TTL = 300      # список админов кэшируется на 5 минут
-
-
-def tg_chat_admin_allowed(chat_id: int, init_data: str) -> bool:
-    """Полный функционал игры — только админам группы именно этого чата."""
+def tg_chat_member_allowed(chat_id: int, init_data: str) -> bool:
+    """Полный функционал игры — любому участнику чата из реестра tgids.
+    Реестр ведёт сам бот: каждое сообщение в чате фиксирует участника
+    (tid + имя), раз в сутки чистится от вышедших."""
     if not BOT_TOKEN or BOT_TOKEN == "fake":
         return True                       # тестовый контур — проверка отключена
     uid = tg_user_id_from_init_data(init_data)
     if not uid:
         return False
-    now = time.time()
-    hit = _tg_admins_cache.get(chat_id)
-    if hit and now - hit[0] < TG_ADMINS_TTL:
-        return uid in hit[1]
-    admins = None
-    try:
-        req = urllib.request.Request(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/getChatAdministrators?chat_id={chat_id}")
-        result = json.load(urllib.request.urlopen(req, timeout=15)).get("result", [])
-        admins = {m["user"]["id"] for m in result
-                  if m.get("status") in ("creator", "administrator")
-                  and (m.get("user") or {}).get("id")}
-    except Exception as e:
-        print(f"[paint_bot] getChatAdministrators chat={chat_id} ошибка: {e!r}", flush=True)
-        if hit:                           # сбой Bot API — держим прошлый список
-            return uid in hit[1]
-        admins = set()
-    _tg_admins_cache[chat_id] = (now, admins)
-    return uid in admins
+    return str(uid) in (tgids_state.get(str(chat_id)) or {})
 
 CHALLENGE_TTL_SECONDS = 120  # срок жизни вызова на дуэль
 APP_URL = "https://paint-bot.onrender.com"  # публичный адрес этого сервиса (для WebApp)
@@ -3742,7 +3722,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-18-1039"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-23-0030"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -4687,8 +4667,8 @@ GEO_HTML_PAGE = """<!DOCTYPE html>
       ov.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(16,28,44,.94);'
         + 'display:flex;align-items:center;justify-content:center;text-align:center;'
         + 'color:#fff;font-size:19px;line-height:1.8;padding:24px;';
-      ov.innerHTML = '<div>🛡️<br>Полный функционал игры доступен только админам '
-        + 'этой группы.<br><small style="opacity:.7">Карта — для просмотра.</small></div>';
+      ov.innerHTML = '<div>🛡️<br>Полный функционал игры доступен только участникам '
+        + 'этой группы.<br><small style="opacity:.7">Карта — для просмотра. Напишите любое сообщение в чат — и появится доступ.</small></div>';
       document.body.appendChild(ov);
     }
     Object.values(markers).forEach(m => map.removeLayer(m));
@@ -5869,7 +5849,7 @@ class AppHandler(BaseHTTPRequestHandler):
                             "ship_battles": battles_out,
                             "market": market_out,
                             "me": me_key,
-                            "viewer_admin": tg_chat_admin_allowed(
+                            "viewer_admin": tg_chat_member_allowed(
                                 chat_id, self.headers.get("X-TG-Init-Data", ""))},
                            ensure_ascii=False).encode("utf-8"),
                 "application/json; charset=utf-8",
@@ -5908,7 +5888,7 @@ class AppHandler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         raw = self.rfile.read(length) if length else b""
         self.rfile = io.BytesIO(raw)
-        # полный функционал — только админам группы этого чата
+        # полный функционал — любому участнику чата из реестра tgids
         try:
             body = json.loads(raw.decode("utf-8")) if raw else {}
         except Exception:
@@ -5917,8 +5897,8 @@ class AppHandler(BaseHTTPRequestHandler):
             chat_id = int(body.get("chat") or parse_qs(url.query).get("chat", ["0"])[0])
         except Exception:
             chat_id = 0
-        if not tg_chat_admin_allowed(chat_id, init_data):
-            self._json_response(403, {"error": "играть могут только админы этой группы 🤷"})
+        if not tg_chat_member_allowed(chat_id, init_data):
+            self._json_response(403, {"error": "играть могут только участники этой группы — напиши любое сообщение в чат и обнови игру 🤷"})
             return
         if url.path in ("/geomark", "/geodel", "/geoicon"):
             self._handle_geo_post(url)
