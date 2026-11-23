@@ -1086,6 +1086,25 @@ def apply_vita_island_rename() -> None:
     meteor_save_to_github()
 
 
+def apply_pm_lena_marker_shift_2026_11_23() -> None:
+    """Разовый сдвиг (2026-11-23): метка ПМ на 2 км южнее, @Lenusik666 на 6 км севернее —
+    на карте перекрывали друг друга (были в ~0.2 км друг от друга)."""
+    tag = "pm_lena_shift_2026-11-23"
+    if meteor_credits.get(tag):
+        return
+    meteor_credits[tag] = True
+    markers = geo_state.get(-1002304715333, {})
+    pm = markers.get("ПМ")
+    if pm is not None and str(pm.get("tid")) == "769828689":
+        pm["lat"] = round(pm["lat"] - 2.0 / 111.32, 6)
+    le = markers.get("798602067")
+    if le is not None and str(le.get("tid")) == "798602067":
+        le["lat"] = round(le["lat"] + 6.0 / 111.32, 6)
+    geo_save_to_github()
+    meteor_save_to_github()
+    logline("markers: ПМ -2 км (юг), @Lenusik666 +6 км (север) — разнесены")
+
+
 def apply_startup_credits() -> None:
     for chat_id, user, amount, tag in STARTUP_CREDITS:
         if meteor_credits.get(tag):
@@ -3736,7 +3755,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-23-0130"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-23-1310"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -9651,6 +9670,7 @@ def main() -> None:
     apply_max_dasha_island()
     apply_remove_ice_marker()
     apply_vita_island_rename()
+    apply_pm_lena_marker_shift_2026_11_23()
     apply_tatev_coowner()
     apply_andrey_island_rename()
     apply_walker_reloc_2026_11_09()
