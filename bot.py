@@ -181,6 +181,7 @@ ISLAND_POOP_PER_DAY = 5         # какашек-удобрений в сутк�
 ISLAND_STORM_PERIOD_SEC = 7200  # шторм примерно раз в 2 часа, в случайный момент окна
 ISLAND_STORM_LIVE_SEC = 900     # дерево на берегу: 15 минут, потом волна уносит
 ISLAND_STORM_WOOD = 2           # сколько дерева даёт один сбор
+ISLAND_STORM_ENABLED = False    # False — штормы выключены (по просьбе владельца, 2026-11-23)
 PLANE_SPEED_KM_PER_MIN = 300.0  # самолёт: 3000 км за 10 минут
 # Бета Песочницы (ГеографияЧата 2.0): там все объекты летят 1000 км за 10 секунд
 SANDBOX_FAST_KM_PER_MIN = 6000.0  # 1000 км / 10 сек
@@ -3755,7 +3756,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-23-1310"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-23-1645"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -5784,7 +5785,14 @@ class AppHandler(BaseHTTPRequestHandler):
                         isl["storm"] = None
                         _storm = None
                         changed = True
-                    if not isl.get("next_storm_ts"):
+                    if not ISLAND_STORM_ENABLED:
+                        # штормы выключены: гасим активный, новые не планируем
+                        if _storm is not None or isl.get("next_storm_ts"):
+                            isl["storm"] = None
+                            isl.pop("next_storm_ts", None)
+                            _storm = None
+                            changed = True
+                    elif not isl.get("next_storm_ts"):
                         isl["next_storm_ts"] = now + random.uniform(1800, ISLAND_STORM_PERIOD_SEC)
                         changed = True
                     elif _storm is None and now >= isl["next_storm_ts"]:
@@ -7038,6 +7046,9 @@ class AppHandler(BaseHTTPRequestHandler):
             self._json_response(200, {"ok": True, "lat": lat, "lon": lon})
             return
         if kind == "storm":
+            if not ISLAND_STORM_ENABLED:
+                self._json_response(403, {"error": "штормы сейчас выключены 🌤"})
+                return
             with geo_lock:
                 isl = island_of(chat_id, user, name)
                 if isl is None:
