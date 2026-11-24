@@ -3756,7 +3756,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-24-1900"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-24-1935"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -8216,9 +8216,13 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         user = query.from_user
         with market_addr_lock:
             mine = (market_addr_state.get(str(chat_id)) or {}).get(str(user.id))
-        add_label = "✏️ Обновить мои адреса" if mine else "➕ Добавить свои адреса"
-        kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton(add_label, callback_data=f"maddr:add:{chat_id}")]])
+        complete = bool(mine and (mine.get("wb") or "").strip() and (mine.get("oz") or "").strip())
+        if complete:
+            kb = None  # оба адреса уже есть — предлагать ввод не нужно
+        else:
+            add_label = "✏️ Дополнить мои адреса" if mine else "➕ Добавить свои адреса"
+            kb = InlineKeyboardMarkup([[
+                InlineKeyboardButton(add_label, callback_data=f"maddr:add:{chat_id}")]])
         try:
             await context.bot.send_message(
                 user.id, _market_addr_rows(chat_id), parse_mode="HTML",
