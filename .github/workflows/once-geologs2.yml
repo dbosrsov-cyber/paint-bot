@@ -1,0 +1,13 @@
+name: once-geologs2
+on:
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: fetch geologs
+        run: |
+          echo "=== GELOGS BEGIN ==="
+          curl -s --max-time 60 "https://paint-bot.onrender.com/geologs?cb=1911955"
+          echo ""
+          echo "=== GELOGS END ==="
