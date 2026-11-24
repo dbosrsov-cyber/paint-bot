@@ -3756,7 +3756,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-24-1745"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-24-1830"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -8129,7 +8129,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_chat.id in (GEO2_CHAT_ID, ANON_GROUP_ID):
         menu_rows.insert(2, [InlineKeyboardButton("🌍✨ ГеографияЧата 2.0",
                                                 callback_data="game:geo2")])
-        menu_rows.insert(3, [InlineKeyboardButton("🛒 WB/OZON — адреса для совместных заказов",
+        menu_rows.insert(3, [InlineKeyboardButton("🛒 WB/OZON",
                                                 callback_data="game:marketaddr")])
     await update.message.reply_text("🎮 Привет! Выбери игру:",
                                     reply_markup=InlineKeyboardMarkup(menu_rows))
@@ -9612,6 +9612,41 @@ async def cmd_marketlist(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                      f"сначала открой бота в личке и нажми /start.")
 
 
+async def cmd_marketdel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/marketdel (только в группе) — удалить свои адреса WB/OZON из этого чата.
+    Как и /marketlist: сообщение с командой удаляется сразу, итог — в ЛС."""
+    if not chat_allowed(update.effective_chat):
+        return
+    chat = update.effective_chat
+    if chat.type == "private":
+        await update.message.reply_text("/marketdel вызывается в группе — напиши её там 🙂")
+        return
+    try:
+        await context.bot.delete_message(chat.id, update.message.message_id)
+    except Exception as e:
+        print(f"[paint_bot] /marketdel: не смог удалить команду: {e!r}", flush=True)
+    user = update.effective_user
+    removed = False
+    with market_addr_lock:
+        entries = market_addr_state.get(str(chat.id))
+        if entries and str(user.id) in entries:
+            entries.pop(str(user.id), None)
+            removed = True
+    if removed:
+        market_addr_save_to_github()
+        logline(f"marketaddr deleted chat={chat.id} uid={user.id}")
+        text = "🛒 Твои адреса WB/OZON удалены из списка."
+    else:
+        text = "🛒 У тебя и не было сохранённых адресов."
+    try:
+        await context.bot.send_message(user.id, text)
+    except Exception as e:
+        print(f"[paint_bot] /marketdel: ЛС не ушёл: {e!r}", flush=True)
+        await context.bot.send_message(
+            chat.id, f"{user.first_name}, не смог написать тебе в ЛС — "
+                     f"сначала открой бота в личке и нажми /start.")
+
+
 async def on_anon_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """ЛС с ботом: релей анонимных сообщений в «Другое измерение».
 
@@ -9846,6 +9881,7 @@ def main() -> None:
     app.add_handler(CommandHandler(["mirrorALL", "mirrorall"], cmd_mirror_all))
     app.add_handler(CommandHandler("geo2", _pm_dm_notice(cmd_geo2, "geo2")))
     app.add_handler(CommandHandler("marketlist", _pm_dm_notice(cmd_marketlist, "marketlist")))
+    app.add_handler(CommandHandler("marketdel", _pm_dm_notice(cmd_marketdel, "marketdel")))
     app.add_handler(CommandHandler("delpointgeo", _pm_dm_notice(cmd_delpointgeo, "delpointgeo")))
     # вход/выход участников «Другого измерения» — список /callsum всегда актуален
     app.add_handler(ChatMemberHandler(on_chat_member, ChatMemberHandler.CHAT_MEMBER))
