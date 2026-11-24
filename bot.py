@@ -3756,7 +3756,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-24-1830"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-24-1900"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -8211,19 +8211,20 @@ async def on_game_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     chat_id = query.message.chat_id
 
     if game_key == "marketaddr":
-        # адреса для совместных заказов: флоу ввода идёт в ЛС с ботом (два шага)
+        # адреса WB/OZON: по кнопке — список всех адресов в ЛС нажавшему;
+        # если своих нет — там же кнопка «добавить/обновить» начинает флоу ввода
         user = query.from_user
-        market_addr_pending[user.id] = {"chat": chat_id, "step": "wb", "wb": ""}
+        with market_addr_lock:
+            mine = (market_addr_state.get(str(chat_id)) or {}).get(str(user.id))
+        add_label = "✏️ Обновить мои адреса" if mine else "➕ Добавить свои адреса"
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton(add_label, callback_data=f"maddr:add:{chat_id}")]])
         try:
             await context.bot.send_message(
-                user.id,
-                "🛒 <b>Адреса для совместных заказов</b>\n\n"
-                "Пришли адрес пункта выдачи <b>Wildberries</b> одним сообщением "
-                "(до 300 символов; «-» — пропустить):",
-                parse_mode="HTML")
-            await query.answer("Продолжи в личке с ботом 👌")
+                user.id, _market_addr_rows(chat_id), parse_mode="HTML",
+                disable_web_page_preview=True, reply_markup=kb)
+            await query.answer("Список ушёл в личку 👌")
         except Exception as e:
-            market_addr_pending.pop(user.id, None)
             print(f"[paint_bot] marketaddr: не смог написать в ЛС: {e!r}", flush=True)
             await query.answer("Сначала открой бота в личке и нажми /start", show_alert=True)
         return
@@ -9424,9 +9425,10 @@ def mirror_all_load_from_github() -> None:
 
 
 # ---------- Адреса WB/OZON: каждый участник группы хранит до двух адресов ----------
-# Ввод: кнопка «WB/OZON» в меню /startsum → бот просит адреса двумя сообщениями
-# в ЛС (сначала WB, потом OZON). Выдача: /marketlist в группе — список уходит
-# ЛС вызвавшему, сообщение с командой удаляется сразу.
+# Ввод: кнопка «Добавить/обновить» под списком в ЛС → бот просит адреса двумя
+# сообщениями (сначала WB, потом OZON). Выдача: кнопка «WB/OZON» в меню /startsum —
+# список всех адресов уходит в ЛС нажавшему; если своих адресов нет, там же кнопка
+# «Добавить свои адреса». Удаление — /marketdel в группе (сообщение стирается сразу).
 MARKETADDR_FILE = "marketaddr.json"
 market_addr_lock = threading.Lock()
 market_addr_state = {}   # {chat_id(str): {uid(str): {"wb","oz","name","uname","ts"}}}
@@ -9566,26 +9568,14 @@ async def _market_addr_step(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     market_addr_save_to_github()
     market_addr_pending.pop(uid, None)
     logline(f"marketaddr saved chat={pend['chat']} uid={uid}")
-    await msg.reply_text("🛒 Адреса сохранены! Общий список — команда /marketlist "
-                         "в чате группы (список придёт сюда, в ЛС).")
+    await msg.reply_text("🛒 Адреса сохранены! Общий список — кнопка «🛒 WB/OZON» "
+                         "в меню /startsum (список придёт сюда, в ЛС).")
 
 
-async def cmd_marketlist(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/marketlist (только в группе) — список адресов WB/OZON участников в ЛС
-    вызвавшему. Сообщение с командой удаляется сразу после вызова."""
-    if not chat_allowed(update.effective_chat):
-        return
-    chat = update.effective_chat
-    if chat.type == "private":
-        await update.message.reply_text("/marketlist вызывается в группе — напиши её там 🙂")
-        return
-    try:
-        await context.bot.delete_message(chat.id, update.message.message_id)
-    except Exception as e:
-        print(f"[paint_bot] /marketlist: не смог удалить команду: {e!r}", flush=True)
-    user = update.effective_user
+def _market_addr_rows(chat_id: int) -> str:
+    """Собранный текст списка адресов WB/OZON участников чата (HTML)."""
     with market_addr_lock:
-        entries = list((market_addr_state.get(str(chat.id)) or {}).items())
+        entries = list((market_addr_state.get(str(chat_id)) or {}).items())
     rows = []
     for uid, ent in sorted(entries, key=lambda kv: str(kv[1].get("name", "")).lower()):
         wb = (ent.get("wb") or "").strip()
@@ -9599,22 +9589,33 @@ async def cmd_marketlist(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if oz:
             parts.append("🔵 OZON: " + html.escape(oz))
         rows.append(who + "\n" + "\n".join(parts))
-    text = ("🛒 <b>Адреса WB/OZON участников</b>\n\n" + "\n\n".join(rows)
+    return ("🛒 <b>Адреса WB/OZON участников</b>\n\n" + "\n\n".join(rows)
             if rows else
-            "🛒 Пока никто не оставил адреса. В меню /startsum жми «WB/OZON» — и вбивай свои.")
+            "🛒 Пока никто не оставил адреса. Жми кнопку ниже — и вбивай свои.")
+
+
+async def on_market_addr_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Кнопка «Добавить/обновить адреса» под списком в ЛС — стартует флоу ввода."""
+    query = update.callback_query
+    await query.answer()
     try:
-        await context.bot.send_message(user.id, text, parse_mode="HTML",
-                                       disable_web_page_preview=True)
-    except Exception as e:
-        print(f"[paint_bot] /marketlist: ЛС не ушёл: {e!r}", flush=True)
-        await context.bot.send_message(
-            chat.id, f"{user.first_name}, не смог написать тебе в ЛС — "
-                     f"сначала открой бота в личке и нажми /start.")
+        chat_id = int(query.data.split(":", 2)[2])
+    except (IndexError, ValueError):
+        return
+    if chat_id not in (GEO2_CHAT_ID, ANON_GROUP_ID):
+        return
+    user = query.from_user
+    market_addr_pending[user.id] = {"chat": chat_id, "step": "wb", "wb": ""}
+    await query.message.reply_text(
+        "🛒 <b>Адреса для совместных заказов</b>\n\n"
+        "Пришли адрес пункта выдачи <b>Wildberries</b> одним сообщением "
+        "(до 300 символов; «-» — пропустить):",
+        parse_mode="HTML")
 
 
 async def cmd_marketdel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/marketdel (только в группе) — удалить свои адреса WB/OZON из этого чата.
-    Как и /marketlist: сообщение с командой удаляется сразу, итог — в ЛС."""
+    Сообщение с командой удаляется сразу, итог — в ЛС."""
     if not chat_allowed(update.effective_chat):
         return
     chat = update.effective_chat
@@ -9880,12 +9881,12 @@ def main() -> None:
     # посторонним молчит — регистрируем без всяких пометок и уведомлений
     app.add_handler(CommandHandler(["mirrorALL", "mirrorall"], cmd_mirror_all))
     app.add_handler(CommandHandler("geo2", _pm_dm_notice(cmd_geo2, "geo2")))
-    app.add_handler(CommandHandler("marketlist", _pm_dm_notice(cmd_marketlist, "marketlist")))
     app.add_handler(CommandHandler("marketdel", _pm_dm_notice(cmd_marketdel, "marketdel")))
     app.add_handler(CommandHandler("delpointgeo", _pm_dm_notice(cmd_delpointgeo, "delpointgeo")))
     # вход/выход участников «Другого измерения» — список /callsum всегда актуален
     app.add_handler(ChatMemberHandler(on_chat_member, ChatMemberHandler.CHAT_MEMBER))
     app.add_handler(CallbackQueryHandler(on_game_menu, pattern="^game:"))
+    app.add_handler(CallbackQueryHandler(on_market_addr_add, pattern="^maddr:add:"))
     app.add_handler(CallbackQueryHandler(on_saga_action, pattern="^saga:"))
     app.add_handler(CallbackQueryHandler(on_challenge_button, pattern="^duel:"))
     app.add_handler(CallbackQueryHandler(on_paint_wait, pattern="^paint_wait$"))
