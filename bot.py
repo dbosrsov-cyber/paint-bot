@@ -3756,7 +3756,7 @@ GEO2_HTML_PAGE = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__))
 
 # ---------- Страница «География чата» (Leaflet + OpenStreetMap) ----------
 
-BUILD_TAG = "2026-11-24-1935"  # менять при каждом деплое — диагностика, что на Render свежий код
+BUILD_TAG = "2026-11-27-1509"  # менять при каждом деплое — диагностика, что на Render свежий код
 
 GEO_HTML_PAGE = """<!DOCTYPE html>
 <!-- build:2026-11-02-1519 -->
@@ -9134,6 +9134,7 @@ def seed_sandbox_test_markers() -> None:
 # ---------- Анонимные сообщения: релей из ЛС в чат «Другое измерение» ----------
 ANON_GROUP_ID = -1002304715333
 ANON_INTERVAL_SEC = 30          # минимальный интервал между анонимными отправками
+ANON_IDLE_SEC = 300             # авто-выключение режима после 5 минут без сообщений
 ANON_ADMINS = {769828689, 1217843099, 8584582199, 8668538137}  # кто может /anonstop и /anonstart
 ANON_MEMBER_CACHE_SEC = 600
 ANON_PREFIX_HTML = ('<blockquote>🕶️ Пользователь чата отправил '
@@ -9142,6 +9143,7 @@ ANON_PREFIX_HTML = ('<blockquote>🕶️ Пользователь чата от�
 anon_mode = set()        # uid, у кого включён режим
 anon_blocked = False     # глобальная блокировка (/anonstop)
 anon_last = {}           # uid -> ts последней успешной отправки (в памяти — после рестарта ок)
+anon_since = {}          # uid -> ts последней активности в ЛС (для авто-выключения; в памяти)
 anon_member_cache = {}   # uid -> (ts, is_member)
 
 # состояние режима — в data-репо: рестарт сервера больше не отбирает включённый /anonON
@@ -9161,7 +9163,32 @@ def anon_load_from_github() -> None:
     if loaded:
         anon_mode.update(int(u) for u in (loaded.get("mode") or []) if str(u).lstrip('-').isdigit())
         anon_blocked = bool(loaded.get("blocked", False))
+        # таймер бездействия считаем от загрузки: включённым до рестарта даём
+        # полный интервал до авто-выключения
+        anon_since.update({uid: time.time() for uid in anon_mode})
         print(f"[paint_bot] anon: режим включён у {len(anon_mode)} uid", flush=True)
+
+
+async def anon_idle_sweep_job(context) -> None:
+    """Раз в минуту: анонимный режим выключается после ANON_IDLE_SEC без сообщений
+    в ЛС. Пользователь получает уведомление в ЛС; состояние — в data-репо."""
+    now = time.time()
+    expired = [uid for uid in anon_mode
+               if now - anon_since.get(uid, 0) > ANON_IDLE_SEC]
+    if not expired:
+        return
+    for uid in expired:
+        anon_mode.discard(uid)
+        anon_since.pop(uid, None)
+        anon_last.pop(uid, None)
+        try:
+            await context.bot.send_message(
+                uid, "\U0001F576️ Режим анонимных сообщений автоматически выключен "
+                     "после 5 минут без сообщений. Включить снова: /anonON")
+        except Exception as e:
+            print(f"[paint_bot] anon idle: не смог уведомить uid={uid}: {e!r}", flush=True)
+    anon_save_to_github()
+    logline(f"anon idle off: {len(expired)} uid")
 
 
 # ---------- «Быки и коровы»: партии и статистика переживают рестарты ----------
@@ -9287,12 +9314,14 @@ async def cmd_anon_on(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await anon_report_admin(context.bot, user, extra="Команда: /anonON\n")
         return
     anon_mode.add(user.id)
+    anon_since[user.id] = time.time()
     anon_save_to_github()   # персистентно — переживёт рестарт сервера
     await update.message.reply_text(
         "\U0001F576️ Режим анонимных сообщений ВКЛЮЧЁН.\n"
         "Всё, что ты напишешь мне в ЛС (текст, фото, видео, голосовые, кружки, стикеры), "
         "будет отправлено в чат «Другое измерение» от моего имени.\n"
-        "Интервал между отправками — 30 секунд. Выключить: /anonOFF")
+        "Интервал между отправками — 30 секунд. Авто-выключение после 5 минут "
+        "без сообщений. Выключить вручную: /anonOFF")
 
 
 async def cmd_anon_off(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -9301,6 +9330,7 @@ async def cmd_anon_off(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         return
     anon_mode.discard(update.effective_user.id)
     anon_last.pop(update.effective_user.id, None)
+    anon_since.pop(update.effective_user.id, None)
     anon_save_to_github()
     await update.message.reply_text("\U0001F576️ Режим анонимных сообщений выключен.")
 
@@ -9668,6 +9698,9 @@ async def on_anon_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if pend is not None:
         await _market_addr_step(update, context, pend)
         return
+    if user.id in anon_mode:
+        # любое сообщение в ЛС — активность: таймер авто-выключения сбрасывается
+        anon_since[user.id] = time.time()
     if msg.text:
         t = msg.text.strip().lower()
         game_move = (parse_ch(msg.text) is not None
@@ -9931,6 +9964,8 @@ def main() -> None:
                             days=(4,))
     # /callsum: ежесуточная сверка списка участников с Telegram в 23:59 по Москве
     app.job_queue.run_daily(callsum_refresh_job, time=datetime.time(23, 59, tzinfo=MSK_TZ))
+    # анонимный режим: авто-выключение после 5 минут без сообщений в ЛС
+    app.job_queue.run_repeating(anon_idle_sweep_job, interval=60.0, first=30.0)
     # вулканы: фоновый спавн + уведомление в чат при появлении
     app.job_queue.run_repeating(volcano_spawn_job, interval=60.0, first=10.0)
     # метеориты: фоновое падение + уведомление в чат
